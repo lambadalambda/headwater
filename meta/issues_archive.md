@@ -9,3 +9,4 @@
 - [x] [Emoji reactions](issues/emoji-reactions.md)
 - [x] [Follow/unfollow from profiles + relationships](issues/follow-unfollow-profiles.md)
 - [x] [Notifications](issues/notifications.md)
+- [x] [Real-time streaming (Mastodon websocket API)](issues/streaming-websocket.md)
