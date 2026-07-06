@@ -595,10 +595,11 @@ describe('createStore: non-follower thread edges (canonical-mid reply children)'
   it('collapses a feed copy and a DM copy of the same reply to one child once aliased (dedupe)', () => {
     const store = createStore(filePath);
     const ref = { mid: PARENT_FEED, addr: 'author@example.org' };
-    // Both copies of the SAME logical reply, under different mids, before the
-    // child alias is known: two distinct child entries.
-    store.ingestMessage(makeMessage({ id: 20, fromId: 11, text: buildReplyText('r', ref) }), CHILD_FEED, true);
-    store.ingestMessage(makeMessage({ id: 21, fromId: 11, text: buildReplyText('r', ref) }), CHILD_DM, false);
+    // Two child entries whose alias is learned only LATER (differing bodies, so
+    // the per-author text-twin heuristic doesn't fire at ingest — this test
+    // exercises the aliasMid VALUE sweep in isolation).
+    store.ingestMessage(makeMessage({ id: 20, fromId: 11, text: buildReplyText('r1', ref) }), CHILD_FEED, true);
+    store.ingestMessage(makeMessage({ id: 21, fromId: 11, text: buildReplyText('r2', ref) }), CHILD_DM, false);
     expect(store.childrenCount(PARENT_FEED)).toBe(2);
 
     // Learning the child alias sweeps the VALUE list: the two collapse to one,
@@ -625,11 +626,13 @@ describe('createStore: non-follower thread edges (canonical-mid reply children)'
 
   it('dedupes on the child VALUE re-key when both the feed child and a not-yet-aliased dm child are present under one parent', () => {
     const store = createStore(filePath);
-    // Feed child already registered under the (feed) parent.
+    // Feed child already registered under the (feed) parent. Differing bodies
+    // keep the per-author text-twin heuristic out of the way (see above); the
+    // alias arrives late via aliasMid, exercising the VALUE sweep + dedupe.
     const ref = { mid: PARENT_FEED, addr: 'author@example.org' };
-    store.ingestMessage(makeMessage({ id: 40, fromId: 11, text: buildReplyText('r', ref) }), CHILD_FEED, true);
+    store.ingestMessage(makeMessage({ id: 40, fromId: 11, text: buildReplyText('r1', ref) }), CHILD_FEED, true);
     // The DM copy of that same reply registers a second entry (alias unknown).
-    store.ingestMessage(makeMessage({ id: 41, fromId: 11, text: buildReplyText('r', ref) }), CHILD_DM, false);
+    store.ingestMessage(makeMessage({ id: 41, fromId: 11, text: buildReplyText('r2', ref) }), CHILD_DM, false);
     expect(store.childrenCount(PARENT_FEED)).toBe(2);
 
     // Alias insertion sweeps the value list, mapping CHILD_DM -> CHILD_FEED and
@@ -700,18 +703,75 @@ describe('createStore: historical text-twin aliasing during (re)index', () => {
     ]);
   });
 
-  it('does not alias a DM copy to a NON-self feed message with identical text', () => {
+  // --- per-author generalization (schema v3): OTHER authors' historical
+  // twins alias too. On a follower's node, another party's pre-canonical reply
+  // exists as a feed copy AND a marker-less DM copy (live regression: both
+  // registered as children and the reply rendered twice). Twin condition: same
+  // sender ADDRESS + byte-identical reply-marked text, one feed + one Single.
+
+  const carol = { id: 11, address: 'carol@example.org' } as any;
+
+  it('aliases an OTHER author\'s DM reply copy to their feed twin (feed swept first)', () => {
     const store = createStore(filePath);
-    store.ingestMessage(makeMessage({ id: 86, fromId: 11, text: replyText }), 'feed86@example.org', true);
-    store.ingestMessage(makeMessage({ id: 87, fromId: 1, text: replyText }), 'dm87@example.org', false);
-    expect(store.canonicalize('dm87@example.org')).toBe('dm87@example.org');
+    store.ingestMessage(makeMessage({ id: 88, fromId: 11, sender: carol, text: replyText }), 'feed88@example.org', true);
+    store.ingestMessage(makeMessage({ id: 89, fromId: 11, sender: carol, text: replyText }), 'dm89@example.org', false);
+    expect(store.canonicalize('dm89@example.org')).toBe('feed88@example.org');
   });
 
-  it('does not alias a non-self DM copy even to a self feed twin', () => {
+  it('aliases an OTHER author\'s twins order-independently (DM swept first)', () => {
     const store = createStore(filePath);
-    store.ingestMessage(makeMessage({ id: 86, fromId: 1, text: replyText }), 'feed86@example.org', true);
-    store.ingestMessage(makeMessage({ id: 87, fromId: 11, text: replyText }), 'dm87@example.org', false);
-    expect(store.canonicalize('dm87@example.org')).toBe('dm87@example.org');
+    store.ingestMessage(makeMessage({ id: 89, fromId: 11, sender: carol, text: replyText }), 'dm89@example.org', false);
+    store.ingestMessage(makeMessage({ id: 88, fromId: 11, sender: carol, text: replyText }), 'feed88@example.org', true);
+    expect(store.canonicalize('dm89@example.org')).toBe('feed88@example.org');
+  });
+
+  it('does not alias identical text from DIFFERENT sender addresses', () => {
+    const store = createStore(filePath);
+    const dave = { id: 12, address: 'dave@example.org' } as any;
+    store.ingestMessage(makeMessage({ id: 88, fromId: 11, sender: carol, text: replyText }), 'feed88@example.org', true);
+    store.ingestMessage(makeMessage({ id: 89, fromId: 12, sender: dave, text: replyText }), 'dm89@example.org', false);
+    expect(store.canonicalize('dm89@example.org')).toBe('dm89@example.org');
+  });
+
+  it('does not alias identical PLAIN (non-reply-marked) text — the safety gate', () => {
+    // Only reply-marked texts twin-match: a dual copy only ever exists for
+    // replies, and requiring the marker is what makes a false positive
+    // implausible (an author would have to send the exact same reply-marked
+    // text as both a feed post and a separate DM — i.e. the pattern itself).
+    const store = createStore(filePath);
+    store.ingestMessage(makeMessage({ id: 88, fromId: 11, sender: carol, text: 'lol' }), 'feed88@example.org', true);
+    store.ingestMessage(makeMessage({ id: 89, fromId: 11, sender: carol, text: 'lol' }), 'dm89@example.org', false);
+    expect(store.canonicalize('dm89@example.org')).toBe('dm89@example.org');
+  });
+
+  it('follower no-double-count: a pre-canonical other-author feed+DM reply pair registers ONE child', () => {
+    // The live v2 regression: on the follower's node the other party's reply
+    // exists as feed copy (88) AND marker-less DM copy (89). Both now register
+    // child edges, so without the per-author twin alias the thread shows the
+    // reply twice and replies_count doubles.
+    const store = createStore(filePath);
+    const parent = { mid: 'own-post@example.org', addr: 'me@example.org' };
+    const historicalReply = buildReplyText('nice pic', parent);
+    store.ingestMessage(makeMessage({ id: 1, fromId: 1, text: 'my post' }), parent.mid, true);
+    store.ingestMessage(makeMessage({ id: 88, fromId: 11, sender: carol, text: historicalReply }), 'feed88@example.org', true);
+    store.ingestMessage(makeMessage({ id: 89, fromId: 11, sender: carol, text: historicalReply }), 'dm89@example.org', false);
+
+    expect(store.childrenCount(parent.mid)).toBe(1);
+    expect(store.replyChildren(parent.mid)).toEqual([88]); // the FEED copy renders
+    expect(store.replyChildMids(parent.mid)).toEqual(['feed88@example.org']);
+  });
+
+  it('follower no-double-count holds in the opposite sweep order (DM copy first)', () => {
+    const store = createStore(filePath);
+    const parent = { mid: 'own-post@example.org', addr: 'me@example.org' };
+    const historicalReply = buildReplyText('nice pic', parent);
+    store.ingestMessage(makeMessage({ id: 1, fromId: 1, text: 'my post' }), parent.mid, true);
+    store.ingestMessage(makeMessage({ id: 89, fromId: 11, sender: carol, text: historicalReply }), 'dm89@example.org', false);
+    store.ingestMessage(makeMessage({ id: 88, fromId: 11, sender: carol, text: historicalReply }), 'feed88@example.org', true);
+
+    expect(store.childrenCount(parent.mid)).toBe(1);
+    expect(store.replyChildren(parent.mid)).toEqual([88]);
+    expect(store.replyChildMids(parent.mid)).toEqual(['feed88@example.org']);
   });
 
   it('prefers an explicit canonical marker over text-twin matching for a DM copy', () => {
@@ -789,11 +849,11 @@ describe('createStore: schema migration / re-index', () => {
     expect(reloaded.resolveMid('keep@example.org')).toBe(5);
   });
 
-  it('drops a v1 store\'s replyChildren (msgId value shape) so a re-index rebuilds v2 canonical-mid values', () => {
-    // A v1 store carried replyChildren as parentMid -> child msgIds. The v2
-    // value shape is parentMid -> child CANONICAL mids, so migration must DROP
-    // replyChildren (like every other derived index) for the backfill to
-    // re-derive it; a stale msgId list would otherwise be misread as mids.
+  it('drops a v1 store\'s replyChildren (msgId value shape) so a re-index rebuilds canonical-mid values', () => {
+    // A v1 store carried replyChildren as parentMid -> child msgIds. The
+    // current value shape is parentMid -> child CANONICAL mids, so migration
+    // must DROP replyChildren (like every other derived index) for the backfill
+    // to re-derive it; a stale msgId list would otherwise be misread as mids.
     const v1 = {
       schemaVersion: 1,
       midToMsgId: { 'p@x': 1 },
@@ -819,9 +879,41 @@ describe('createStore: schema migration / re-index', () => {
     expect(store.replyChildMids('p@x')).toEqual([]);
     expect(store.listNotifications({})).toHaveLength(1);
 
-    // Version bumped to 2 on disk.
+    // Version bumped on disk.
     const raw = JSON.parse(readFileSync(filePath, 'utf8'));
-    expect(raw.schemaVersion).toBe(2);
+    expect(raw.schemaVersion).toBe(STORE_SCHEMA_VERSION);
+  });
+
+  it('migrates a v2 store to v3: derived indices dropped so re-index applies per-author twin aliasing', () => {
+    // v2 stores exist in the wild (migrated tonight) whose re-index ran with
+    // SELF-only text-twin aliasing — historical other-author feed+DM reply
+    // pairs registered TWO children (the live double-count regression). v3's
+    // re-index heals them, so a v2 load must drop the derived indices again.
+    const v2 = {
+      schemaVersion: 2,
+      midToMsgId: { 'feed88@x': 88, 'dm89@x': 89, 'p@x': 1 },
+      msgIdToMid: { 1: 'p@x', 88: 'feed88@x', 89: 'dm89@x' },
+      // The regression's footprint: both copies of one logical reply as children.
+      replyChildren: { 'p@x': ['feed88@x', 'dm89@x'] },
+      boostsByMid: {},
+      ownBoosts: {},
+      ingestedMsgIds: [1, 88, 89],
+      ownMids: ['p@x'],
+      reactions: {},
+      canonicalByMid: {},
+      notifications: [{ id: '1', type: 'follow', createdAt: '2020-01-01T00:00:00.000Z', accountAddr: 'z@x' }],
+      notificationDedupeKeys: [],
+      nextNotificationId: 2,
+      pendingFollowRequests: {},
+    };
+    writeFileSync(filePath, JSON.stringify(v2));
+
+    const store = createStore(filePath);
+    expect(store.childrenCount('p@x')).toBe(0); // dropped; backfill re-derives with twin aliasing
+    expect(store.listNotifications({})).toHaveLength(1);
+
+    const raw = JSON.parse(readFileSync(filePath, 'utf8'));
+    expect(raw.schemaVersion).toBe(3);
     expect(raw.schemaVersion).toBe(STORE_SCHEMA_VERSION);
   });
 });

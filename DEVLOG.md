@@ -1237,3 +1237,47 @@ does NOT follow carol):
   double-count). Green on real chatmail.
 
 `pnpm test` (541) + `pnpm check` + `pnpm test:integration` (6) all green.
+
+## 2026-07-06 — hotfix: historical other-author reply twins double-counted (schema v3)
+
+Live regression on a migrated v2 store (real node, verified via API): a
+HISTORICAL reply from another author rendered TWICE in threads and inflated
+replies_count. On the follower's node the other party's reply exists as a feed
+copy (msg 88) AND a pre-canonical DM copy (msg 89, no `⚓` marker — it predates
+the marker). The new DM-edge registration registered BOTH as children under two
+different canonical mids, because the historical text-twin aliasing in
+`learnAlias` only matched SELF-authored copies. New data was unaffected
+(markers create the alias at ingest); historical data from OTHER authors was
+not.
+
+Fix: **text-twin aliasing generalized from SELF-only to per-author.** Twin
+condition: same sender ADDRESS + byte-identical text — which includes the reply
+marker — one copy in a feed chat and one in a Single chat → alias
+dmMid → feedMid. Order-independent like the SELF version (pending maps now
+keyed by `senderAddr + NUL + text`, both arrival orders unit-tested; fields
+renamed `selfFeedTextToMid`/`selfDmPendingText` →
+`feedTextToMid`/`dmPendingText`, safe since migration drops them anyway).
+Safety rationale (in code): a false positive requires an author sending the
+exact same reply-marked text as both a feed post and a separate DM — which is,
+by construction, the dual-copy pattern itself. As a corollary the matching is
+now gated on the text actually carrying a reply marker (only replies are ever
+sent as dual copies), so an author posting "lol" to their feed and separately
+DMing "lol" is never equated — this gate was implicit before (SELF-only made it
+moot) and is explicit + tested now.
+
+`STORE_SCHEMA_VERSION` bumped to **3** so already-migrated v2 stores (they
+exist in the wild as of tonight) re-index once more with the generalized
+aliasing; the usual migrate-drop covers everything, no data surgery, plain
+restart heals.
+
+Tests: other-author twin aliasing (both sweep orders); different-address and
+non-reply-marked negatives; follower-side no-double-count as a unit-level store
+test — a pre-canonical (marker-less) other-author feed+DM reply pair registers
+exactly ONE child, both sweep orders (preferred over re-running the integration
+suite per review guidance — topology unchanged, and the integration test's
+post-fix DM copies always carry markers so they can't reproduce the marker-less
+case anyway). Two tests in the child-edge block that relied on identical-text
+copies NOT auto-aliasing now use differing bodies so the explicit
+`aliasMid`-later VALUE-sweep path stays covered in isolation. Migration test
+added for v2 → v3 (double-child footprint dropped, version bumped).
+`pnpm test` (546) + `pnpm check` green.

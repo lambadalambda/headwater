@@ -20,8 +20,13 @@ const DC_CONTACT_ID_SELF = 1;
  * non-follower's DM-only reply renders in the thread — see
  * ../meta/issues/non-follower-thread-rendering.md); the `migrate` drop covers
  * `replyChildren`, so a v1 store re-indexes into the new value shape on restart.
+ * Version 3 generalized historical text-twin aliasing from SELF-only to
+ * per-author: a v2 re-index registered BOTH copies of another author's
+ * pre-canonical (marker-less) reply as children — double-rendered threads and
+ * inflated replies_count on follower nodes — so already-migrated v2 stores
+ * must re-index once more with the generalized aliasing.
  */
-export const STORE_SCHEMA_VERSION = 2;
+export const STORE_SCHEMA_VERSION = 3;
 
 export type NotificationType =
   | 'follow'
@@ -76,16 +81,19 @@ type StoreData = {
    */
   canonicalByMid: Record<string, string>;
   /**
-   * Historical text-twin aliasing bookkeeping (see canonical-mid issue point 3).
-   * Pre-fix reply copies are exact text twins (feed + DM carry identical text,
-   * no canonical marker). During (re)index we build text -> feedMid for
-   * SELF-authored FEED messages, and text -> dmMid for SELF-authored DM
-   * (Single-chat) messages still awaiting their feed twin — so whichever copy
-   * the sweep encounters second resolves the alias, order-independently. Keyed
-   * by the full message text.
+   * Historical text-twin aliasing bookkeeping (see canonical-mid issue point 3,
+   * generalized per-author in schema v3). Pre-fix reply copies are exact text
+   * twins (feed + DM carry identical reply-marked text, no canonical marker) —
+   * and that's true for EVERY author, not just SELF: on a follower's node the
+   * other party's reply arrives as both a feed copy and a marker-less DM copy.
+   * During (re)index we build (author-addr + text) -> feedMid for reply-marked
+   * FEED messages, and the same key -> dmMid for DM (Single-chat) messages
+   * still awaiting their feed twin — so whichever copy the sweep encounters
+   * second resolves the alias, order-independently. Keyed by
+   * `senderAddr + '\0' + fullText` (NUL can't appear in an address).
    */
-  selfFeedTextToMid: Record<string, string>;
-  selfDmPendingText: Record<string, string>;
+  feedTextToMid: Record<string, string>;
+  dmPendingText: Record<string, string>;
   midToMsgId: Record<string, number>;
   msgIdToMid: Record<number, string>;
   /**
@@ -126,8 +134,8 @@ type StoreData = {
 const emptyData = (): StoreData => ({
   schemaVersion: STORE_SCHEMA_VERSION,
   canonicalByMid: {},
-  selfFeedTextToMid: {},
-  selfDmPendingText: {},
+  feedTextToMid: {},
+  dmPendingText: {},
   midToMsgId: {},
   msgIdToMid: {},
   replyChildren: {},
@@ -367,12 +375,23 @@ export const createStore = (filePath: string): Store => {
 
   /**
    * Learn a canonical alias for a just-ingested message, if any applies:
-   *  - a SELF FEED message records text -> its mid, and resolves a DM twin that
-   *    was already pending under the same text.
-   *  - a SELF DM (Single-chat) message either (a) carries an explicit `⚓`
-   *    canonical marker -> alias straight to it, (b) matches an already-seen
-   *    SELF feed text -> alias to that feed mid, or (c) is stashed pending under
-   *    its text to await a feed twin swept later.
+   *  - a DM (Single-chat) message carrying an explicit `⚓` canonical marker
+   *    -> alias straight to it (any author; a stated fact).
+   *  - historical text-twin matching, PER-AUTHOR (schema v3): a reply-marked
+   *    FEED message records (senderAddr + text) -> its mid and settles a DM
+   *    twin already pending under the same key; a marker-less reply-marked DM
+   *    message matches an already-seen feed twin or is stashed pending. Both
+   *    sweep orders resolve the alias (order-independent).
+   *
+   * Twin condition: same sender ADDRESS + byte-identical text (which includes
+   * the reply marker), one copy in a feed chat and one in a Single chat. This
+   * is safe beyond SELF because a false positive would require an author to
+   * send the exact same reply-marked text as both a feed post and a separate
+   * DM — which is, by construction, the dual-copy pattern itself. Plain
+   * (non-reply-marked) identical texts never twin-match: only replies are ever
+   * sent as dual copies, and e.g. an author posting "lol" to their feed and
+   * separately DMing "lol" must not be equated.
+   *
    * In-place mutation of `d`; caller saves.
    */
   const learnAlias = (d: StoreData, msg: T.Message, mid: string, isFeedMessage: boolean): void => {
@@ -381,7 +400,7 @@ export const createStore = (filePath: string): Store => {
 
     // An explicit `⚓` canonical marker is a stated fact regardless of author —
     // a non-follower's DM copy (the only copy we hold) declares its feed mid
-    // this way, so this must NOT be gated on SELF. DM copies only.
+    // this way. DM copies only (feed copies never carry the marker).
     if (!isFeedMessage) {
       const explicit = parseCanonicalMid(text);
       if (explicit && explicit !== mid) {
@@ -390,31 +409,33 @@ export const createStore = (filePath: string): Store => {
       }
     }
 
-    // Historical text-twin aliasing is SELF-only: pre-fix copies carried no
-    // marker, and only our own feed+DM reply copies are guaranteed exact text
-    // twins we can safely equate (see canonical-mid issue point 3).
-    if (msg.fromId !== DC_CONTACT_ID_SELF) return;
+    // Historical text-twin matching: reply-marked texts only (the safety gate —
+    // see the doc comment above) and keyed per-author.
+    if (!parseMarkers(text).reply) return;
+    const senderAddr = msg.sender?.address;
+    if (!senderAddr) return;
+    const key = `${senderAddr}\u0000${text}`;
 
     if (isFeedMessage) {
-      // A canonical marker never appears on a feed copy. Record text -> feedMid
-      // and settle a pending DM twin if one arrived first.
-      d.selfFeedTextToMid[text] = mid;
-      const pendingDm = d.selfDmPendingText[text];
+      // Record (addr + text) -> feedMid and settle a pending DM twin if that
+      // copy arrived first.
+      d.feedTextToMid[key] = mid;
+      const pendingDm = d.dmPendingText[key];
       if (pendingDm !== undefined && pendingDm !== mid) {
         applyAlias(d, pendingDm, mid);
-        delete d.selfDmPendingText[text];
+        delete d.dmPendingText[key];
       }
       return;
     }
 
-    // SELF DM copy without an explicit marker: match an already-seen SELF feed
-    // text, else stash pending under its text to await a feed twin swept later.
-    const feedMid = d.selfFeedTextToMid[text];
+    // Marker-less DM copy: match an already-seen feed twin from the same
+    // author, else stash pending under the key to await a feed twin swept later.
+    const feedMid = d.feedTextToMid[key];
     if (feedMid !== undefined && feedMid !== mid) {
       applyAlias(d, mid, feedMid);
       return;
     }
-    d.selfDmPendingText[text] = mid;
+    d.dmPendingText[key] = mid;
   };
 
   return {

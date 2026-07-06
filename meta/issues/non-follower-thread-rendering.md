@@ -75,3 +75,16 @@ integration test (`tests/integration/non-follower-thread.test.ts`) covering the
 acceptance topology, the fresh-store re-index (own reaction recovered), and the
 follower-side no-double-count. `pnpm test` (541) + `pnpm check` +
 `pnpm test:integration` (6) all green.
+
+### Update (same night): schema v3 hotfix
+
+Live QA on a migrated v2 store found historical OTHER-author reply twins
+(feed copy + pre-canonical marker-less DM copy) double-rendering in threads:
+text-twin aliasing was SELF-only, so no alias was ever learned and both copies
+registered as children. Fixed by generalizing text-twin aliasing to per-author
+(same sender address + byte-identical reply-marked text, feed + Single pair,
+order-independent) and bumping `STORE_SCHEMA_VERSION` to 3 so v2 stores in the
+wild re-index with the generalized aliasing. Unit tests cover both sweep
+orders, different-address/non-reply-marked negatives, the follower-side
+no-double-count for the marker-less pair, and the v2→v3 migration.
+`pnpm test` (546) + `pnpm check` green.
