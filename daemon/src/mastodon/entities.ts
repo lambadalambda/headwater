@@ -5,6 +5,14 @@ const DC_CONTACT_ID_SELF = 1;
 
 export type MastodonAccount = ReturnType<typeof contactToAccount>;
 
+/** A Mastodon mention entry, as embedded in a status's `mentions` array. */
+export type MastodonMention = {
+  id: string;
+  username: string;
+  acct: string;
+  url: string;
+};
+
 /** Full Mastodon relationship shape (only `following` is ever true today; the rest are honest `false`s). */
 export type MastodonRelationship = {
   id: string;
@@ -47,7 +55,7 @@ export type MastodonStatus = {
   reblog: MastodonStatus | null;
   application: { name: string };
   emojis: unknown[];
-  mentions: unknown[];
+  mentions: MastodonMention[];
   tags: unknown[];
   card: null;
   poll: null;
@@ -135,6 +143,17 @@ export const contactToAccount = (
       tags: [],
       ...(relationship ? { relationship } : {}),
     },
+  };
+};
+
+/** A Mastodon mention entry for `contact`, using the same id/username/acct/url values `contactToAccount` would. */
+const contactToMention = (contact: T.Contact, baseUrl: string): MastodonMention => {
+  const username = contact.address.split('@')[0] ?? contact.address;
+  return {
+    id: String(contact.id),
+    username,
+    acct: contact.address,
+    url: `${baseUrl}/deltanet/contact/${contact.id}`,
   };
 };
 
@@ -283,6 +302,16 @@ export const messageToStatus = (
   const inReplyToId =
     replyToMsgId !== null ? String(replyToMsgId) : msg.parentId !== null ? String(msg.parentId) : null;
 
+  // Parent lookup for `in_reply_to_account_id`/`mentions` (at most one extra
+  // `resolveMessage` call per status). Self-replies are *not* excluded: we
+  // include the mention even when the parent author is SELF, since the
+  // "replying to" chip should render for reply chains on your own posts too
+  // (unlike upstream Mastodon, which drops the author's own mention from a
+  // self-reply's `mentions` array).
+  const parentMsg = replyToMsgId !== null ? resolveMessage(replyToMsgId) : null;
+  const inReplyToAccountId = parentMsg ? String(parentMsg.sender.id) : null;
+  const mentions = parentMsg ? [contactToMention(parentMsg.sender, baseUrl)] : [];
+
   let reblog = null;
   if (parsed.boost) {
     const boostedMsgId = resolver.resolveMid(parsed.boost.mid);
@@ -314,7 +343,7 @@ export const messageToStatus = (
     created_at: new Date(msg.timestamp * 1000).toISOString(),
     account: contactToAccount(msg.sender, baseUrl),
     in_reply_to_id: inReplyToId,
-    in_reply_to_account_id: null,
+    in_reply_to_account_id: inReplyToAccountId,
     favourites_count: favouritesCount,
     reblogs_count: reblogsCount,
     replies_count: repliesCount,
@@ -331,7 +360,7 @@ export const messageToStatus = (
     reblog,
     application: { name: 'deltanet' },
     emojis: [],
-    mentions: [],
+    mentions,
     tags: [],
     card: null,
     poll: null,

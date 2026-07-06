@@ -249,6 +249,27 @@ describe('timelines', () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as any).length).toBe(3);
   });
+
+  it('a reply status in the timeline carries in_reply_to_account_id and mentions for its parent author', async () => {
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    // message 12 ("newest, from bob") is the parent; reply to it.
+    const postRes = await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'nice one bob', in_reply_to_id: '12' }),
+    });
+    expect(postRes.status).toBe(200);
+
+    const timeline = (await (await app.request('/api/v1/timelines/home')).json()) as any;
+    const reply = timeline.find((s: any) => s.content === '<p>nice one bob</p>');
+    expect(reply.in_reply_to_id).toBe('12');
+    expect(reply.in_reply_to_account_id).toBe('11'); // bob's contact id
+    expect(reply.mentions).toEqual([
+      { id: '11', username: 'zbie604yz', acct: BOB.address, url: `${BASE}/deltanet/contact/11` },
+    ]);
+  });
 });
 
 describe('posting', () => {

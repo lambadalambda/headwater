@@ -230,6 +230,68 @@ describe('messageToStatus: reply markers', () => {
     const status = messageToStatus(msg, BASE, null, resolver);
     expect(status.replies_count).toBe(3);
   });
+
+  it('fills in_reply_to_account_id and mentions when the parent mid resolves and the parent message loads', () => {
+    const msg = makeMessage({ text: buildReplyText('hi there', parentRef) });
+    const parentAuthor = makeContact({ id: 21, address: 'parentauthor@example.org', displayName: 'parent author' });
+    const parent = makeMessage({ id: 40, sender: parentAuthor, text: 'the original post' });
+    const resolver: StatusResolver = {
+      ...noopResolver,
+      resolveMid: (mid) => (mid === parentRef.mid ? 40 : null),
+    };
+    const status = messageToStatus(msg, BASE, null, resolver, (id) => (id === 40 ? parent : null));
+    expect(status.in_reply_to_id).toBe('40');
+    expect(status.in_reply_to_account_id).toBe('21');
+    expect(status.mentions).toEqual([
+      {
+        id: '21',
+        username: 'parentauthor',
+        acct: 'parentauthor@example.org',
+        url: `${BASE}/deltanet/contact/21`,
+      },
+    ]);
+  });
+
+  it('leaves in_reply_to_account_id null and mentions empty when the mid resolves but the parent message does not load', () => {
+    const msg = makeMessage({ text: buildReplyText('hi there', parentRef) });
+    const resolver: StatusResolver = {
+      ...noopResolver,
+      resolveMid: (mid) => (mid === parentRef.mid ? 40 : null),
+    };
+    const status = messageToStatus(msg, BASE, null, resolver, () => null);
+    expect(status.in_reply_to_id).toBe('40');
+    expect(status.in_reply_to_account_id).toBeNull();
+    expect(status.mentions).toEqual([]);
+  });
+
+  it('leaves in_reply_to_account_id null and mentions empty when the mid does not resolve at all', () => {
+    const msg = makeMessage({ text: buildReplyText('hi there', parentRef) });
+    const status = messageToStatus(msg, BASE, null, noopResolver, () => {
+      throw new Error('resolveMessage should not be called when the mid does not resolve');
+    });
+    expect(status.in_reply_to_id).toBeNull();
+    expect(status.in_reply_to_account_id).toBeNull();
+    expect(status.mentions).toEqual([]);
+  });
+
+  it('includes the mention even when replying to your own message (self-reply)', () => {
+    const msg = makeMessage({ text: buildReplyText('hi there', parentRef) });
+    const parent = makeMessage({ id: 40, sender: makeContact(), text: 'my own earlier post' });
+    const resolver: StatusResolver = {
+      ...noopResolver,
+      resolveMid: (mid) => (mid === parentRef.mid ? 40 : null),
+    };
+    const status = messageToStatus(msg, BASE, null, resolver, (id) => (id === 40 ? parent : null));
+    expect(status.in_reply_to_account_id).toBe('1');
+    expect(status.mentions).toEqual([
+      {
+        id: '1',
+        username: 'p6yalimhl',
+        acct: 'p6yalimhl@nine.testrun.org',
+        url: `${BASE}/deltanet/contact/1`,
+      },
+    ]);
+  });
 });
 
 describe('messageToStatus: boost markers', () => {

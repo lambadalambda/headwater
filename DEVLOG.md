@@ -819,3 +819,21 @@ broadcasting, `serve()`/`WebSocketServer` wiring), `daemon/package.json`
 (new), `daemon/tests/ingest.test.ts`, `daemon/tests/server.test.ts`. `pnpm
 test` (382 tests) and `pnpm check` green. Did not run `pnpm test:integration`
 (per task instructions).
+
+## Reply mentions metadata (`meta/issues/reply-mentions-metadata.md`)
+
+`messageToStatus` now fills `in_reply_to_account_id`/`mentions` from the
+reply marker's resolved parent (via the existing `resolveMessage` callback,
+already used for boost embedding), instead of always `null`/`[]`. Added a
+`contactToMention` helper (same id/username/acct/url shape as
+`contactToAccount`) and a `MastodonMention` type. `mapping.ts`'s `toStatus`
+now fetches the reply parent alongside the boosted message, deduped through
+one `resolvedById` map so `resolveMessage` serves both call sites without
+double-fetching (recursive reblog-of-a-reply embedding is bounded: it just
+sees an empty map for the inner message's own parent, no extra fetch).
+Decision: self-replies still get a mention (diverges from upstream Mastodon,
+which drops the author's own mention on self-replies) — simpler and the
+frontend doesn't special-case it. Files: `daemon/src/mastodon/entities.ts`,
+`daemon/src/mapping.ts`, `daemon/tests/entities.test.ts`,
+`daemon/tests/server.test.ts`. `pnpm test` (403 tests) and `pnpm check`
+green.

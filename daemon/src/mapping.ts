@@ -60,12 +60,25 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
   ): Promise<MastodonStatus> => {
     await ownAddr(transport); // warm the cache the resolver reads synchronously
     const parsed = parseMarkers(msg.text);
-    let boostedMsg: T.Message | null = null;
+    // At most one extra fetch each for the boosted message (embedded as
+    // `reblog`) and the reply parent (used for `in_reply_to_account_id`/
+    // `mentions`) — reused via `resolvedById` below so `messageToStatus`'s
+    // single `resolveMessage(msgId)` callback serves both call sites without
+    // re-fetching if they ever resolve to the same message.
+    const resolvedById = new Map<number, T.Message | null>();
+    const fetchOnce = async (msgId: number): Promise<T.Message | null> => {
+      if (!resolvedById.has(msgId)) resolvedById.set(msgId, await transport.message(msgId));
+      return resolvedById.get(msgId) ?? null;
+    };
     if (parsed.boost) {
       const boostedMsgId = store.resolveMid(parsed.boost.mid);
-      if (boostedMsgId !== null) boostedMsg = await transport.message(boostedMsgId);
+      if (boostedMsgId !== null) await fetchOnce(boostedMsgId);
     }
-    return messageToStatus(msg, baseUrl, description, resolver, () => boostedMsg);
+    if (parsed.reply) {
+      const replyToMsgId = store.resolveMid(parsed.reply.mid);
+      if (replyToMsgId !== null) await fetchOnce(replyToMsgId);
+    }
+    return messageToStatus(msg, baseUrl, description, resolver, (msgId) => resolvedById.get(msgId) ?? null);
   };
 
   return { resolver, ownAddr, toStatus };
