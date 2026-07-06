@@ -1,3 +1,3 @@
 # Open Issues
 
-- [ ] [Follow-back via invite-request convention](issues/follow-back-invite-request.md)
+- [ ] [Profile deep links fail outside in-app navigation](issues/profile-deep-links.md)
