@@ -8,7 +8,10 @@ import {
   avatarPlaceholderSvg,
   headerSvg,
   initialOf,
+  noopResolver,
+  type StatusResolver,
 } from '../src/mastodon/entities.js';
+import { buildBoostText, buildQuotedText, buildReplyText } from '../src/protocol.js';
 
 const BASE = 'http://localhost:4030';
 
@@ -168,6 +171,94 @@ describe('messageToStatus', () => {
     const msg = makeMessage({ file: '/blobs/x.png', fileMime: 'image/png', viewType: 'Image' });
     const status = messageToStatus(msg, BASE, 'a lovely photo');
     expect(status.media_attachments[0]?.description).toBe('a lovely photo');
+  });
+});
+
+describe('messageToStatus: reply markers', () => {
+  const parentRef = { mid: 'parent-mid@example.org', addr: 'author@example.org' };
+
+  it('strips the marker from content and leaves in_reply_to_id null when unresolvable', () => {
+    const msg = makeMessage({ text: buildReplyText('hi there', parentRef) });
+    const status = messageToStatus(msg, BASE);
+    expect(status.content).toBe('<p>hi there</p>');
+    expect(status.in_reply_to_id).toBeNull();
+  });
+
+  it('resolves in_reply_to_id via the resolver when the mid is known', () => {
+    const msg = makeMessage({ text: buildReplyText('hi there', parentRef) });
+    const resolver: StatusResolver = {
+      ...noopResolver,
+      resolveMid: (mid) => (mid === parentRef.mid ? 40 : null),
+    };
+    const status = messageToStatus(msg, BASE, null, resolver);
+    expect(status.in_reply_to_id).toBe('40');
+    expect(status.content).toBe('<p>hi there</p>');
+  });
+
+  it('reports replies_count from the resolver keyed by this message own mid', () => {
+    const msg = makeMessage({ id: 55, text: 'a parent post' });
+    const resolver: StatusResolver = {
+      ...noopResolver,
+      midForMsgId: (id) => (id === 55 ? 'own-mid@example.org' : null),
+      childrenCount: (mid) => (mid === 'own-mid@example.org' ? 3 : 0),
+    };
+    const status = messageToStatus(msg, BASE, null, resolver);
+    expect(status.replies_count).toBe(3);
+  });
+});
+
+describe('messageToStatus: boost markers', () => {
+  const originalRef = { mid: 'original-mid@example.org', addr: 'author@example.org' };
+
+  it('embeds the real message as reblog when the mid resolves', () => {
+    const original = makeMessage({
+      id: 7,
+      text: 'the original post',
+      sender: makeContact({ id: 11, displayName: 'orig author' }),
+    });
+    const boostMsg = makeMessage({ id: 8, text: buildBoostText(originalRef) });
+    const resolver: StatusResolver = {
+      ...noopResolver,
+      resolveMid: (mid) => (mid === originalRef.mid ? 7 : null),
+    };
+    const status = messageToStatus(boostMsg, BASE, null, resolver, (id) => (id === 7 ? original : null));
+    expect(status.reblog).not.toBeNull();
+    expect(status.reblog?.id).toBe('7');
+    expect(status.reblog?.content).toBe('<p>the original post</p>');
+    expect(status.reblog?.account.display_name).toBe('orig author');
+  });
+
+  it('synthesizes a minimal status when the mid does not resolve', () => {
+    const quotedText = buildQuotedText('remote author', 'something interesting', 500);
+    const boostMsg = makeMessage({
+      id: 9,
+      text: buildBoostText(originalRef),
+      quote: { kind: 'JustText', text: quotedText },
+    });
+    const status = messageToStatus(boostMsg, BASE, null, noopResolver, () => null);
+    expect(status.reblog).not.toBeNull();
+    expect(status.reblog?.account.acct).toBe(originalRef.addr);
+    expect(status.reblog?.account.display_name).toBe('remote author');
+    expect(status.reblog?.content).toBe('<p>something interesting</p>');
+  });
+
+  it('strips the boost marker itself from the outer status content', () => {
+    const boostMsg = makeMessage({ id: 9, text: buildBoostText(originalRef) });
+    const status = messageToStatus(boostMsg, BASE);
+    expect(status.content).toBe('<p></p>');
+  });
+
+  it('reports reblogs_count and reblogged from the resolver keyed by this message own mid', () => {
+    const msg = makeMessage({ id: 66, text: 'a boostable post' });
+    const resolver: StatusResolver = {
+      ...noopResolver,
+      midForMsgId: (id) => (id === 66 ? 'own-mid-2@example.org' : null),
+      boostCount: (mid) => (mid === 'own-mid-2@example.org' ? 2 : 0),
+      isOwnBoost: (mid) => mid === 'own-mid-2@example.org',
+    };
+    const status = messageToStatus(msg, BASE, null, resolver);
+    expect(status.reblogs_count).toBe(2);
+    expect(status.reblogged).toBe(true);
   });
 });
 

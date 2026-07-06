@@ -143,3 +143,88 @@ contact id 1) now get the configured `displayname` substituted onto
 `msg.sender` inside the deltachat transport's `loadMessages`, same trick as
 `self()`, with the config read cached per transport instance rather than
 per message.
+
+## 2026-07-06 — replies/threads + reposts (deltanet wire convention v0, implemented)
+
+Implemented both `meta/issues/replies-and-threads.md` and
+`meta/issues/reposts.md` against the wire convention recorded above, TDD
+throughout (new unit tests written and shown red before each implementation).
+
+- **New `src/protocol.ts`** — pure functions, no transport/store
+  dependencies: `buildReplyText`/`buildBoostText` produce the marker text;
+  `parseMarkers` recovers it tolerantly (a reply marker must be the *final*
+  line preceded by a blank line, a boost marker must be the *entire* text —
+  anything else, including marker-shaped text embedded elsewhere or with a
+  missing addr, is treated as plain body, so we never misfire on ordinary
+  vanilla-DC messages). `buildQuotedText`/`parseQuotedAuthor` handle the
+  freeform `"<author>: <excerpt>"` quote bubble, best-effort on parse (falls
+  back to a null author if there's no `": "` separator). All round-trip via
+  `tests/protocol.test.ts`.
+- **New `src/store.ts`** — per-account JSON-file-backed index:
+  mid⇄msgId, reply children (parent mid → child msgIds), boost tallies
+  (boosted mid → booster msgIds), and which of those boosts are our own
+  (for unreblog). `ingestMessage(msg, mid)` is idempotent (tracks ingested
+  msgIds) and derives edges by running the message text through
+  `parseMarkers`. Lazy-loaded, saved synchronously on every mutation (kept
+  simple per the plan — the indices are small). `ephemeralStorePath()`
+  gives callers (tests, `createApp`'s default) a scratch file so nothing
+  needs a real data dir to exercise the API layer.
+- **Transport** (`src/transport/types.ts` + `deltachat.ts`): `post()` gained
+  `opts.quotedText`, threaded into `MessageData.quotedText` via `sendMsg`
+  (switched off `miscSendTextMessage` whenever a file *or* quotedText is
+  present, since that RPC has no quote parameter). Added `messageMid`
+  (wraps `getMessageInfoObject(...).rfc724Mid`, in-memory cached — there's
+  no reverse RPC), `sendControlDm` (resolves/creates the 1:1 chat via
+  `getChatIdByContactId`/`createChatByContactId`, then `sendMsg`), and
+  `deleteMessage` (`deleteMessagesForAll`). `openTransport` gained an
+  `onMessage` option: every message `loadMessages` returns is handed to it,
+  and a core `IncomingMsg` subscription also feeds it (so DM-only messages
+  that never render in a timeline still get ingested) — failures are
+  caught and logged, never fatal.
+- **Server** (`src/server.ts`): the store lives in `createApp` (or is
+  injected via a new `ServerOptions.store`, so `main.ts` can share one
+  instance between the transport's `onMessage` hook and the API layer).
+  `POST /api/v1/statuses` with `in_reply_to_id` resolves the target's mid,
+  builds the reply marker + quotedText, posts to the own feed, and
+  `sendControlDm`s the same text to the original author (skipped for
+  self-replies) — the DM failing is logged but doesn't fail the request.
+  `POST /api/v1/statuses/:id/reblog` builds the boost marker + a
+  500-char-capped quotedText and posts to the own feed; the response
+  wraps the new boost message with `reblog` embedding the original and
+  `reblogged: true` (matches real Mastodon's asymmetric reblog/unreblog
+  shapes: reblog returns a *new* status wrapping the original,
+  unreblog returns the *original* status with `reblogged: false`).
+  `unreblog` looks up our own boost msgId for that mid
+  (`store.ownBoostMsgId`) and deletes it via the transport; the store
+  doesn't track retractions itself; the endpoint just reports
+  `reblogged: false` directly since we know we just deleted it.
+  `GET /api/v1/statuses/:id/context` walks ancestors by following reply
+  markers upward (cap 20) and descendants breadth-first over
+  `store.replyChildren` (cap 100), both re-ingesting messages they touch
+  along the way in case they weren't in the store yet.
+- **Entities** (`src/mastodon/entities.ts`): `messageToStatus` now takes an
+  optional `StatusResolver` (`resolveMid`, `childrenCount`, `boostCount`,
+  `isOwnBoost`, `midForMsgId`) plus a `resolveMessage(msgId)` callback for
+  recursively mapping an embedded boost; both default to no-ops/null so
+  every old call site and test keeps working unchanged. Content is the
+  marker-stripped body (parsed *before* html-ification); `in_reply_to_id`
+  prefers the resolved mid, falling back to the legacy `parentId` field.
+  A boost marker sets `status.reblog`: resolved mid → recursively mapped
+  real status; unresolved → a synthesized minimal status/account built
+  from `parseQuotedAuthor(msg.quote?.text)` + the marker's addr (account id
+  `"0"`, `acct` = the addr, avatar/header point at neutral placeholders).
+  Had to give `messageToStatus` an explicit `MastodonStatus` return-type
+  annotation (was `ReturnType<typeof messageToStatus>`) since the
+  self-referential `reblog: MastodonStatus | null` field made TS's
+  circular-inference check choke otherwise.
+- Deviations from the plan: none structural. One judgment call not spelled
+  out in the issues — real Mastodon's `/reblog` and `/unreblog` responses
+  are asymmetric (new wrapper status vs. original status), which the
+  reposts issue's "return a status with reblog embedded" wording didn't
+  fully disambiguate; implemented to match real Mastodon since PleromaNet
+  is a Mastodon-API client.
+- `pnpm test` (171 tests, all passing) and `pnpm check` (`tsc --noEmit`,
+  clean) both green. Did not touch `tests/integration/federation.test.ts`
+  or run `pnpm test:integration`, per instructions — `openTransport`'s
+  new third parameter is optional so that test's existing two-arg calls
+  still typecheck.

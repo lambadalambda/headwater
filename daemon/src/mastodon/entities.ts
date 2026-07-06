@@ -1,9 +1,48 @@
 import type { T } from '@deltachat/jsonrpc-client';
+import { parseMarkers, parseQuotedAuthor, type MsgRef } from '../protocol.js';
 
 const DC_CONTACT_ID_SELF = 1;
 
 export type MastodonAccount = ReturnType<typeof contactToAccount>;
-export type MastodonStatus = ReturnType<typeof messageToStatus>;
+
+export type MastodonStatus = {
+  id: string;
+  uri: string;
+  url: string;
+  content: string;
+  created_at: string;
+  account: MastodonAccount | ReturnType<typeof synthesizeAccount>;
+  in_reply_to_id: string | null;
+  in_reply_to_account_id: string | null;
+  favourites_count: number;
+  reblogs_count: number;
+  replies_count: number;
+  favourited: boolean;
+  reblogged: boolean;
+  bookmarked: boolean;
+  muted: boolean;
+  pinned: boolean;
+  media_attachments: ReturnType<typeof mediaAttachments>;
+  sensitive: boolean;
+  spoiler_text: string;
+  visibility: 'public';
+  language: null;
+  reblog: MastodonStatus | null;
+  application: { name: string };
+  emojis: unknown[];
+  mentions: unknown[];
+  tags: unknown[];
+  card: null;
+  poll: null;
+  pleroma: {
+    local: boolean;
+    conversation_id: number | null;
+    emoji_reactions: unknown[];
+    quote: null;
+    quote_id: null;
+    quote_visible: boolean;
+  };
+};
 
 const escapeHtml = (text: string): string =>
   text
@@ -95,48 +134,177 @@ const mediaAttachments = (msg: T.Message, baseUrl: string, description: string |
 };
 
 /**
+ * What `messageToStatus` needs to resolve deltanet wire-convention markers
+ * into real Mastodon links/counts. Built in server.ts from the per-account
+ * `Store`; defaults to no-op so old call sites (and tests that don't care
+ * about threading/boosts) keep working unchanged.
+ */
+export type StatusResolver = {
+  resolveMid(mid: string): number | null;
+  childrenCount(mid: string): number;
+  boostCount(mid: string): number;
+  isOwnBoost(mid: string): boolean;
+  /** This message's own mid, if known — needed to look up its reply/boost counts. */
+  midForMsgId?(msgId: number): string | null;
+};
+
+export const noopResolver: StatusResolver = {
+  resolveMid: () => null,
+  childrenCount: () => 0,
+  boostCount: () => 0,
+  isOwnBoost: () => false,
+  midForMsgId: () => null,
+};
+
+/** A minimal, non-resolvable account for a boost/reply whose author we can't map to a real contact. */
+const synthesizeAccount = (authorName: string | null, addr: string, baseUrl: string) => {
+  const username = addr.split('@')[0] ?? addr;
+  return {
+    id: '0',
+    username,
+    acct: addr,
+    display_name: authorName ?? username,
+    note: '',
+    url: `${baseUrl}/deltanet/contact/0`,
+    avatar: `${baseUrl}/deltanet/avatar/0`,
+    avatar_static: `${baseUrl}/deltanet/avatar/0`,
+    header: `${baseUrl}/deltanet/header.png`,
+    header_static: `${baseUrl}/deltanet/header.png`,
+    created_at: new Date(0).toISOString(),
+    followers_count: 0,
+    following_count: 0,
+    statuses_count: 0,
+    locked: false,
+    bot: false,
+    discoverable: false,
+    fields: [],
+    emojis: [],
+    source: { note: '', fields: [] },
+    pleroma: { is_admin: false, is_moderator: false, tags: [] },
+  };
+};
+
+/** A minimal, non-resolvable status embedded as `reblog` when we can't map the boosted mid to a real message. */
+const synthesizeStatus = (ref: MsgRef, quotedText: string | undefined, baseUrl: string): MastodonStatus => {
+  const { authorName, text } = parseQuotedAuthor(quotedText ?? '');
+  return {
+    id: `synthetic:${ref.mid}`,
+    uri: `${baseUrl}/deltanet/synthetic/${encodeURIComponent(ref.mid)}`,
+    url: `${baseUrl}/deltanet/synthetic/${encodeURIComponent(ref.mid)}`,
+    content: textToHtml(text),
+    created_at: new Date(0).toISOString(),
+    account: synthesizeAccount(authorName, ref.addr, baseUrl),
+    in_reply_to_id: null,
+    in_reply_to_account_id: null,
+    favourites_count: 0,
+    reblogs_count: 0,
+    replies_count: 0,
+    favourited: false,
+    reblogged: false,
+    bookmarked: false,
+    muted: false,
+    pinned: false,
+    media_attachments: [],
+    sensitive: false,
+    spoiler_text: '',
+    visibility: 'public' as const,
+    language: null,
+    reblog: null,
+    application: { name: 'deltanet' },
+    emojis: [],
+    mentions: [],
+    tags: [],
+    card: null,
+    poll: null,
+    pleroma: {
+      local: false,
+      conversation_id: null,
+      emoji_reactions: [],
+      quote: null,
+      quote_id: null,
+      quote_visible: false,
+    },
+  };
+};
+
+/**
  * `description` is the uploaded alt text for this message's attachment, if
  * we have it on hand (in-memory registry keyed by media/msg id) — chatmail
  * itself has no per-attachment alt text field.
+ *
+ * `resolver` maps deltanet wire-convention markers (see ../protocol.ts) to
+ * real ids/counts via the per-account Store; a boosted/replied-to mid that
+ * resolves to a locally-known message needs `resolveMessage` (the raw
+ * message + its mapping) to embed the real status — passed as `resolveMessage`
+ * since a full recursive mapping needs the message, not just its id.
  */
-export const messageToStatus = (msg: T.Message, baseUrl: string, description: string | null = null) => ({
-  id: String(msg.id),
-  uri: `${baseUrl}/deltanet/message/${msg.id}`,
-  url: `${baseUrl}/deltanet/message/${msg.id}`,
-  content: textToHtml(msg.text),
-  created_at: new Date(msg.timestamp * 1000).toISOString(),
-  account: contactToAccount(msg.sender, baseUrl),
-  in_reply_to_id: msg.parentId === null ? null : String(msg.parentId),
-  in_reply_to_account_id: null,
-  favourites_count: 0,
-  reblogs_count: 0,
-  replies_count: 0,
-  favourited: false,
-  reblogged: false,
-  bookmarked: false,
-  muted: false,
-  pinned: false,
-  media_attachments: mediaAttachments(msg, baseUrl, description),
-  sensitive: false,
-  spoiler_text: '',
-  visibility: 'public' as const,
-  language: null,
-  reblog: null,
-  application: { name: 'deltanet' },
-  emojis: [],
-  mentions: [],
-  tags: [],
-  card: null,
-  poll: null,
-  pleroma: {
-    local: msg.sender.id === DC_CONTACT_ID_SELF,
-    conversation_id: msg.chatId,
-    emoji_reactions: [],
-    quote: null,
-    quote_id: null,
-    quote_visible: false,
-  },
-});
+export const messageToStatus = (
+  msg: T.Message,
+  baseUrl: string,
+  description: string | null = null,
+  resolver: StatusResolver = noopResolver,
+  resolveMessage: (msgId: number) => T.Message | null = () => null,
+): MastodonStatus => {
+  const parsed = parseMarkers(msg.text);
+  const bodyText = parsed.reply || parsed.boost ? parsed.body : msg.text;
+
+  const replyToMsgId = parsed.reply ? resolver.resolveMid(parsed.reply.mid) : null;
+  const inReplyToId =
+    replyToMsgId !== null ? String(replyToMsgId) : msg.parentId !== null ? String(msg.parentId) : null;
+
+  let reblog = null;
+  if (parsed.boost) {
+    const boostedMsgId = resolver.resolveMid(parsed.boost.mid);
+    const boostedMsg = boostedMsgId !== null ? resolveMessage(boostedMsgId) : null;
+    reblog = boostedMsg
+      ? messageToStatus(boostedMsg, baseUrl, null, resolver, resolveMessage)
+      : synthesizeStatus(parsed.boost, msg.quote?.text, baseUrl);
+  }
+
+  const ownMid = resolver.midForMsgId?.(msg.id) ?? null;
+  const repliesCount = ownMid ? resolver.childrenCount(ownMid) : 0;
+  const reblogsCount = ownMid ? resolver.boostCount(ownMid) : 0;
+  const reblogged = ownMid ? resolver.isOwnBoost(ownMid) : false;
+
+  return {
+    id: String(msg.id),
+    uri: `${baseUrl}/deltanet/message/${msg.id}`,
+    url: `${baseUrl}/deltanet/message/${msg.id}`,
+    content: textToHtml(bodyText),
+    created_at: new Date(msg.timestamp * 1000).toISOString(),
+    account: contactToAccount(msg.sender, baseUrl),
+    in_reply_to_id: inReplyToId,
+    in_reply_to_account_id: null,
+    favourites_count: 0,
+    reblogs_count: reblogsCount,
+    replies_count: repliesCount,
+    favourited: false,
+    reblogged,
+    bookmarked: false,
+    muted: false,
+    pinned: false,
+    media_attachments: mediaAttachments(msg, baseUrl, description),
+    sensitive: false,
+    spoiler_text: '',
+    visibility: 'public' as const,
+    language: null,
+    reblog,
+    application: { name: 'deltanet' },
+    emojis: [],
+    mentions: [],
+    tags: [],
+    card: null,
+    poll: null,
+    pleroma: {
+      local: msg.sender.id === DC_CONTACT_ID_SELF,
+      conversation_id: msg.chatId,
+      emoji_reactions: [],
+      quote: null,
+      quote_id: null,
+      quote_visible: false,
+    },
+  };
+};
 
 /**
  * Mastodon-style pagination header. `ids` is the page being returned,

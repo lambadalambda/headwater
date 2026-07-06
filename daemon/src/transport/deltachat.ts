@@ -1,6 +1,6 @@
 import { startDeltaChat } from '@deltachat/stdio-rpc-server';
 import type { T } from '@deltachat/jsonrpc-client';
-import type { TimelineQuery, Transport } from './types.js';
+import type { PostOptions, TimelineQuery, Transport } from './types.js';
 import { initialOf } from '../mastodon/entities.js';
 
 const DC_CONTACT_ID_SELF = 1;
@@ -30,9 +30,21 @@ export type DeltaChatTransport = Transport & {
   ): Promise<Extract<T.EventType, { kind: K }>>;
 };
 
+export type OpenTransportOptions = {
+  /**
+   * Called for every message loaded via timeline/message reads, and for
+   * every incoming-message core event (so DMs/messages that never hit a
+   * timeline render still get ingested). Failures are logged and otherwise
+   * ignored — ingestion is best-effort bookkeeping, never load-bearing for
+   * serving the request that triggered it.
+   */
+  onMessage?: (msg: T.Message) => void | Promise<void>;
+};
+
 export const openTransport = async (
   dataDir: string,
   creds: ChatmailCredentials,
+  options: OpenTransportOptions = {},
 ): Promise<DeltaChatTransport> => {
   const dc = startDeltaChat(dataDir, { muteStdErr: true });
   const rpc = dc.rpc;
@@ -49,6 +61,19 @@ export const openTransport = async (
     await rpc.configure(accountId);
   }
   await rpc.startIo(accountId);
+
+  const notifyOnMessage = async (msg: T.Message): Promise<void> => {
+    if (!options.onMessage) return;
+    try {
+      await options.onMessage(msg);
+    } catch (err) {
+      console.error('onMessage ingestion failed (non-fatal):', err);
+    }
+  };
+
+  // No reverse mid -> msgId RPC exists; getMessageInfoObject is the only way
+  // to learn a message's rfc724Mid, so cache it in-memory once resolved.
+  const midCache = new Map<number, string | null>();
 
   const feedChatIds = async (): Promise<number[]> => {
     const entries = await rpc.getChatlistEntries(accountId, null, null, null);
@@ -84,11 +109,43 @@ export const openTransport = async (
     if (msgIds.length === 0) return [];
     const loaded = await rpc.getMessages(accountId, msgIds);
     const displayname = await selfDisplayName();
-    return Object.values(loaded)
+    const messages = Object.values(loaded)
       .filter((res): res is Extract<T.MessageLoadResult, { kind: 'message' }> => res.kind === 'message')
       .filter((msg) => !msg.isInfo)
       .map((msg) => withSelfDisplayName(msg, displayname));
+    for (const msg of messages) void notifyOnMessage(msg);
+    return messages;
   };
+
+  const resolveMid = async (msgId: number): Promise<string | null> => {
+    if (midCache.has(msgId)) return midCache.get(msgId) ?? null;
+    const mid = await rpc
+      .getMessageInfoObject(accountId, msgId)
+      .then((info) => info.rfc724Mid ?? null)
+      .catch(() => null);
+    midCache.set(msgId, mid);
+    return mid;
+  };
+
+  const dm1to1ChatId = async (contactId: number): Promise<number> => {
+    const existing = await rpc.getChatIdByContactId(accountId, contactId).catch(() => null);
+    if (existing) return existing;
+    return rpc.createChatByContactId(accountId, contactId);
+  };
+
+  // Ingest DMs/messages that never render in a timeline (e.g. reply-notify
+  // copies to us) as soon as the core reports them.
+  dc.on('IncomingMsg', (eventAccountId, event) => {
+    if (eventAccountId !== accountId) return;
+    void rpc
+      .getMessage(accountId, event.msgId)
+      .then(async (msg) => {
+        if (msg.isInfo) return;
+        const displayname = await selfDisplayName();
+        await notifyOnMessage(withSelfDisplayName(msg, displayname));
+      })
+      .catch((err) => console.error('failed to load incoming message for ingestion:', err));
+  });
 
   return {
     accountId,
@@ -141,19 +198,19 @@ export const openTransport = async (
       return msg ?? null;
     },
 
-    post: async (text: string, opts) => {
+    post: async (text: string, opts?: PostOptions) => {
       const chatId = await ensureFeedChat();
-      if (opts?.file) {
+      if (opts?.file || opts?.quotedText) {
         const base: T.MessageData = {
           text: text || null,
           html: null,
-          viewtype: 'Image',
-          file: opts.file,
+          viewtype: opts?.file ? 'Image' : null,
+          file: opts?.file ?? null,
           filename: null,
           location: null,
           overrideSenderName: null,
           quotedMessageId: null,
-          quotedText: null,
+          quotedText: opts?.quotedText ?? null,
         };
         const msgId = await rpc.sendMsg(accountId, chatId, base);
         return rpc.getMessage(accountId, msgId);
@@ -207,6 +264,28 @@ export const openTransport = async (
       const statuses = messages.length;
 
       return { followers, following, statuses };
+    },
+
+    messageMid: resolveMid,
+
+    sendControlDm: async (contactId, text, quotedText) => {
+      const chatId = await dm1to1ChatId(contactId);
+      const data: T.MessageData = {
+        text,
+        html: null,
+        viewtype: null,
+        file: null,
+        filename: null,
+        location: null,
+        overrideSenderName: null,
+        quotedMessageId: null,
+        quotedText: quotedText ?? null,
+      };
+      await rpc.sendMsg(accountId, chatId, data);
+    },
+
+    deleteMessage: async (msgId) => {
+      await rpc.deleteMessagesForAll(accountId, [msgId]);
     },
   };
 };

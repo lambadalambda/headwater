@@ -6,6 +6,8 @@ import { makeContact, makeMessage } from './entities.test.js';
 
 const BASE = 'http://localhost:4030';
 
+const BOB = makeContact({ id: 11, address: 'zbie604yz@nine.testrun.org', displayName: 'bob' });
+
 const makeFakeTransport = () => {
   const self = makeContact();
   const messages: T.Message[] = [
@@ -16,11 +18,19 @@ const makeFakeTransport = () => {
       text: 'newest, from bob',
       timestamp: 1751800200,
       fromId: 11,
-      sender: makeContact({ id: 11, address: 'zbie604yz@nine.testrun.org', displayName: 'bob' }),
+      sender: BOB,
     }),
   ];
+  const mids = new Map<number, string>([
+    [10, 'mid-10@example.org'],
+    [11, 'mid-11@example.org'],
+    [12, 'mid-12@example.org'],
+  ]);
   let nextId = 100;
-  const posts: Array<{ text: string; file?: string }> = [];
+  let nextMid = 100;
+  const posts: Array<{ text: string; file?: string; quotedText?: string }> = [];
+  const dms: Array<{ contactId: number; text: string; quotedText?: string }> = [];
+  const deleted: number[] = [];
   const transport: Transport = {
     self: async () => self,
     timeline: async ({ limit, maxId, minId }: TimelineQuery) =>
@@ -30,28 +40,40 @@ const makeFakeTransport = () => {
         .slice(0, limit),
     message: async (msgId) => messages.find((m) => m.id === msgId) ?? null,
     post: async (text, opts) => {
-      posts.push({ text, file: opts?.file });
+      posts.push({ text, file: opts?.file, quotedText: opts?.quotedText });
+      const id = nextId++;
       const msg = makeMessage({
-        id: nextId++,
+        id,
         text,
         timestamp: 1751900000,
         file: opts?.file ?? null,
         fileMime: opts?.file ? 'image/png' : null,
         viewType: opts?.file ? 'Image' : 'Text',
+        quote: opts?.quotedText ? { kind: 'JustText', text: opts.quotedText } : null,
       });
       messages.push(msg);
+      mids.set(id, `mid-${nextMid++}@example.org`);
       return msg;
     },
     feedInvite: async () => 'OPENPGP4FPR:FAKEINVITE',
     follow: async () => 99,
-    contact: async (id) => (id === 1 ? self : null),
+    contact: async (id) => (id === 1 ? self : id === 11 ? BOB : null),
     avatarPath: async () => null,
     contactBadge: async (id) =>
       id === 1 ? { initial: 'A', color: '#ff0000' } : null,
     blobPath: async () => null,
     stats: async () => ({ followers: 3, following: 2, statuses: 7 }),
+    messageMid: async (msgId) => mids.get(msgId) ?? null,
+    sendControlDm: async (contactId, text, quotedText) => {
+      dms.push({ contactId, text, quotedText });
+    },
+    deleteMessage: async (msgId) => {
+      deleted.push(msgId);
+      const idx = messages.findIndex((m) => m.id === msgId);
+      if (idx !== -1) messages.splice(idx, 1);
+    },
   };
-  return { transport, messages, posts };
+  return { transport, messages, posts, dms, deleted, mids };
 };
 
 /** A context that's already configured with a fixed fake transport. */
@@ -318,6 +340,168 @@ describe('media uploads', () => {
     statusForm.append('media_ids[]', media.id);
     const res = await app.request('/api/v1/statuses', { method: 'POST', body: statusForm });
     expect(res.status).toBe(200);
+  });
+});
+
+describe('POST /api/v1/statuses with in_reply_to_id', () => {
+  it('posts a reply to own feed with a marker + quotedText, and DMs the author', async () => {
+    const { transport, posts, dms } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const res = await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'nice post!', in_reply_to_id: '12' }),
+    });
+    expect(res.status).toBe(200);
+    const status = await res.json() as any;
+    expect(status.in_reply_to_id).toBe('12');
+
+    // one post to our own feed, carrying the marker + quotedText
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.text).toContain('nice post!');
+    expect(posts[0]?.text).toContain('mid-12@example.org');
+    expect(posts[0]?.text).toContain(BOB.address);
+    expect(posts[0]?.quotedText).toContain('bob');
+
+    // a DM copy goes to the author (bob, contact id 11)
+    expect(dms).toHaveLength(1);
+    expect(dms[0]?.contactId).toBe(11);
+    expect(dms[0]?.text).toBe(posts[0]?.text);
+  });
+
+  it('does not send a DM when replying to your own post', async () => {
+    const { transport, dms } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    // message 11 is authored by self (fromId defaults to 1)
+    const res = await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'replying to myself', in_reply_to_id: '11' }),
+    });
+    expect(res.status).toBe(200);
+    expect(dms).toHaveLength(0);
+  });
+
+  it('404s when the target status does not exist', async () => {
+    const app = makeApp();
+    const res = await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'huh', in_reply_to_id: '999' }),
+    });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('POST /api/v1/statuses/:id/reblog and unreblog', () => {
+  it('boosts a status: posts a marker to own feed and returns a status with reblog embedded', async () => {
+    const { transport, posts } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const res = await app.request('/api/v1/statuses/12/reblog', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const status = await res.json() as any;
+    expect(status.reblog).not.toBeNull();
+    expect(status.reblog.id).toBe('12');
+    expect(status.reblog.content).toBe('<p>newest, from bob</p>');
+    expect(status.reblogged).toBe(true);
+
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.text).toContain('mid-12@example.org');
+    expect(posts[0]?.text).toContain(BOB.address);
+    expect(posts[0]?.quotedText).toContain('newest, from bob');
+  });
+
+  it('404s boosting an unknown status', async () => {
+    const res = await makeApp().request('/api/v1/statuses/999/reblog', { method: 'POST' });
+    expect(res.status).toBe(404);
+  });
+
+  it('unreblog deletes our boost message and returns reblogged:false', async () => {
+    const { transport, deleted } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const reblogRes = await app.request('/api/v1/statuses/12/reblog', { method: 'POST' });
+    const reblogStatus = await reblogRes.json() as any;
+    const boostMsgId = Number(reblogStatus.id);
+
+    const res = await app.request('/api/v1/statuses/12/unreblog', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const status = await res.json() as any;
+    expect(status.id).toBe('12');
+    expect(status.reblogged).toBe(false);
+    expect(deleted).toContain(boostMsgId);
+  });
+
+  it('unreblog is a no-op (still 200) when there was no boost to remove', async () => {
+    const res = await makeApp().request('/api/v1/statuses/12/unreblog', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const status = await res.json() as any;
+    expect(status.reblogged).toBe(false);
+  });
+});
+
+describe('status mapping: boost from a follower (synthesized reblog)', () => {
+  it('synthesizes a reblog embed when the boosted mid is unknown locally', async () => {
+    const { transport, messages } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const { buildBoostText, buildQuotedText } = await import('../src/protocol.js');
+    const ref = { mid: 'unknown-mid@remote.org', addr: 'remote@remote.org' };
+    messages.push({
+      ...messages[0]!,
+      id: 500,
+      text: buildBoostText(ref),
+      quote: { kind: 'JustText', text: buildQuotedText('remote person', 'something neat', 500) },
+      fromId: 11,
+      sender: BOB,
+    } as any);
+
+    const status = await (await app.request('/api/v1/statuses/500')).json() as any;
+    expect(status.reblog).not.toBeNull();
+    expect(status.reblog.account.acct).toBe('remote@remote.org');
+    expect(status.reblog.account.display_name).toBe('remote person');
+    expect(status.reblog.content).toBe('<p>something neat</p>');
+  });
+});
+
+describe('GET /api/v1/statuses/:id/context', () => {
+  it('walks ancestors via reply markers and lists descendants via reply children', async () => {
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    // reply to message 12 (mid-12)
+    const replyRes = await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'first reply', in_reply_to_id: '12' }),
+    });
+    const reply = await replyRes.json() as any;
+
+    // reply to the reply
+    const reply2Res = await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'second reply', in_reply_to_id: reply.id }),
+    });
+    const reply2 = await reply2Res.json() as any;
+
+    // context of the middle reply: ancestor is 12, descendant is reply2
+    const context = await (await app.request(`/api/v1/statuses/${reply.id}/context`)).json() as any;
+    expect(context.ancestors.map((s: any) => s.id)).toEqual(['12']);
+    expect(context.descendants.map((s: any) => s.id)).toEqual([reply2.id]);
+
+    // context of the root: no ancestors, descendants are both replies chronologically
+    const rootContext = await (await app.request('/api/v1/statuses/12/context')).json() as any;
+    expect(rootContext.ancestors).toEqual([]);
+    expect(rootContext.descendants.map((s: any) => s.id)).toEqual([reply.id, reply2.id]);
+  });
+
+  it('returns empty ancestors/descendants for a plain post', async () => {
+    const context = await (await makeApp().request('/api/v1/statuses/10/context')).json() as any;
+    expect(context).toEqual({ ancestors: [], descendants: [] });
   });
 });
 

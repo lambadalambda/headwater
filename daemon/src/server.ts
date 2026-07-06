@@ -1,6 +1,7 @@
 import { Hono, type Context, type Next } from 'hono';
 import { cors } from 'hono/cors';
 import { serveStatic } from '@hono/node-server/serve-static';
+import type { T } from '@deltachat/jsonrpc-client';
 import {
   avatarPlaceholderSvg,
   contactToAccount,
@@ -8,14 +9,31 @@ import {
   messageToStatus,
   timelineLinkHeader,
   type MastodonStatus,
+  type StatusResolver,
 } from './mastodon/entities.js';
 import type { Transport } from './transport/types.js';
 import { createMediaStore, isSupportedImageMime } from './media.js';
+import { buildBoostText, buildQuotedText, buildReplyText, parseMarkers } from './protocol.js';
+import { createStore, ephemeralStorePath, type Store } from './store.js';
+
+const DC_CONTACT_ID_SELF = 1;
+const QUOTE_EXCERPT_CAP = 120;
+const BOOST_QUOTE_CAP = 500;
+const MAX_CONTEXT_ANCESTORS = 20;
+const MAX_CONTEXT_DESCENDANTS = 100;
 
 export type ServerOptions = {
   baseUrl: string;
   /** Absolute path to a built frontend SPA to serve as static files; skipped if unset/missing. */
   staticDir?: string;
+  /**
+   * The deltanet wire-convention store (mid/msgId index, reply/boost
+   * edges). Share the same instance passed to `openTransport`'s
+   * `onMessage` hook so ingestion from timeline reads and from the daemon's
+   * background event subscription land in one place. Defaults to a fresh
+   * ephemeral (scratch-file-backed) store, which is fine for tests.
+   */
+  store?: Store;
 };
 
 /**
@@ -40,9 +58,43 @@ const intParam = (value: string | undefined): number | undefined => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
-export const createApp = (ctx: AppContext, { baseUrl, staticDir }: ServerOptions) => {
+export const createApp = (ctx: AppContext, { baseUrl, staticDir, store: injectedStore }: ServerOptions) => {
   const app = new Hono();
   const mediaStore = createMediaStore();
+  const store: Store = injectedStore ?? createStore(ephemeralStorePath());
+
+  const resolver: StatusResolver = {
+    resolveMid: (mid) => store.resolveMid(mid),
+    childrenCount: (mid) => store.childrenCount(mid),
+    boostCount: (mid) => store.boostCount(mid),
+    isOwnBoost: (mid) => store.isOwnBoost(mid),
+    midForMsgId: (msgId) => store.midForMsgId(msgId),
+  };
+
+  /** Ingest a message into the store, tolerating a transport that can't resolve its mid. */
+  const ingest = async (transport: Transport, msg: T.Message): Promise<void> => {
+    try {
+      const mid = await transport.messageMid(msg.id);
+      if (mid) store.ingestMessage(msg, mid);
+    } catch (err) {
+      console.error('ingest failed (non-fatal):', err);
+    }
+  };
+
+  /** Map a message to a status, resolving reply/boost markers via the store, embedding boosted messages by re-fetching them from the transport. */
+  const toStatus = async (
+    transport: Transport,
+    msg: T.Message,
+    description: string | null = null,
+  ): Promise<MastodonStatus> => {
+    const parsed = parseMarkers(msg.text);
+    let boostedMsg: T.Message | null = null;
+    if (parsed.boost) {
+      const boostedMsgId = store.resolveMid(parsed.boost.mid);
+      if (boostedMsgId !== null) boostedMsg = await transport.message(boostedMsgId);
+    }
+    return messageToStatus(msg, baseUrl, description, resolver, () => boostedMsg);
+  };
 
   app.use(
     '*',
@@ -171,8 +223,9 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir }: ServerOptions
       maxId: intParam(c.req.query('max_id')),
       minId: intParam(c.req.query('min_id')) ?? intParam(c.req.query('since_id')),
     });
-    const statuses: MastodonStatus[] = messages.map((msg) =>
-      messageToStatus(msg, baseUrl, mediaStore.descriptionForMessage(msg.id)),
+    for (const msg of messages) await ingest(transport, msg);
+    const statuses: MastodonStatus[] = await Promise.all(
+      messages.map((msg) => toStatus(transport, msg, mediaStore.descriptionForMessage(msg.id))),
     );
     const link = timelineLinkHeader(
       `${baseUrl}${new URL(c.req.url).pathname}`,
@@ -194,6 +247,7 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir }: ServerOptions
   };
 
   app.post('/api/v1/statuses', requireTransport, async (c) => {
+    const transport = c.get('transport');
     const contentType = c.req.header('content-type') ?? '';
     const body = contentType.includes('json')
       ? await c.req.json()
@@ -204,9 +258,35 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir }: ServerOptions
     if (!text && !media) {
       return c.json({ error: 'Validation failed: text cannot be blank' }, 422);
     }
-    const msg = await c.get('transport').post(text, media ? { file: media.path } : undefined);
+
+    const inReplyToId = body['in_reply_to_id'] != null ? String(body['in_reply_to_id']) : undefined;
+    if (inReplyToId) {
+      const target = await transport.message(Number(inReplyToId));
+      if (!target) return c.json({ error: 'Record not found' }, 404);
+      const mid = await transport.messageMid(target.id);
+      if (!mid) return c.json({ error: 'cannot resolve message id for reply target' }, 422);
+      await ingest(transport, target);
+
+      const ref = { mid, addr: target.sender.address };
+      const replyText = buildReplyText(text, ref);
+      const quotedText = buildQuotedText(target.sender.displayName, target.text, QUOTE_EXCERPT_CAP);
+
+      const msg = await transport.post(replyText, { quotedText });
+      await ingest(transport, msg);
+
+      if (target.sender.id !== DC_CONTACT_ID_SELF) {
+        await transport.sendControlDm(target.sender.id, replyText, quotedText).catch((err) => {
+          console.error('sendControlDm failed (non-fatal):', err);
+        });
+      }
+
+      return c.json(await toStatus(transport, msg));
+    }
+
+    const msg = await transport.post(text, media ? { file: media.path } : undefined);
     if (media) mediaStore.tagMessage(msg.id, media.description);
-    return c.json(messageToStatus(msg, baseUrl, media?.description ?? null));
+    await ingest(transport, msg);
+    return c.json(await toStatus(transport, msg, media?.description ?? null));
   });
 
   // --- Media uploads --------------------------------------------------------
@@ -231,14 +311,105 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir }: ServerOptions
     });
   });
 
-  app.get('/api/v1/statuses/:id/context', requireTransport, (c) =>
-    c.json({ ancestors: [], descendants: [] }),
-  );
+  // --- Reblog / unreblog ---------------------------------------------------
+
+  app.post('/api/v1/statuses/:id/reblog', requireTransport, async (c) => {
+    const transport = c.get('transport');
+    const target = await transport.message(Number(c.req.param('id')));
+    if (!target) return c.json({ error: 'Record not found' }, 404);
+    const mid = await transport.messageMid(target.id);
+    if (!mid) return c.json({ error: 'cannot resolve message id to boost' }, 422);
+    await ingest(transport, target);
+
+    const ref = { mid, addr: target.sender.address };
+    const boostText = buildBoostText(ref);
+    const quotedText = buildQuotedText(target.sender.displayName, target.text, BOOST_QUOTE_CAP);
+
+    const msg = await transport.post(boostText, { quotedText });
+    await ingest(transport, msg);
+
+    // The response wraps our new boost message; it always reflects "you just
+    // reblogged this", regardless of what the store's (possibly-stale, in
+    // the fake-transport-test sense) boost tally for the boost message
+    // itself would say.
+    const status = await toStatus(transport, msg);
+    return c.json({ ...status, reblogged: true });
+  });
+
+  app.post('/api/v1/statuses/:id/unreblog', requireTransport, async (c) => {
+    const transport = c.get('transport');
+    const target = await transport.message(Number(c.req.param('id')));
+    if (!target) return c.json({ error: 'Record not found' }, 404);
+    const mid = await transport.messageMid(target.id);
+
+    const ownBoostMsgId = mid ? store.ownBoostMsgId(mid) : null;
+    if (ownBoostMsgId !== null) {
+      await transport.deleteMessage(ownBoostMsgId);
+    }
+
+    // Retracted: report the original with reblogged:false regardless of the
+    // store's tally (it isn't updated on delete — the daemon only tracks
+    // what it has *seen posted*, not retractions, per the wire convention's
+    // "authoritative only for what this node has seen" caveat).
+    const status = await toStatus(transport, target, mediaStore.descriptionForMessage(target.id));
+    return c.json({ ...status, reblogged: false });
+  });
+
+  // --- Context (ancestors / descendants) -----------------------------------
+
+  app.get('/api/v1/statuses/:id/context', requireTransport, async (c) => {
+    const transport = c.get('transport');
+    const target = await transport.message(Number(c.req.param('id')));
+    if (!target) return c.json({ error: 'Record not found' }, 404);
+    await ingest(transport, target);
+
+    // Ancestors: walk the reply-marker chain upward via the store.
+    const ancestorMsgs: T.Message[] = [];
+    let current: T.Message | null = target;
+    for (let depth = 0; depth < MAX_CONTEXT_ANCESTORS && current; depth++) {
+      const parsed = parseMarkers(current.text);
+      if (!parsed.reply) break;
+      const parentMsgId = store.resolveMid(parsed.reply.mid);
+      if (parentMsgId === null) break;
+      const parentMsg = await transport.message(parentMsgId);
+      if (!parentMsg) break;
+      await ingest(transport, parentMsg);
+      ancestorMsgs.unshift(parentMsg);
+      current = parentMsg;
+    }
+
+    // Descendants: transitively walk the reply-children index, breadth-first,
+    // capped, then sorted chronologically (oldest first).
+    const targetMid = await transport.messageMid(target.id);
+    const descendantMsgs: T.Message[] = [];
+    const queue: string[] = targetMid ? [targetMid] : [];
+    const seen = new Set<number>();
+    while (queue.length > 0 && descendantMsgs.length < MAX_CONTEXT_DESCENDANTS) {
+      const mid = queue.shift()!;
+      const childIds = store.replyChildren(mid);
+      for (const childId of childIds) {
+        if (seen.has(childId) || descendantMsgs.length >= MAX_CONTEXT_DESCENDANTS) continue;
+        seen.add(childId);
+        const childMsg = await transport.message(childId);
+        if (!childMsg) continue;
+        await ingest(transport, childMsg);
+        descendantMsgs.push(childMsg);
+        const childMid = await transport.messageMid(childId);
+        if (childMid) queue.push(childMid);
+      }
+    }
+    descendantMsgs.sort((a, b) => a.timestamp - b.timestamp || a.id - b.id);
+
+    const ancestors = await Promise.all(ancestorMsgs.map((msg) => toStatus(transport, msg)));
+    const descendants = await Promise.all(descendantMsgs.map((msg) => toStatus(transport, msg)));
+    return c.json({ ancestors, descendants });
+  });
 
   app.get('/api/v1/statuses/:id', requireTransport, async (c) => {
-    const msg = await c.get('transport').message(Number(c.req.param('id')));
+    const transport = c.get('transport');
+    const msg = await transport.message(Number(c.req.param('id')));
     if (!msg) return c.json({ error: 'Record not found' }, 404);
-    return c.json(messageToStatus(msg, baseUrl, mediaStore.descriptionForMessage(msg.id)));
+    return c.json(await toStatus(transport, msg, mediaStore.descriptionForMessage(msg.id)));
   });
 
   // --- deltanet-specific: feed invite + follow ----------------------------

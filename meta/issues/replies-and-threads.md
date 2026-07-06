@@ -38,3 +38,25 @@ the original author.
 
 - Markers are visible to vanilla Delta Chat readers by design (readable
   footer); revisit with webxdc/headers later.
+
+## Current Status (2026-07-06)
+
+Implemented. `src/protocol.ts` (buildReplyText/parseMarkers, TDD, round-trip
+tested) + `src/store.ts` (mid⇄msgId index, reply children, idempotent
+ingest, JSON-file persisted, unit tested including a reload-from-disk case).
+Transport gained `messageMid` (cached `getMessageInfoObject().rfc724Mid`),
+`sendControlDm`, and an `onMessage` ingestion hook on `openTransport` (feeds
+from both timeline loads and a live `IncomingMsg` subscription, so DM
+copies land in the store even without a timeline render).
+`POST /api/v1/statuses` with `in_reply_to_id` resolves the target, posts the
+marker + quotedText to the own feed, and DMs the author (skipped for
+self-replies). `messageToStatus` takes an optional `StatusResolver` to strip
+the marker from content and resolve `in_reply_to_id`/`replies_count`;
+defaults to no-ops so old call sites are unaffected.
+`GET /api/v1/statuses/:id/context` walks ancestors via the reply-marker
+chain (cap 20) and descendants breadth-first via the store's children index
+(cap 100). All acceptance criteria covered by `tests/protocol.test.ts`,
+`tests/store.test.ts`, `tests/entities.test.ts`, and new describe blocks in
+`tests/server.test.ts` (reply posting + DM, mapping, context assembly). See
+`../../DEVLOG.md` 2026-07-06 "replies/threads + reposts" for the full
+writeup. Not archiving per instructions — leaving status here for review.
