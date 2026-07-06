@@ -39,7 +39,7 @@
 		type PaginatedTimelineState,
 		type PaginatedTimelineSuccess
 	} from '$lib/pleroma/timeline-state';
-	import { DEFAULT_STATUS_CHARACTER_LIMIT, adaptCustomEmojis, adaptPleromaAccount, adaptPleromaChatMessage, adaptPleromaChatMessages, adaptPleromaChats, adaptPleromaPoll, adaptPleromaNotifications, adaptPleromaProfile, adaptPleromaStatus, adaptPleromaStatuses, htmlToPlainText, mediaPlaceholderText, normalizePleromaRequestError, profileSettingsFromAccount, profileUpdateFromSettings, statusCharacterLimit, type PleromaAccountView, type PleromaChatMessageView, type PleromaChatView, type PleromaNotificationView, type PleromaProfileFollowState, type PleromaProfileSettingsView, type PleromaReactionView, type PleromaRequestErrorView, type PleromaRequestState, type PleromaStatusView } from '$lib/pleroma/ui';
+	import { DEFAULT_STATUS_CHARACTER_LIMIT, adaptCustomEmojis, adaptPleromaAccount, adaptPleromaChatMessage, adaptPleromaChatMessages, adaptPleromaChats, adaptPleromaPoll, adaptPleromaNotifications, adaptPleromaProfile, adaptPleromaStatus, adaptPleromaStatuses, adaptStatusReactions, htmlToPlainText, mediaPlaceholderText, normalizePleromaRequestError, profileSettingsFromAccount, profileUpdateFromSettings, statusCharacterLimit, type PleromaAccountView, type PleromaChatMessageView, type PleromaChatView, type PleromaNotificationView, type PleromaProfileFollowState, type PleromaProfileSettingsView, type PleromaReactionView, type PleromaRequestErrorView, type PleromaRequestState, type PleromaStatusView } from '$lib/pleroma/ui';
 	import type { BannerVariant, PostLike } from '$lib/rebuild/attachments';
 	import { COMPOSER_MAX_UPLOAD_BYTES, COMPOSER_MAX_UPLOADS, composerPollPayload, customEmojiPack, composerUploadBadge, composerUploadError, composerUploadKind, createComposerPollDraft, getComposerUploadedMediaIds, hasComposerUploadsPending, isComposerUploadType, type ComposerEmoji, type ComposerMentionAccount, type ComposerPollDraft, type ComposerUpload } from '$lib/rebuild/composer';
 	import type { IconName } from '$lib/rebuild/icons';
@@ -3052,11 +3052,39 @@
 
 		void loadNotifications(session, { background: true });
 	};
+	const isStatusActionPending = (targetId: string, key: string) => Boolean(statusActionPending[statusActionPendingKey(targetId, key)]);
+	const isReactionActionPending = (targetId: string) => Object.keys(statusActionPending).some((pendingKey) => pendingKey.startsWith(`${targetId}:reaction:`));
+	const countBeforeStreamedViewerAction = (count: number, active: boolean) => Math.max(0, count - (active ? 1 : 0));
+	const reconcileStreamedNotificationStatus = (status: PleromaStatus) => {
+		const targetId = String(status.id);
+		const freshFavorite = { active: status.favourited, count: countBeforeStreamedViewerAction(status.favourites_count, status.favourited) };
+		const freshBoost = { active: status.reblogged, count: countBeforeStreamedViewerAction(status.reblogs_count, status.reblogged) };
+		const freshReactions = adaptStatusReactions(status);
+		const favPending = isStatusActionPending(targetId, 'fav');
+		const boostPending = isStatusActionPending(targetId, 'boost');
+		const reactionPending = isReactionActionPending(targetId);
+
+		applyStatusActionUpdate(
+			'all',
+			targetId,
+			(initial) => {
+				const withFav = favPending ? initial : setStatusViewAction(initial, 'fav', freshFavorite);
+				const withBoost = boostPending ? withFav : setStatusViewAction(withFav, 'boost', freshBoost);
+				return { ...withBoost, replies: status.replies_count, reactions: reactionPending ? withBoost.reactions : freshReactions };
+			},
+			(initial) => {
+				const withFav = favPending ? initial : setRebuildPostAction(initial, 'fav', freshFavorite);
+				const withBoost = boostPending ? withFav : setRebuildPostAction(withFav, 'boost', freshBoost);
+				return { ...withBoost, replies: status.replies_count, reactions: reactionPending ? withBoost.reactions : freshReactions };
+			}
+		);
+	};
 	const applyStreamedNotification = (requestSessionKey: string, notification: PleromaNotification) => {
 		const session = currentSession;
 		if (!session?.account || !isCurrentSessionRequest(requestSessionKey)) return;
 
 		upsertAccountCache(accountsFromPleromaNotifications([notification]));
+		if (notification.status) reconcileStreamedNotificationStatus(notification.status);
 		const adapted = adaptNotificationsForSession(session, [notification]);
 		const merged = mergeNotificationViews(notificationState.status === 'success' ? notificationState.data : [], adapted);
 		notificationState = merged.length > 0 ? { status: 'success', data: merged } : { status: 'empty' };

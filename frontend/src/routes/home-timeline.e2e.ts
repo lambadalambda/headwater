@@ -147,6 +147,15 @@ const emitStreamError = async (page: Page) => {
 	});
 };
 
+const emitStreamNotification = async (page: Page, notification: unknown) => {
+	await page.evaluate((nextNotification) => {
+		type MockSocket = { onmessage: ((event: { data: string }) => void) | null };
+		const testWindow = window as typeof window & { __deltanetSockets?: MockSocket[] };
+		const socket = testWindow.__deltanetSockets?.at(-1);
+		socket?.onmessage?.({ data: JSON.stringify({ event: 'notification', payload: JSON.stringify(nextNotification) }) });
+	}, notification);
+};
+
 test('authenticated home timeline loads and renders posts through adapters', async ({ page }) => {
 	await authenticate(page);
 	await mockHomeTimeline(page, async (route) => {
@@ -1587,6 +1596,44 @@ test('home timeline shows reply pill from metadata when the body has no leading 
 
 	const post = page.locator('.post').filter({ hasText: 'amazing look' }).first();
 	await expect(post.locator('.post-body')).toHaveText('amazing look');
+	await expect(post.locator('.post-pinged-l')).toHaveText('Replying to');
+	await expect(post.locator('.post-pinged-chip-parent .post-pinged-handle')).toHaveText('@mischievoustomato');
+	await expect(post.locator('.post-pinged-chip-parent')).toHaveAttribute('title', '@mischievoustomato@tsundere.love');
+	await expect(post.locator('.post-pinged-chip-parent')).toHaveAttribute('href', '/app/profiles/mischievoustomato%40tsundere.love');
+	await expect(post.locator('.post-pinged-also')).toHaveCount(0);
+});
+
+test('home timeline shows reply pill from in_reply_to_account_id and mentions alone, without in_reply_to_account_acct', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [
+			{
+				...pleromaFixtures.status,
+				id: 'status-mentions-only-reply',
+				in_reply_to_id: 'parent-status',
+				in_reply_to_account_id: 'parent-account',
+				content: 'the daemon filled this in without a leading mention',
+				pleroma: {
+					...pleromaFixtures.status.pleroma,
+					content: { 'text/plain': 'the daemon filled this in without a leading mention' }
+				},
+				mentions: [
+					{
+						id: 'parent-account',
+						url: 'https://tsundere.love/users/mischievoustomato',
+						username: 'mischievoustomato',
+						acct: 'mischievoustomato@tsundere.love'
+					}
+				]
+			}
+		]);
+	});
+
+	await setViewport(page, 'desktop');
+	await page.goto('/app/home');
+
+	const post = page.locator('.post').filter({ hasText: 'the daemon filled this in without a leading mention' }).first();
+	await expect(post.locator('.post-body')).toHaveText('the daemon filled this in without a leading mention');
 	await expect(post.locator('.post-pinged-l')).toHaveText('Replying to');
 	await expect(post.locator('.post-pinged-chip-parent .post-pinged-handle')).toHaveText('@mischievoustomato');
 	await expect(post.locator('.post-pinged-chip-parent')).toHaveAttribute('title', '@mischievoustomato@tsundere.love');
@@ -3188,4 +3235,58 @@ test('home timeline inline reply composer saves upload alt text', async ({ page 
 
 	await expect(altInput).toHaveValue('a cassette tape');
 	expect(JSON.parse(altBody)).toMatchObject({ description: 'a cassette tape' });
+});
+
+test('home timeline reconciles favourite counts and reactions from a streamed notification without refetching', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [statusWithText('status-reconcile', 'counts should update live')]);
+	});
+
+	await setViewport(page, 'desktop');
+	await page.goto('/app/home');
+	const post = page.locator('[data-status-id="status-reconcile"]');
+	await expect(post.getByRole('button', { name: 'Favorite 9' })).toBeVisible();
+	await expect(post.locator('[data-testid="post-reactions"]')).toHaveCount(0);
+
+	const reactorAccount = {
+		...pleromaFixtures.account,
+		id: 'account-reactor',
+		username: 'reactor',
+		acct: 'reactor@pleroma.example',
+		display_name: 'reactor'
+	};
+	const freshStatus = {
+		...pleromaFixtures.status,
+		id: 'status-reconcile',
+		uri: 'https://pleroma.example/objects/status-reconcile',
+		url: 'https://pleroma.example/notice/status-reconcile',
+		content: '<p>counts should update live</p>',
+		pleroma: {
+			...pleromaFixtures.status.pleroma,
+			content: { 'text/plain': 'counts should update live' },
+			emoji_reactions: [{ name: 'blobcat', count: 1, me: false }]
+		},
+		favourites_count: 12
+	};
+	const streamedNotification = {
+		id: 'notif-reconcile-fav',
+		type: 'favourite',
+		created_at: '2026-05-18T12:06:00.000Z',
+		account: reactorAccount,
+		status: freshStatus,
+		pleroma: {}
+	};
+
+	let homeTimelineRequests = 0;
+	await mockHomeTimeline(page, async (route) => {
+		homeTimelineRequests += 1;
+		await fulfillHome(route, [statusWithText('status-reconcile', 'counts should update live')]);
+	});
+
+	await emitStreamNotification(page, streamedNotification);
+
+	await expect(post.getByRole('button', { name: 'Favorite 12' })).toBeVisible();
+	await expect(post.locator('[data-testid="post-reactions"]')).toContainText('1');
+	expect(homeTimelineRequests).toBe(0);
 });

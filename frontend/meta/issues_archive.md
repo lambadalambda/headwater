@@ -60,3 +60,4 @@
 - [x] [60 Default to same-origin instance](issues/60-same-origin-default-instance.md)
 - [x] [61 DeltaNet signup flow](issues/61-deltanet-signup-flow.md)
 - [x] [62 Invite and follow-by-invite UI](issues/62-invite-and-follow-ui.md)
+- [x] [Reconcile streamed notification status into rendered posts](issues/63-reconcile-streamed-notification-status-into-rendered-posts.md)

@@ -324,6 +324,33 @@ test('websocket notification updates the badge and popover without polling', asy
 	await expect(page.getByTestId('header-notifications-popover')).toContainText('nova mentioned you');
 });
 
+test('notification stream reconciles favourite counts and reactions on a rendered thread post', async ({ page }) => {
+	await authenticate(page);
+	await mockThread(page, favStatus);
+	await mockNotifications(page, () => initialNotifications.slice(0, 1));
+	await setViewport(page, 'desktop');
+	await page.goto('/app/thread/status-fav');
+
+	const focusedPost = page.getByTestId('focused-post');
+	await expect(focusedPost.getByRole('button', { name: 'Favorite 9' })).toBeVisible();
+	await expect(focusedPost.locator('[data-testid="post-reactions"]')).toHaveCount(0);
+
+	await openLatestStream(page);
+	const freshFavStatus: PleromaStatus = {
+		...favStatus,
+		favourites_count: 15,
+		pleroma: {
+			...favStatus.pleroma,
+			emoji_reactions: [{ name: 'blobcat', count: 2, me: false }]
+		}
+	};
+	const streamNotification = notification('notif-thread-reconcile', 'favourite', favActor, '2026-05-18T12:07:00.000Z', freshFavStatus);
+	await emitStreamNotification(page, streamNotification);
+
+	await expect(focusedPost.getByRole('button', { name: 'Favorite 15' })).toBeVisible();
+	await expect(focusedPost.locator('[data-testid="post-reactions"]')).toContainText('2');
+});
+
 test('notification polling fallback refreshes after the websocket closes', async ({ page }) => {
 	await authenticate(page);
 	await mockHomeTimeline(page);
