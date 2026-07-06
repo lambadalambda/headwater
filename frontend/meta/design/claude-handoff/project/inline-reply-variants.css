@@ -1,0 +1,575 @@
+/* ============================================================
+   Inline reply variants — styles
+   Built on PleromaNet tokens (--accent, --serif, etc.)
+   ============================================================ */
+
+.irv-page {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.irv-page-h {
+  padding: 16px 22px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.irv-kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  margin-bottom: 4px;
+}
+.irv-h1 {
+  font-family: var(--serif);
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.irv-sub {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 6px 0 0;
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+.irv-cheat {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 6px 14px;
+  padding: 12px 22px 14px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+.irv-cheat-k {
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.irv-page-body {
+  flex: 1;
+  overflow: auto;
+}
+
+/* ---------- Thread shell (re-implements minimal pieces from styles.css) ---------- */
+.irv-post {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--border);
+}
+.irv-post:last-child { border-bottom: none; }
+.irv-av {
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.irv-av-sm { width: 32px; height: 32px; border-radius: 3px; }
+.irv-av-xs { width: 18px; height: 18px; border-radius: 2px; flex-shrink: 0; }
+.irv-right { min-width: 0; }
+.irv-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.irv-name { font-weight: 600; font-size: 14px; color: var(--ink); }
+.irv-handle { font-family: var(--mono); font-size: 11px; color: var(--accent-ink); }
+.irv-time { font-family: var(--mono); font-size: 11px; color: var(--muted-2); margin-left: auto; }
+.irv-body {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+  white-space: pre-wrap;
+  text-wrap: pretty;
+  margin: 4px 0 12px;
+}
+.irv-actions {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+}
+.irv-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.irv-act:hover { color: var(--accent-ink); background: var(--accent-soft-2); }
+.irv-act.on { color: var(--accent-ink); background: var(--accent-soft-2); }
+.irv-act-end { margin-left: auto; }
+.irv-act svg { width: 14px; height: 14px; }
+
+/* The thread-top composer slot (shown collapsed at top of every variant) */
+.irv-top-composer {
+  display: flex;
+  gap: 12px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  align-items: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+.irv-top-composer.muted .irv-av { opacity: 0.6; }
+.irv-top-composer.active {
+  background: var(--accent-soft-2);
+  border-bottom-color: var(--accent-soft);
+}
+.irv-top-input-fake {
+  flex: 1;
+  font-style: italic;
+}
+.irv-top-addr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.irv-top-addr-x {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.irv-top-addr-x:hover { color: var(--accent-ink); }
+
+/* ---------- Reply-targeted post (highlighted) ---------- */
+.irv-post-target {
+  background: var(--panel-2);
+  position: relative;
+}
+.irv-post-target::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--accent);
+}
+
+/* ============================================================
+   V0 · Baseline — reply button does nothing visible
+   ============================================================ */
+.irv-v0-note {
+  margin: 14px 22px 22px;
+  padding: 10px 12px;
+  border: 1px dashed var(--bad);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--bad);
+  background: rgba(214, 139, 139, 0.06);
+  letter-spacing: 0.04em;
+}
+
+/* ============================================================
+   V1 · Full inline composer below the post
+   ============================================================ */
+.irv-v1-composer {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 12px;
+  padding: 14px 22px 14px 70px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft-2);
+  border-left: 3px solid var(--accent);
+  animation: irv-slide 0.18s ease;
+}
+@keyframes irv-slide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.irv-v1-textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: var(--sans);
+  font-size: 14px;
+  resize: vertical;
+  min-height: 70px;
+  outline: none;
+  color: var(--ink);
+}
+.irv-v1-textarea:focus { border-color: var(--accent); }
+.irv-v1-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+}
+.irv-v1-tool {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.irv-v1-tool:hover { background: var(--panel); color: var(--accent-ink); }
+.irv-v1-cw {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.1em;
+  font-weight: 600; padding: 0 8px; height: 24px;
+  border: 1px solid var(--border); border-radius: 3px;
+  color: var(--muted); cursor: pointer;
+}
+.irv-v1-cw:hover { border-color: var(--accent); color: var(--accent-ink); }
+.irv-v1-spacer { flex: 1; }
+.irv-v1-cancel {
+  font-family: var(--sans); font-size: 12.5px; color: var(--muted);
+  padding: 6px 10px; cursor: pointer;
+}
+.irv-v1-cancel:hover { color: var(--ink); }
+.irv-v1-count {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  margin-right: 8px; font-variant-numeric: tabular-nums;
+}
+.irv-v1-submit {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent);
+  padding: 5px 16px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.irv-v1-submit:hover { background: var(--accent); color: white; }
+.irv-v1-addr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.irv-v1-addr-chip {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--accent-ink);
+  padding: 1px 7px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  border: 1px solid var(--accent-soft);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ============================================================
+   V2 · Compact one-line composer
+   ============================================================ */
+.irv-v2-composer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 22px 10px 70px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft-2);
+  border-left: 3px solid var(--accent);
+  animation: irv-slide 0.18s ease;
+}
+.irv-v2-av { width: 28px; height: 28px; border-radius: 3px; flex-shrink: 0; }
+.irv-v2-input {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 6px 14px;
+  background: var(--panel);
+  font-size: 13px;
+  outline: none;
+  color: var(--ink);
+}
+.irv-v2-input:focus { border-color: var(--accent); }
+.irv-v2-input::placeholder { color: var(--muted-2); }
+.irv-v2-expand {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.irv-v2-expand:hover { color: var(--accent-ink); background: var(--panel); }
+.irv-v2-send {
+  background: var(--accent);
+  color: white;
+  border: none;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.irv-v2-send:hover { filter: brightness(1.08); }
+.irv-v2-send svg { width: 14px; height: 14px; }
+.irv-v2-hint {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   V3 · Composer with quote preview of the post being replied to
+   ============================================================ */
+.irv-v3-composer {
+  padding: 14px 22px 14px 70px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft-2);
+  border-left: 3px solid var(--accent);
+  animation: irv-slide 0.18s ease;
+}
+.irv-v3-quote {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.irv-v3-quote-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+}
+.irv-v3-quote-name { font-weight: 600; color: var(--ink); }
+.irv-v3-quote-handle { font-family: var(--mono); font-size: 10.5px; color: var(--accent-ink); }
+.irv-v3-quote-snip {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+  margin-top: 2px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.irv-v3-quote-x {
+  font-family: var(--mono);
+  color: var(--muted-2);
+  margin-left: auto;
+  padding: 0 4px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.irv-v3-quote-x:hover { color: var(--bad); }
+
+/* ============================================================
+   V4 · Highlight top composer + addressee chip
+   ============================================================ */
+.irv-v4-arrow {
+  position: relative;
+  padding: 8px 22px 8px 70px;
+  background: var(--accent-soft-2);
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.irv-v4-arrow::before {
+  content: '↑';
+  font-size: 18px;
+  line-height: 1;
+  color: var(--accent);
+}
+
+/* ============================================================
+   V5 · Bottom sheet / popover (modal-like)
+   ============================================================ */
+.irv-v5-stage {
+  position: relative;
+  min-height: 380px;
+}
+.irv-v5-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(28, 32, 70, 0.32);
+  z-index: 1;
+  pointer-events: none;
+  animation: irv-fade 0.2s ease;
+}
+@keyframes irv-fade { from { opacity: 0; } to { opacity: 1; } }
+.irv-v5-sheet {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  z-index: 2;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -8px 32px rgba(28, 32, 70, 0.16);
+  padding: 14px 18px 16px;
+  animation: irv-rise 0.22s ease;
+}
+@keyframes irv-rise { from { transform: translateY(60%); } to { transform: translateY(0); } }
+.irv-v5-grip {
+  width: 36px; height: 4px;
+  background: var(--border-strong);
+  border-radius: 2px;
+  margin: 0 auto 12px;
+}
+.irv-v5-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.irv-v5-head svg { color: var(--accent-ink); }
+.irv-v5-head-target {
+  color: var(--accent-ink);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  font-family: var(--sans);
+  font-size: 12px;
+}
+.irv-v5-x {
+  margin-left: auto;
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.irv-v5-x:hover { background: var(--bg); color: var(--ink); }
+.irv-v5-textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: var(--sans);
+  font-size: 14px;
+  resize: vertical;
+  min-height: 80px;
+  outline: none;
+  color: var(--ink);
+}
+.irv-v5-textarea:focus { border-color: var(--accent); }
+.irv-v5-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+}
+.irv-v5-tool {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.irv-v5-tool:hover { background: var(--bg); color: var(--accent-ink); }
+.irv-v5-spacer { flex: 1; }
+.irv-v5-count {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  margin-right: 8px; font-variant-numeric: tabular-nums;
+}
+.irv-v5-submit {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent);
+  padding: 5px 18px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.irv-v5-submit:hover { background: var(--accent); color: white; }
+
+/* ============================================================
+   V6 · Two-stage: tiny chip first, then expand
+   ============================================================ */
+.irv-v6-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 22px 8px 70px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft-2);
+  border-left: 3px solid var(--accent);
+  animation: irv-slide 0.18s ease;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.irv-v6-chip-l {
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.irv-v6-chip-handle {
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.irv-v6-chip-expand {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--accent-ink);
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.irv-v6-chip-expand:hover { background: var(--accent); color: white; }
+.irv-v6-chip-x {
+  width: 22px; height: 22px;
+  display: grid; place-items: center;
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.irv-v6-chip-x:hover { color: var(--bad); }

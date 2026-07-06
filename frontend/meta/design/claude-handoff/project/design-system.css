@@ -1,0 +1,967 @@
+/* ============================================================
+   PleromaNet — Design System overview · page styles
+   ============================================================ */
+
+.ds-page {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+}
+
+/* ===== Header ===== */
+.ds-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+.ds-header .brand-mark { width: 44px; height: 44px; }
+.ds-header .brand-mark svg { width: 28px; height: 28px; }
+.ds-header-r { display: flex; align-items: center; gap: 18px; }
+.ds-app-link {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--bg);
+  transition: background 0.15s, color 0.15s;
+}
+.ds-app-link:hover { background: var(--accent-soft); }
+
+.ds-theme-picker {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--bg);
+}
+.ds-theme-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ds-theme-chip:hover { color: var(--ink); }
+.ds-theme-chip.active { background: var(--accent-soft); color: var(--accent-ink); }
+.ds-theme-swatch {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 2px;
+  border: 1px solid var(--border-strong);
+  display: block;
+  overflow: hidden;
+}
+.ds-theme-swatch span:nth-child(1) {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 50%;
+  display: block;
+}
+.ds-theme-swatch span:nth-child(2) {
+  position: absolute;
+  inset: 0 50% 50% 0;
+  display: block;
+  opacity: 0.4;
+}
+
+/* ===== Layout ===== */
+.ds-body {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+.ds-nav {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  padding: 32px 0 32px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+.ds-nav-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  margin-bottom: 12px;
+  padding: 0 12px;
+}
+.ds-nav-item {
+  display: block;
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--ink-2);
+  border-left: 1px solid var(--border);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.ds-nav-item:hover {
+  background: var(--accent-soft-2);
+  color: var(--ink);
+}
+.ds-nav-item.active {
+  color: var(--accent-ink);
+  border-left-color: var(--accent);
+  background: var(--accent-soft-2);
+}
+.ds-nav-foot {
+  margin-top: 24px;
+  padding: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--muted-2);
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 4px;
+}
+
+.ds-main {
+  padding: 32px 48px 80px;
+  min-width: 0;
+}
+
+/* ===== Slab ===== */
+.ds-slab {
+  padding-top: 16px;
+  padding-bottom: 56px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 32px;
+  scroll-margin-top: 90px;
+}
+.ds-slab:last-of-type { border-bottom: none; }
+.ds-slab-head {
+  margin-bottom: 24px;
+  max-width: 720px;
+}
+.ds-kicker {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  margin-bottom: 8px;
+}
+.ds-h2 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 36px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  margin: 0;
+  color: var(--ink);
+}
+.ds-sub {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  margin: 10px 0 0;
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+.ds-sub-h {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 28px 0 14px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.ds-sub-h:first-child { margin-top: 0; }
+
+/* ===== Grid ===== */
+.ds-grid { display: grid; gap: 18px; }
+.ds-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ds-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ds-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+@media (max-width: 1100px) {
+  .ds-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ds-grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .ds-grid-4, .ds-grid-3, .ds-grid-2 { grid-template-columns: 1fr; }
+}
+
+/* ===== Specimen ===== */
+.ds-spec {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ds-spec-span-2 { grid-column: span 2; }
+.ds-spec-stage {
+  flex: 1;
+  background:
+    repeating-linear-gradient(45deg, transparent 0, transparent 12px, rgba(0,0,0,0.02) 12px, rgba(0,0,0,0.02) 13px);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  min-height: 100px;
+}
+.ds-spec-stage.padded {
+  padding: 24px;
+  align-items: center;
+}
+.ds-spec-surface .ds-spec-stage { background: var(--bg); }
+.ds-spec-dark .ds-spec-stage { background: var(--ink); }
+.ds-spec-foot {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  background: var(--panel-2);
+}
+.ds-spec-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+.ds-spec-note {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.ds-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+
+/* ===== Color tokens ===== */
+.ds-tok-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+}
+.ds-tok {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 2px;
+}
+.ds-tok-swatch {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-size: 22px;
+  line-height: 1;
+}
+.ds-tok-meta { min-width: 0; }
+.ds-tok-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ds-tok-val {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ===== Type ===== */
+.ds-type-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ds-type-row {
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 2px;
+}
+.ds-type-sample {
+  font-size: 32px;
+  line-height: 1.15;
+  color: var(--ink);
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+}
+.ds-type-meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+/* ===== Theme cards ===== */
+.ds-theme-card {
+  border: 1px solid;
+  border-radius: 2px;
+  overflow: hidden;
+  min-height: 110px;
+}
+
+/* ===== Icon gallery ===== */
+.ds-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+.ds-icon-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 8px 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 2px;
+}
+.ds-icon-box {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+  border-radius: 2px;
+}
+.ds-icon-name {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+/* ===== Avatar gallery ===== */
+.ds-av-gallery { display: flex; flex-direction: column; gap: 24px; }
+.ds-av-section {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  padding: 16px 20px;
+  border-radius: 2px;
+}
+.ds-av-section-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+.ds-av-row {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.ds-av-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.ds-av-name {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+/* ===== Banner variants (VaporBanner gallery) ===== */
+.ds-banner-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+.ds-banner-cell {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 2px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ds-banner-tile {
+  width: 100%;
+  aspect-ratio: 16 / 7;
+  position: relative;
+  overflow: hidden;
+}
+.ds-banner-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+.ds-banner-crop {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+  border: 1px solid var(--border);
+}
+.ds-banner-text { min-width: 0; }
+.ds-banner-note {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--muted-2);
+  margin-top: 2px;
+}
+
+/* ===== Size cells (variant comparison) ===== */
+.ds-size-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.ds-size-cell {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ds-size-stage {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 14px 8px 12px;
+  background:
+    repeating-linear-gradient(45deg, transparent 0, transparent 10px, rgba(0,0,0,0.025) 10px, rgba(0,0,0,0.025) 11px),
+    var(--panel);
+  min-height: 80px;
+}
+.ds-size-meta {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+.ds-size-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ds-size-variant {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+.ds-size-dim {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent-ink);
+}
+.ds-size-shape {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+}
+.ds-size-shape-circle {
+  border-radius: 8px;
+}
+.ds-size-role {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* ===== Post anatomy markers ===== */
+.ds-post-anatomy {
+  position: relative;
+  overflow: visible;
+}
+.ds-anatomy-marker {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 0 2px var(--panel), 0 4px 12px -2px rgba(0,0,0,0.3);
+  pointer-events: none;
+  z-index: 4;
+}
+/* Markers cluster on the LEFT edge of the post, vertically aligned with
+   their target region. Number 2 (PostHead) sits top-right since it labels
+   the row that runs across the top of the right column. */
+.ds-post-anatomy .ds-mk-1 { top: 12px;    left: 12px; }   /* over avatar */
+.ds-post-anatomy .ds-mk-2 { top: 12px;    right: 12px; }  /* PostHead row */
+.ds-post-anatomy .ds-mk-3 { top: 64px;    left: 12px; }   /* Body */
+.ds-post-anatomy .ds-mk-4 { top: 130px;   left: 12px; }   /* PostMedia */
+.ds-post-anatomy .ds-mk-5 { bottom: 12px; left: 12px; }   /* PostActions */
+
+/* ===== Anatomy section ===== */
+.ds-anatomy {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 24px;
+  align-items: start;
+}
+.ds-anatomy-fig {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ds-anatomy-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.ds-anatomy-list li {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+.ds-anatomy-list li .m {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  text-align: center;
+  border-radius: 2px;
+  padding: 2px 0;
+}
+.ds-anatomy-list b { color: var(--ink); font-weight: 600; }
+@media (max-width: 900px) {
+  .ds-anatomy { grid-template-columns: 1fr; }
+}
+
+/* ===== Phone frames ===== */
+.ds-phone-row {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.ds-phone-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.ds-phone {
+  width: 375px;
+  height: 720px;
+  background: #15131c;
+  border-radius: 38px;
+  padding: 10px;
+  box-shadow: 0 30px 60px -20px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.1);
+  position: relative;
+  flex-shrink: 0;
+}
+.ds-phone-notch {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 110px;
+  height: 26px;
+  background: #15131c;
+  border-radius: 0 0 16px 16px;
+  z-index: 5;
+}
+.ds-phone-screen {
+  width: 100%;
+  height: 100%;
+  border-radius: 30px;
+  overflow: hidden;
+  position: relative;
+  background: var(--bg);
+}
+.ds-phone-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ===== Mobile app preview inside phone ===== */
+.ds-mobile-app {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: var(--bg);
+}
+.ds-mobile-statusbar {
+  height: 36px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 4px 28px 6px;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+.ds-mobile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ds-mobile-feed {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg);
+}
+.ds-mobile-feed .post { padding: 12px 14px; grid-template-columns: 40px 1fr; gap: 10px; }
+.ds-mobile-feed .post-av { width: 40px; height: 40px; }
+.ds-mobile-bottom {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  padding: 6px 4px 10px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ds-mobile-bottom .mob-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 4px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  position: relative;
+  border-radius: 4px;
+}
+.ds-mobile-bottom .mob-tab svg { width: 18px; height: 18px; }
+.ds-mobile-bottom .mob-tab.active { color: var(--accent-ink); }
+.ds-mobile-bottom .tab-badge {
+  position: absolute;
+  top: 4px;
+  right: 50%;
+  margin-right: -16px;
+  background: var(--bad);
+  color: white;
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 6px;
+  min-width: 14px;
+  text-align: center;
+}
+
+.ds-mobile-drawer-inner { flex: 1; overflow-y: auto; padding-bottom: 20px; }
+.ds-mobile-thread { flex: 1; overflow-y: auto; padding: 10px; }
+.ds-mobile-thread .focused-av { width: 44px; height: 44px; }
+.ds-mobile-thread .post { padding: 12px 14px; grid-template-columns: 40px 1fr; gap: 10px; }
+.ds-mobile-thread .post-av { width: 40px; height: 40px; }
+
+/* ===== Radio + Oekaki previews ===== */
+.ds-radio-stage {
+  padding: 20px;
+  background: var(--bg);
+  display: flex;
+  justify-content: center;
+  min-height: 80px;
+}
+.ds-radio-stage.tall {
+  min-height: 400px;
+  align-items: flex-start;
+}
+.ds-radio-host {
+  position: relative;
+  width: 360px;
+  max-width: 100%;
+}
+/* Override the Radio's fixed positioning when rendered inline in the DS. */
+.ds-radio-host .radio,
+.ds-radio-host .radio-revive {
+  position: static;
+  width: 100%;
+  max-width: none;
+  box-shadow: 0 4px 20px -8px rgba(0,0,0,0.18);
+}
+
+.ds-nps-wrap {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.ds-nps-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+/* Oekaki anatomy — scaled modal with numbered markers on real regions */
+.ds-oekaki-anatomy {
+  position: relative;
+  overflow: hidden;
+  background: var(--ink);
+  padding: 18px;
+  min-height: 360px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ds-oekaki-anatomy .ds-oekaki-scale {
+  width: 920px;
+  transform: scale(0.55);
+  transform-origin: center center;
+  pointer-events: none;
+  user-select: none;
+}
+.ds-oekaki-anatomy .ds-anatomy-marker { z-index: 5; }
+/* Markers positioned over the corresponding regions of the scaled modal.
+   The scaled modal is centered; these coordinates anchor to that centered box. */
+.ds-oekaki-anatomy .ds-omk-1 { top: 50%; left: calc(50% - 232px); transform: translateY(-50%); }   /* Tool rail (far left) */
+.ds-oekaki-anatomy .ds-omk-2 { top: 50%; left: calc(50% - 70px);  transform: translateY(-50%); }   /* Canvas (center) */
+.ds-oekaki-anatomy .ds-omk-3 { top: 50%; left: calc(50% + 170px); transform: translateY(-50%); }   /* Side panel (right) */
+.ds-oekaki-anatomy .ds-omk-4 { bottom: 36px; left: calc(50% + 200px); }                            /* Footer (bottom-right of modal) */
+
+/* Oekaki preview ----------------------------------------------- */
+.ds-oekaki-preview {
+  position: relative;
+  background: var(--ink);
+  padding: 18px;
+  min-height: 360px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ds-oekaki-scale {
+  /* Scale the modal down to fit, since it's normally fullscreen. */
+  width: 920px;
+  transform: scale(0.55);
+  transform-origin: center center;
+  pointer-events: none;
+  user-select: none;
+}
+/* When OekakiModal is rendered inside ds-oekaki-scale, neutralize its
+   fullscreen backdrop and make it sit in the flow. */
+.ds-oekaki-scale .oek-backdrop {
+  position: static;
+  background: transparent;
+  padding: 0;
+  animation: none;
+}
+.ds-oekaki-scale .oek-window {
+  max-width: none;
+  max-height: none;
+  height: 600px;
+}
+.ds-oekaki-launch {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  padding: 8px 14px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  background: var(--accent);
+  color: white;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: filter 0.15s;
+  z-index: 2;
+}
+.ds-oekaki-launch:hover { filter: brightness(1.08); }
+
+/* Oekaki anatomy diagram */
+.ds-oekaki-diagram {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  background: var(--panel-2);
+  display: flex;
+  flex-direction: column;
+  border-radius: 3px;
+  overflow: hidden;
+  min-height: 280px;
+}
+.ds-od-titlebar {
+  height: 24px;
+  background: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  color: rgba(255,255,255,0.7);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.ds-od-titlebar > span:nth-child(-n+3) {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.4);
+  flex-shrink: 0;
+}
+.ds-od-titlebar .l { margin-left: 8px; }
+.ds-od-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 52px 1fr 180px;
+  gap: 0;
+}
+.ds-od-rail, .ds-od-canvas, .ds-od-side {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.ds-od-rail {
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+}
+.ds-od-canvas {
+  background:
+    repeating-conic-gradient(rgba(0,0,0,0.04) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px,
+    var(--panel-2);
+  min-height: 160px;
+}
+.ds-od-side {
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+}
+.ds-od-rail span, .ds-od-canvas span, .ds-od-side span, .ds-od-foot span {
+  font-family: var(--mono);
+  font-size: 22px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1.5px solid var(--accent);
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+.ds-od-foot {
+  height: 36px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 12px;
+}
+
+@media (max-width: 720px) {
+  .ds-oekaki-scale { transform: scale(0.35); }
+}
+
+.ds-foot {
+  margin-top: 40px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+@media (max-width: 720px) {
+  .ds-foot { flex-direction: column; gap: 8px; }
+}
+
+/* ===== Responsive nav collapse ===== */
+@media (max-width: 900px) {
+  .ds-body { grid-template-columns: 1fr; }
+  .ds-nav {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    max-height: none;
+    padding: 12px 16px;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ds-nav-label, .ds-nav-foot { display: none; }
+  .ds-nav-item {
+    border-left: none;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    padding: 6px 10px;
+  }
+  .ds-nav-item.active {
+    border-left: none;
+    border-bottom-color: var(--accent);
+  }
+  .ds-main { padding: 24px 20px 60px; }
+  .ds-header { padding: 14px 18px; }
+  .ds-header .brand-tag { display: none; }
+}

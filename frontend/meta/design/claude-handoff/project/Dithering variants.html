@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Image attachment — dithering approaches</title>
+<link rel="stylesheet" href="styles.css"/>
+<style>
+body { background: var(--bg); margin: 0; padding: 32px 0 60px; font-family: var(--sans); color: var(--ink); }
+.dshell { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+.dhead { margin-bottom: 28px; }
+.dh1 { font-family: var(--serif); font-size: 36px; line-height: 1.05; margin: 0 0 6px; font-weight: 400; }
+.dsub { font-size: 14px; color: var(--muted); line-height: 1.55; max-width: 680px; }
+.drow { margin-bottom: 44px; }
+.dlabel { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.dlabel .n { font-family: var(--serif); font-style: italic; font-size: 22px; color: var(--accent-ink); }
+.dlabel .t { font-family: var(--serif); font-size: 20px; }
+.dlabel .d { font-size: 12px; color: var(--muted); margin-left: auto; max-width: 60%; text-align: right; line-height: 1.45; }
+.dgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.dcell { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; position: relative; }
+.dcell img { display: block; width: 100%; height: 240px; object-fit: cover; }
+.dcap {
+  position: absolute; left: 8px; bottom: 8px;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink); background: var(--panel); padding: 3px 7px; border: 1px solid var(--border-strong);
+  border-radius: 2px; opacity: 0.92;
+}
+
+/* ====== Approach A — Duotone (SVG feColorMatrix) ====== */
+.fxA img { filter: url(#duotoneSimoun) contrast(1.05); }
+.fxA-d img { filter: url(#duotoneDusk) contrast(1.05); }
+.fxA-c img { filter: url(#duotoneCream) contrast(1.05); }
+
+/* ====== Approach B — Posterize + saturation cut + tint ====== */
+.fxB img { filter: url(#poster4) saturate(0.55); }
+.fxB-d img { filter: url(#poster4) saturate(0.55) hue-rotate(180deg) brightness(0.95); }
+.fxB-c img { filter: url(#poster3) saturate(0.4) sepia(0.45); }
+
+/* ====== Approach C — 1-bit threshold with Bayer overlay ====== */
+.fxC { position: relative; }
+.fxC img { filter: url(#bw1bit) contrast(1.05); }
+.fxC::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.06) 0 1px, transparent 1px 2px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.12) 0 1px, transparent 1px 2px);
+  mix-blend-mode: overlay;
+}
+.fxC-d img { filter: url(#bw1bit) contrast(1.05) invert(0); }
+.fxC-d {
+  background: #18203f;
+}
+.fxC-d img { mix-blend-mode: screen; opacity: 0.95; }
+
+/* ====== Approach D — Ordered Bayer dither (CSS-only emulated) ====== */
+.fxD { position: relative; isolation: isolate; }
+.fxD img {
+  filter: url(#poster4) saturate(0.3) brightness(1.02);
+}
+/* Bayer 4x4 SVG pattern overlay, multiplied to break gradients into dot pattern */
+.fxD::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'><rect width='1' height='1' x='0' y='0' fill='%23000' opacity='0.35'/><rect width='1' height='1' x='2' y='2' fill='%23000' opacity='0.35'/><rect width='1' height='1' x='2' y='0' fill='%23fff' opacity='0.2'/><rect width='1' height='1' x='0' y='2' fill='%23fff' opacity='0.2'/></svg>");
+  background-size: 4px 4px;
+  image-rendering: pixelated;
+  mix-blend-mode: overlay;
+  opacity: 0.85;
+}
+
+/* ====== Approach E — Halftone (radial-gradient grid) ====== */
+.fxE { position: relative; }
+.fxE img { filter: url(#poster3) saturate(0.5); }
+.fxE::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(circle, rgba(0,0,0,0.65) 0.6px, transparent 1.3px);
+  background-size: 3px 3px;
+  mix-blend-mode: multiply;
+  opacity: 0.4;
+}
+
+/* ====== Approach F — CRT scanlines (subtle) ====== */
+.fxF { position: relative; }
+.fxF img { filter: url(#poster4) saturate(0.8) contrast(1.08); }
+.fxF::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,0.18) 0 1px, transparent 1px 3px);
+  mix-blend-mode: multiply;
+}
+.fxF::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  box-shadow: inset 0 0 80px rgba(0,0,0,0.35);
+}
+
+/* hover lift = show original */
+.dcell:hover img { filter: none; }
+.dcell:hover::before, .dcell:hover::after { display: none; }
+.dcell:hover .dcap::after { content: ' · ORIGINAL'; color: var(--accent-ink); }
+
+/* show-original badge */
+.dcap-r { background: var(--accent); color: #1a1510; border-color: var(--accent); }
+
+/* mini in-feed preview */
+.miniwrap {
+  display: grid; grid-template-columns: 220px 1fr; gap: 20px; align-items: start;
+  margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--border);
+}
+.minilbl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.minihint { font-size: 13px; color: var(--ink-2); line-height: 1.55; margin-top: 4px; }
+.miniposts { display: flex; flex-direction: column; gap: 12px; }
+.minipost { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; display: flex; gap: 12px; }
+.minipost-av { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #e8763a, #d68b8b); flex-shrink: 0; }
+.minipost-body { flex: 1; min-width: 0; }
+.minipost-h { display: flex; gap: 6px; align-items: baseline; }
+.minipost-n { font-weight: 600; color: var(--ink); font-size: 13px; }
+.minipost-handle { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.minipost-t { font-size: 14px; line-height: 1.5; margin: 2px 0 8px; color: var(--ink-2); }
+.minipost-img { border-radius: 4px; overflow: hidden; border: 1px solid var(--border); position: relative; }
+.minipost-img img { display: block; width: 100%; height: 200px; object-fit: cover; filter: url(#duotoneSimoun) contrast(1.05); }
+.minipost-imgcap { position: absolute; right: 8px; top: 8px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; padding: 2px 6px; background: rgba(20, 27, 54, 0.85); color: #f4ebd8; border-radius: 2px; }
+
+</style>
+</head>
+<body>
+
+<!-- Reusable SVG filters -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- Duotone — Simoun (navy → orange) -->
+    <filter id="duotoneSimoun" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="
+        0.299 0.587 0.114 0 0
+        0.299 0.587 0.114 0 0
+        0.299 0.587 0.114 0 0
+        0     0     0     1 0"/>
+      <feComponentTransfer>
+        <feFuncR type="table" tableValues="0.094 0.91"/>
+        <feFuncG type="table" tableValues="0.125 0.463"/>
+        <feFuncB type="table" tableValues="0.247 0.227"/>
+      </feComponentTransfer>
+    </filter>
+    <!-- Duotone — Dusk (deep purple → soft pink) -->
+    <filter id="duotoneDusk" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="
+        0.299 0.587 0.114 0 0
+        0.299 0.587 0.114 0 0
+        0.299 0.587 0.114 0 0
+        0     0     0     1 0"/>
+      <feComponentTransfer>
+        <feFuncR type="table" tableValues="0.102 0.906"/>
+        <feFuncG type="table" tableValues="0.078 0.659"/>
+        <feFuncB type="table" tableValues="0.180 0.788"/>
+      </feComponentTransfer>
+    </filter>
+    <!-- Duotone — Cream (warm ink → lilac) -->
+    <filter id="duotoneCream" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="
+        0.299 0.587 0.114 0 0
+        0.299 0.587 0.114 0 0
+        0.299 0.587 0.114 0 0
+        0     0     0     1 0"/>
+      <feComponentTransfer>
+        <feFuncR type="table" tableValues="0.165 0.961"/>
+        <feFuncG type="table" tableValues="0.145 0.945"/>
+        <feFuncB type="table" tableValues="0.125 0.910"/>
+      </feComponentTransfer>
+    </filter>
+    <!-- Posterize 4 levels per channel -->
+    <filter id="poster4" color-interpolation-filters="sRGB">
+      <feComponentTransfer>
+        <feFuncR type="discrete" tableValues="0 0.33 0.66 1"/>
+        <feFuncG type="discrete" tableValues="0 0.33 0.66 1"/>
+        <feFuncB type="discrete" tableValues="0 0.33 0.66 1"/>
+      </feComponentTransfer>
+    </filter>
+    <!-- Posterize 3 levels per channel -->
+    <filter id="poster3" color-interpolation-filters="sRGB">
+      <feComponentTransfer>
+        <feFuncR type="discrete" tableValues="0 0.5 1"/>
+        <feFuncG type="discrete" tableValues="0 0.5 1"/>
+        <feFuncB type="discrete" tableValues="0 0.5 1"/>
+      </feComponentTransfer>
+    </filter>
+    <!-- 1-bit threshold to b/w -->
+    <filter id="bw1bit" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="
+        0.299 0.587 0.114 0 0
+        0.299 0.587 0.114 0 0
+        0.299 0.587 0.114 0 0
+        0     0     0     1 0"/>
+      <feComponentTransfer>
+        <feFuncR type="discrete" tableValues="0 1"/>
+        <feFuncG type="discrete" tableValues="0 1"/>
+        <feFuncB type="discrete" tableValues="0 1"/>
+      </feComponentTransfer>
+    </filter>
+  </defs>
+</svg>
+
+<div class="dshell">
+  <div class="dhead">
+    <h1 class="dh1">Image attachments — dithering approaches</h1>
+    <div class="dsub">Six in-browser treatments. All zero-cost: SVG filters + a CSS overlay, applied as a default style — the original loads underneath, hover any tile to see it raw (would be a click in production). My favorite for default is <b>A · Duotone</b> — readable, brand-consistent, retints per theme. <b>D · Bayer</b> and <b>E · Halftone</b> are great for accent posts but get noisy at small sizes.</div>
+  </div>
+
+  <!-- Approach A -->
+  <div class="drow">
+    <div class="dlabel"><span class="n">A.</span><span class="t">Duotone</span><span class="d">Luminance mapped onto a two-color gradient. One filter per theme — the image always agrees with the current palette. Cheap, crisp, scales well.</span></div>
+    <div class="dgrid">
+      <div class="dcell fxA"><img src="samples/falco.png" alt=""/><span class="dcap">Simoun</span></div>
+      <div class="dcell fxA-d"><img src="samples/dragon.png" alt=""/><span class="dcap">Dusk</span></div>
+      <div class="dcell fxA-c"><img src="samples/cat-door.webp" alt=""/><span class="dcap">Cream</span></div>
+    </div>
+  </div>
+
+  <!-- Approach B -->
+  <div class="drow">
+    <div class="dlabel"><span class="n">B.</span><span class="t">Posterize + desaturate</span><span class="d">3–4 levels per channel, saturation lowered. Keeps the original hues but flattens them into print-like flats. Hint of sepia on the cream tile.</span></div>
+    <div class="dgrid">
+      <div class="dcell fxB"><img src="samples/falco.png" alt=""/><span class="dcap">4 lvl · sat 55</span></div>
+      <div class="dcell fxB-d"><img src="samples/dragon.png" alt=""/><span class="dcap">4 lvl · hue shift</span></div>
+      <div class="dcell fxB-c"><img src="samples/cat-door.webp" alt=""/><span class="dcap">3 lvl · sepia</span></div>
+    </div>
+  </div>
+
+  <!-- Approach C -->
+  <div class="drow">
+    <div class="dlabel"><span class="n">C.</span><span class="t">1-bit threshold</span><span class="d">Pure black/white. With Simoun this becomes navy-on-parchment via screen blend. Aggressive but unmistakeable — best as an opt-in for memes and pixel art.</span></div>
+    <div class="dgrid">
+      <div class="dcell fxC"><img src="samples/falco.png" alt=""/><span class="dcap">1-bit</span></div>
+      <div class="dcell fxC-d"><img src="samples/dragon.png" alt=""/><span class="dcap">1-bit · screen</span></div>
+      <div class="dcell fxC"><img src="samples/cat-door.webp" alt=""/><span class="dcap">1-bit</span></div>
+    </div>
+  </div>
+
+  <!-- Approach D -->
+  <div class="drow">
+    <div class="dlabel"><span class="n">D.</span><span class="t">Bayer 4×4</span><span class="d">Ordered dither pattern overlaid on a posterized image. The closest CSS-only emulation of real Floyd–Steinberg without going to canvas. Gets the crunchy retro feel.</span></div>
+    <div class="dgrid">
+      <div class="dcell fxD"><img src="samples/falco.png" alt=""/><span class="dcap">Bayer 4×4</span></div>
+      <div class="dcell fxD"><img src="samples/dragon.png" alt=""/><span class="dcap">Bayer 4×4</span></div>
+      <div class="dcell fxD"><img src="samples/cat-door.webp" alt=""/><span class="dcap">Bayer 4×4</span></div>
+    </div>
+  </div>
+
+  <!-- Approach E -->
+  <div class="drow">
+    <div class="dlabel"><span class="n">E.</span><span class="t">Halftone dots</span><span class="d">Newsprint-style. A radial-gradient grid multiplied over a posterized image. Very printable; very vaporwave-record-sleeve.</span></div>
+    <div class="dgrid">
+      <div class="dcell fxE"><img src="samples/falco.png" alt=""/><span class="dcap">Halftone</span></div>
+      <div class="dcell fxE"><img src="samples/dragon.png" alt=""/><span class="dcap">Halftone</span></div>
+      <div class="dcell fxE"><img src="samples/cat-door.webp" alt=""/><span class="dcap">Halftone</span></div>
+    </div>
+  </div>
+
+  <!-- Approach F -->
+  <div class="drow">
+    <div class="dlabel"><span class="n">F.</span><span class="t">CRT scanlines</span><span class="d">Posterized + horizontal scanlines + vignette. Reads more "old TV broadcast" than dither, but pairs well with the FB-image / video-still meme aesthetic.</span></div>
+    <div class="dgrid">
+      <div class="dcell fxF"><img src="samples/falco.png" alt=""/><span class="dcap">CRT</span></div>
+      <div class="dcell fxF"><img src="samples/dragon.png" alt=""/><span class="dcap">CRT</span></div>
+      <div class="dcell fxF"><img src="samples/cat-door.webp" alt=""/><span class="dcap">CRT</span></div>
+    </div>
+  </div>
+
+  <!-- In-feed preview -->
+  <div class="miniwrap">
+    <div>
+      <div class="minilbl">In feed</div>
+      <div class="minihint">How <b>A · Duotone</b> reads as the default attachment treatment, with a small badge telling the user the image is stylized. Click to view raw.</div>
+    </div>
+    <div class="miniposts">
+      <div class="minipost">
+        <div class="minipost-av"></div>
+        <div class="minipost-body">
+          <div class="minipost-h"><span class="minipost-n">orbit</span><span class="minipost-handle">@orbit@spacebear.net · 4m</span></div>
+          <div class="minipost-t">found in the magic flute VCD. how is this so beautiful.</div>
+          <div class="minipost-img"><img src="samples/dragon.png" alt=""/><span class="minipost-imgcap">Simoun · click to view raw</span></div>
+        </div>
+      </div>
+      <div class="minipost">
+        <div class="minipost-av"></div>
+        <div class="minipost-body">
+          <div class="minipost-h"><span class="minipost-n">mossy</span><span class="minipost-handle">@mossy@garden.cafe · 1h</span></div>
+          <div class="minipost-t">peephole patrol, 1987.</div>
+          <div class="minipost-img"><img src="samples/cat-door.webp" alt=""/><span class="minipost-imgcap">Simoun · click to view raw</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

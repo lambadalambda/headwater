@@ -1,0 +1,945 @@
+/* ============================================================
+   Boost / repeated post variants — styles
+   Built on PleromaNet tokens. Five variants + baseline.
+   ============================================================ */
+
+.bv-page {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.bv-page-h {
+  padding: 16px 22px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.bv-kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  margin-bottom: 4px;
+}
+.bv-h1 {
+  font-family: var(--serif);
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.bv-sub {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 6px 0 0;
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+.bv-cheat {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 6px 14px;
+  padding: 12px 22px 14px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+.bv-cheat-k {
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.bv-page-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+
+/* ============================================================
+   Shared post shell
+   ============================================================ */
+.bv-postwrap {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bv-post {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.bv-post-av {
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.bv-post-right { min-width: 0; }
+.bv-post-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.bv-post-name { font-weight: 600; font-size: 14px; }
+.bv-post-handle { font-family: var(--mono); font-size: 11px; color: var(--accent-ink); }
+.bv-post-time { font-family: var(--mono); font-size: 11px; color: var(--muted-2); margin-left: auto; }
+.bv-post-body {
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 4px 0 12px;
+  white-space: pre-wrap;
+  text-wrap: pretty;
+}
+.bv-post-media {
+  aspect-ratio: 16 / 9;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.bv-post-media img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  filter: var(--photo-filter);
+}
+.bv-post-actions {
+  display: flex;
+  gap: 18px;
+}
+.bv-post-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.bv-post-action.on { color: var(--accent-ink); background: var(--accent-soft-2); }
+.bv-post-action svg { width: 14px; height: 14px; }
+.bv-post-action.boost { color: #4a7a55; }
+
+/* ---------- Mini avatars used in all variants ---------- */
+.bv-mini-av {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  display: inline-block;
+}
+.bv-mini-av.sm { width: 14px; height: 14px; border-radius: 2px; }
+
+/* ============================================================
+   V0 · Current Pleroma — small avatar + name + arrow + repeated
+   ============================================================ */
+.bv-v0-header {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 0;
+  align-items: center;
+  padding: 4px 16px 0 16px;
+}
+.bv-v0-av {
+  width: 28px;
+  height: 28px;
+  border-radius: 3px;
+  margin-left: 16px;
+}
+.bv-v0-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.bv-v0-name { font-weight: 600; color: var(--ink); }
+.bv-v0-handle { font-family: var(--mono); font-size: 11.5px; color: var(--accent-ink); }
+.bv-v0-arrow { color: #4a7a55; }
+.bv-v0-label { color: var(--muted); }
+
+/* ============================================================
+   V1 · Compact attribution chip ★
+   Twitter-style: single small mono line above the post
+   ============================================================ */
+.bv-v1-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 0 64px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.bv-v1-chip svg { color: var(--good-ink); flex-shrink: 0; }
+.bv-v1-chip-by { color: var(--ink-2); font-family: var(--sans); font-size: 12.5px; font-weight: 600; }
+.bv-v1-chip-handle { color: var(--accent-ink); }
+.bv-v1-chip-label { color: var(--muted-2); text-transform: uppercase; letter-spacing: 0.12em; }
+
+/* ============================================================
+   V2 · Avatar-inline attribution
+   Single line with mini avatar + name + handle + glyph
+   ============================================================ */
+.bv-v2-attr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 0 64px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  flex-wrap: wrap;
+}
+.bv-v2-attr svg { color: var(--good-ink); flex-shrink: 0; }
+.bv-v2-attr-name { font-weight: 600; color: var(--ink); }
+.bv-v2-attr-handle { font-family: var(--mono); font-size: 11px; color: var(--accent-ink); }
+.bv-v2-attr-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+.bv-v2-attr-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-2);
+  margin-left: auto;
+}
+
+/* ============================================================
+   V3 · Avatar stack for multi-boost
+   Multiple repeaters → stacked mini avatars + name + +N
+   ============================================================ */
+.bv-v3-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px 0 64px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  flex-wrap: wrap;
+}
+.bv-v3-row svg { color: var(--good-ink); flex-shrink: 0; }
+.bv-v3-avstack {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.bv-v3-avstack .bv-mini-av {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  border: 2px solid var(--panel);
+  margin-left: -6px;
+  background-clip: padding-box;
+}
+.bv-v3-avstack .bv-mini-av:first-child { margin-left: 0; }
+.bv-v3-name { font-weight: 600; color: var(--ink); }
+.bv-v3-and { color: var(--muted-2); }
+.bv-v3-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent-ink);
+  background: var(--accent-soft-2);
+  padding: 1px 7px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.bv-v3-count:hover { background: var(--accent-soft); }
+.bv-v3-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+.bv-v3-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-2);
+  margin-left: auto;
+}
+
+/* ============================================================
+   V4 · Left-rail attribution (stem column)
+   Repeater avatar pulled to its own column on the left, linked
+   by a faint stem-line down through the post.
+   ============================================================ */
+.bv-v4-grid {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  align-items: stretch;
+}
+.bv-v4-rail {
+  position: relative;
+  padding: 14px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.bv-v4-rail-line {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 56px;
+  bottom: 14px;
+  width: 2px;
+  background: var(--border);
+  border-radius: 1px;
+  z-index: 0;
+}
+.bv-v4-rail-avwrap {
+  position: relative;
+  z-index: 1;
+}
+.bv-v4-rail-av {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  border: 2px solid var(--panel);
+}
+.bv-v4-rail-icon {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  width: 16px;
+  height: 16px;
+  background: var(--good);
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: white;
+}
+.bv-v4-rail-icon svg { width: 9px; height: 9px; }
+.bv-v4-rail-meta {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  line-height: 1.4;
+  width: 100%;
+  background: var(--panel);
+  padding: 4px 0;
+}
+.bv-v4-rail-name {
+  display: block;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  text-transform: none;
+  margin-bottom: 1px;
+  padding: 0 2px;
+}
+.bv-v4-postcol {
+  border-left: 1px solid var(--border);
+  min-width: 0;
+}
+.bv-v4-postcol .bv-post {
+  padding-left: 14px;
+}
+
+/* ============================================================
+   V5 · Boost-as-quote-card (wildcard)
+   The repeater's row IS the outer post; the boosted post
+   renders as an embedded smart-card (mirroring QuotedPost).
+   ============================================================ */
+.bv-v5-outer {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.bv-v5-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.bv-v5-name { font-weight: 600; font-size: 14px; }
+.bv-v5-handle { font-family: var(--mono); font-size: 11px; color: var(--accent-ink); }
+.bv-v5-time { font-family: var(--mono); font-size: 11px; color: var(--muted-2); margin-left: auto; }
+.bv-v5-verb {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--good-ink);
+  margin: 2px 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.bv-v5-verb svg { color: var(--good-ink); }
+.bv-v5-comment {
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 4px 0 10px;
+  color: var(--ink);
+}
+.bv-v5-comment em { font-style: italic; color: var(--ink-2); }
+
+.bv-v5-card {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.bv-v5-hero {
+  background: var(--ink);
+  display: grid;
+  place-items: center;
+}
+.bv-v5-hero img {
+  width: 100%; height: 100%; object-fit: cover; filter: var(--photo-filter);
+}
+.bv-v5-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.bv-v5-kicker {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  color: var(--muted-2);
+}
+.bv-v5-text {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.bv-v5-attr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.bv-v5-attr-av {
+  width: 22px;
+  height: 22px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.bv-v5-attr-name {
+  font-weight: 600;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.bv-v5-engagement {
+  display: flex;
+  gap: 14px;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+
+/* ============================================================
+   V4 alternates · side-rail treatments that don't look like
+   the thread-line. Same column geometry; different chrome.
+   ============================================================ */
+.bv-v4-grid-wide {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: stretch;
+}
+.bv-v4-postcol-wide {
+  border-left: 1px solid var(--border);
+  min-width: 0;
+}
+.bv-v4-postcol-wide .bv-post { padding-left: 14px; }
+
+/* ---------- V4a · Tinted rail ---------- */
+.bv-v4a-rail {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(168, 213, 177, 0.16), rgba(168, 213, 177, 0.04));
+  border-right: 1px solid rgba(74, 122, 85, 0.12);
+  padding: 14px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.bv-v4a-icon {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--good);
+  display: grid; place-items: center;
+  color: white;
+}
+.bv-v4a-icon svg { width: 11px; height: 11px; }
+.bv-v4a-av {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+}
+.bv-v4a-name {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: center;
+  line-height: 1.2;
+  padding: 0 2px;
+}
+.bv-v4a-time {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--good-ink);
+}
+
+/* ---------- V4b · No-line minimal rail ---------- */
+.bv-v4b-rail {
+  position: relative;
+  padding: 14px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.bv-v4b-avwrap {
+  position: relative;
+}
+.bv-v4b-av {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+}
+.bv-v4b-badge {
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  width: 16px;
+  height: 16px;
+  background: var(--good);
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: white;
+}
+.bv-v4b-badge svg { width: 9px; height: 9px; }
+.bv-v4b-meta {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.bv-v4b-name {
+  display: block;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  text-transform: none;
+  letter-spacing: -0.01em;
+}
+
+/* ---------- V4c · Vertical label · rotated mono ---------- */
+.bv-v4-grid-thin {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  align-items: stretch;
+}
+.bv-v4-postcol-thin {
+  border-left: 1px solid var(--border);
+  min-width: 0;
+}
+.bv-v4-postcol-thin .bv-post { padding-left: 12px; }
+.bv-v4c-rail {
+  position: relative;
+  background: linear-gradient(180deg, var(--accent-soft-2), transparent);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 0 14px;
+  gap: 10px;
+}
+.bv-v4c-av {
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  position: relative;
+}
+.bv-v4c-av::after {
+  content: '';
+  position: absolute;
+  top: -4px; right: -6px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--good);
+  border: 2px solid var(--panel);
+  background-image:
+    linear-gradient(180deg, transparent 4px, var(--good) 4px),
+    radial-gradient(circle, var(--good) 0%, var(--good) 100%);
+}
+.bv-v4c-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--good-ink);
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  margin-top: 4px;
+}
+.bv-v4c-label b {
+  color: var(--ink);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+/* ---------- V4d · Quote-bar · accent left edge ---------- */
+.bv-v4d-grid {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  align-items: stretch;
+}
+.bv-v4d-rail {
+  position: relative;
+  padding: 12px 6px;
+  border-left: 4px solid var(--good);
+  background: rgba(168, 213, 177, 0.06);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.bv-v4d-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--good-ink);
+  padding: 1px 6px;
+  background: rgba(168, 213, 177, 0.18);
+  border-radius: 8px;
+}
+.bv-v4d-tag svg { width: 9px; height: 9px; }
+.bv-v4d-av {
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+}
+.bv-v4d-name {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: center;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+.bv-v4d-time {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--muted);
+}
+.bv-v4d-postcol {
+  min-width: 0;
+}
+
+/* ============================================================
+   V4e · Left edge + top attribution row
+   Same accent-green left edge as V4d, but attribution moves to
+   a horizontal row at the top so long names get full width.
+   ============================================================ */
+.bv-v4e {
+  border-left: 4px solid var(--good);
+  background: linear-gradient(90deg, rgba(168, 213, 177, 0.06), transparent 120px);
+}
+.bv-v4e-attr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 6px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(168, 213, 177, 0.04);
+  min-width: 0;
+}
+.bv-v4e-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--good-ink);
+  padding: 1px 7px 2px;
+  background: rgba(168, 213, 177, 0.22);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.bv-v4e-tag svg { width: 9px; height: 9px; }
+.bv-v4e-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.bv-v4e-handle {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+.bv-v4e-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-2);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.bv-v4e-postcol {
+  min-width: 0;
+}
+
+/* ============================================================
+   V4f · Tinted top banner — full-width green strip on top
+   ============================================================ */
+.bv-v4f-banner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 14px;
+  background: linear-gradient(180deg, rgba(168, 213, 177, 0.22), rgba(168, 213, 177, 0.08));
+  border-bottom: 1px solid rgba(74, 122, 85, 0.18);
+  min-width: 0;
+}
+.bv-v4f-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: white;
+  padding: 2px 8px 3px;
+  background: var(--good-ink);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.bv-v4f-tag svg { width: 9px; height: 9px; }
+.bv-v4f-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.bv-v4f-handle {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--good-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+.bv-v4f-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--good-ink);
+  flex-shrink: 0;
+  margin-left: auto;
+  opacity: 0.85;
+}
+
+/* ============================================================
+   V4g · Corner-tab marker — small green tab on top-left,
+   thin attribution row beneath, no rail / no banner.
+   ============================================================ */
+.bv-v4g-wrap {
+  position: relative;
+  overflow: visible;
+  margin-top: 10px;
+}
+.bv-v4g-tab {
+  position: absolute;
+  top: -10px;
+  left: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 9px 0 8px;
+  background: var(--good-ink);
+  color: white;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  border-radius: 3px 3px 0 0;
+  box-shadow: 0 1px 0 rgba(74, 122, 85, 0.35);
+}
+.bv-v4g-tab::after {
+  content: '';
+  position: absolute;
+  right: -6px;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-left: 6px solid var(--good-ink);
+  border-bottom: 20px solid transparent;
+}
+.bv-v4g-tab svg { width: 9px; height: 9px; }
+.bv-v4g-attr {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px 8px 60px;
+  border-bottom: 1px dashed var(--border);
+  min-width: 0;
+  font-size: 12.5px;
+}
+.bv-v4g-name {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.bv-v4g-handle {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+.bv-v4g-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-2);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* ============================================================
+   V4h · Top quote-bar — V4d mirrored across the diagonal.
+   4px accent-green stripe across the top, tag pill sits on it.
+   ============================================================ */
+.bv-v4h-wrap {
+  position: relative;
+  /* allow the tag pill to overhang above the card without being clipped */
+  overflow: visible;
+}
+.bv-v4h-stripe {
+  position: relative;
+  height: 4px;
+  background: var(--good);
+}
+.bv-v4h-attr {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px 8px;
+  background: rgba(168, 213, 177, 0.06);
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.bv-v4h-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--good-ink);
+  padding: 1px 7px 2px;
+  background: rgba(168, 213, 177, 0.22);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.bv-v4h-tag svg { width: 9px; height: 9px; }
+.bv-v4h-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.bv-v4h-handle {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+.bv-v4h-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-2);
+  flex-shrink: 0;
+  margin-left: auto;
+}

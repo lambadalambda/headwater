@@ -1,0 +1,294 @@
+/* ============================================================
+   Mention handling variants — styles
+   Built on top of PleromaNet tokens (--accent etc.)
+   ============================================================ */
+
+.mv-page {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.mv-page-h {
+  padding: 18px 22px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.mv-kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  margin-bottom: 4px;
+}
+.mv-h1 {
+  font-family: var(--serif);
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.mv-sub {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 6px 0 0;
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+
+/* ---------- Thread shell ---------- */
+.mv-thread {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+}
+.mv-post {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--border);
+}
+.mv-post:last-child { border-bottom: none; }
+.mv-av {
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.mv-right { min-width: 0; }
+.mv-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.mv-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink);
+}
+.mv-handle {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent-ink);
+}
+.mv-time {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted-2);
+  margin-left: auto;
+}
+.mv-reply-to {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin: 4px 0;
+}
+.mv-reply-to a {
+  color: var(--accent-ink);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.mv-body {
+  margin: 4px 0 6px;
+}
+.mv-body-text {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+  white-space: pre-wrap;
+  text-wrap: pretty;
+}
+.mv-foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
+}
+.mv-act {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 0;
+}
+.mv-act:hover { color: var(--accent-ink); }
+.mv-act-end { margin-left: auto; }
+
+/* ============================================================
+   V0 · baseline — mentions inline at full body size
+   Shared by mid-text mentions in all variants.
+   ============================================================ */
+.mv-mention-full,
+.mv-mention-inline {
+  color: var(--accent-ink);
+  font-size: 14px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.mv-mention-full:hover,
+.mv-mention-inline:hover { text-decoration: underline; }
+
+/* ============================================================
+   V1 · recipients line — body first, recipients below
+   ============================================================ */
+.mv-recipients {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 4px 0;
+  border-top: 1px dashed var(--border);
+  flex-wrap: wrap;
+}
+.mv-recipients-l {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+.mv-recipients-list {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.mv-mention-mini {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--accent-ink);
+  padding: 1px 5px;
+  background: var(--accent-soft-2);
+  border-radius: 2px;
+}
+
+/* ============================================================
+   V2 · dock above body
+   ============================================================ */
+.mv-dock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0 7px;
+  flex-wrap: wrap;
+}
+.mv-dock-l {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  color: var(--muted-2);
+  flex-shrink: 0;
+}
+.mv-dock-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.mv-dock-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent-ink);
+  padding: 1px 7px;
+  background: var(--accent-soft-2);
+  border-radius: 8px;
+  border: 1px solid var(--accent-soft);
+  transition: background 0.12s;
+  cursor: pointer;
+}
+.mv-dock-chip:hover {
+  background: var(--accent-soft);
+}
+
+/* ============================================================
+   V3 · quiet inline — muted, smaller
+   ============================================================ */
+.mv-mention-quiet {
+  color: var(--muted);
+  font-size: 12.5px;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+}
+.mv-mention-quiet:hover {
+  color: var(--accent-ink);
+}
+
+/* ============================================================
+   V4 · collapsed chip
+   ============================================================ */
+.mv-collapsed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 9px 1px 7px;
+  background: var(--accent-soft-2);
+  border: 1px solid var(--accent-soft);
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent-ink);
+  cursor: pointer;
+  transition: background 0.12s;
+  vertical-align: 1px;
+}
+.mv-collapsed:hover {
+  background: var(--accent-soft);
+}
+.mv-collapsed-arr {
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* ============================================================
+   V5 · hybrid — primary inline + overflow chip
+   ============================================================ */
+.mv-overflow {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--accent-ink);
+  padding: 1px 5px;
+  background: var(--accent-soft-2);
+  border-radius: 8px;
+  margin-left: 4px;
+  cursor: pointer;
+  vertical-align: 1px;
+  transition: background 0.12s;
+}
+.mv-overflow:hover {
+  background: var(--accent-soft);
+}
+
+/* ============================================================
+   Cheatsheet (footer of each artboard)
+   ============================================================ */
+.mv-cheat {
+  padding: 14px 22px;
+  background: var(--ink);
+  color: #e8e2f5;
+  font-size: 11.5px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mv-cheat-row {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 12px;
+}
+.mv-cheat-k {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}

@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Oekaki — variants</title>
+<link rel="stylesheet" href="styles.css"/>
+<style>
+body { background: var(--bg); margin: 0; padding: 32px 0 60px; font-family: var(--sans); color: var(--ink); }
+.oshell { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+.ohead { margin-bottom: 28px; }
+.oh1 { font-family: var(--serif); font-size: 36px; line-height: 1.05; margin: 0 0 6px; font-weight: 400; color: var(--ink); }
+.osub { font-size: 14px; color: var(--muted); line-height: 1.5; max-width: 620px; }
+.orow { margin-bottom: 44px; }
+.olabel { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.olabel .n { font-family: var(--serif); font-style: italic; font-size: 22px; color: var(--accent-ink); }
+.olabel .t { font-family: var(--serif); font-size: 20px; color: var(--ink); }
+.olabel .d { font-size: 12px; color: var(--muted); margin-left: auto; max-width: 50%; text-align: right; }
+
+/* shared canvas placeholder */
+.oek-canvas {
+  background:
+    linear-gradient(45deg, #e8e2d2 25%, transparent 25%) 0 0/16px 16px,
+    linear-gradient(-45deg, #e8e2d2 25%, transparent 25%) 0 8px/16px 16px,
+    linear-gradient(45deg, transparent 75%, #e8e2d2 75%) 8px -8px/16px 16px,
+    linear-gradient(-45deg, transparent 75%, #e8e2d2 75%) 8px 0/16px 16px,
+    #f4eedf;
+  position: relative;
+  overflow: hidden;
+}
+.oek-doodle { position: absolute; }
+
+/* ===== Variant 1 — Sticky note minimal ===== */
+.v1 {
+  width: 540px;
+  background: #fffbe8;
+  border: 1px solid #d9c896;
+  border-radius: 3px;
+  box-shadow: 0 18px 40px rgba(60, 40, 0, 0.18), 0 2px 4px rgba(60, 40, 0, 0.08);
+  font-family: var(--sans);
+  position: relative;
+  overflow: hidden;
+}
+.v1::before {
+  content: ''; position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+  width: 80px; height: 16px; background: rgba(212, 188, 140, 0.5);
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(60, 40, 0, 0.15);
+}
+.v1-head { display: flex; align-items: center; gap: 8px; padding: 18px 18px 8px; }
+.v1-head-t { font-family: var(--serif); font-style: italic; font-size: 18px; color: #5a4520; }
+.v1-head-x { margin-left: auto; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; color: #8a7548; font-size: 18px; line-height: 1; }
+.v1-canvas { height: 260px; margin: 0 18px; border: 1px solid rgba(60, 40, 0, 0.18); }
+.v1-tray { display: flex; align-items: center; gap: 10px; padding: 12px 18px 16px; }
+.v1-pen-strip { display: flex; align-items: center; gap: 6px; }
+.v1-pen {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid transparent;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; flex-shrink: 0;
+}
+.v1-pen.sel { border-color: #2a2520; box-shadow: 0 0 0 2px #fffbe8 inset; }
+.v1-size { display: flex; gap: 4px; align-items: center; margin-left: 6px; }
+.v1-size-d { background: #2a2520; border-radius: 50%; }
+.v1-tools-r { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.v1-icon-btn {
+  width: 28px; height: 28px;
+  background: transparent; border: none; color: #5a4520;
+  display: flex; align-items: center; justify-content: center; border-radius: 3px;
+}
+.v1-icon-btn:hover { background: rgba(60, 40, 0, 0.06); }
+.v1-cta {
+  font-family: var(--sans); font-size: 12px; font-weight: 600;
+  padding: 6px 14px; background: #2a2520; color: #fffbe8;
+  border: none; border-radius: 3px; margin-left: 8px;
+}
+
+/* ===== Variant 2 — Pleroma utility panel (matches our IDE feel) ===== */
+.v2 {
+  width: 640px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 24px 60px rgba(28,32,70,0.2);
+  overflow: hidden;
+}
+.v2-titlebar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 10.5px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--muted);
+}
+.v2-titlebar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.v2-titlebar-l { color: var(--ink-2); }
+.v2-titlebar-x { margin-left: auto; font-family: var(--sans); }
+.v2-body { display: grid; grid-template-columns: 36px 1fr 180px; min-height: 320px; }
+
+.v2-rail { background: var(--panel-2); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 6px 0; gap: 2px; }
+.v2-rail-btn {
+  width: 36px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); position: relative;
+}
+.v2-rail-btn.sel { color: var(--accent-ink); background: var(--accent-soft-2); }
+.v2-rail-btn.sel::before {
+  content: ''; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px;
+  background: var(--accent-ink);
+}
+.v2-rail-btn:hover { color: var(--ink); }
+.v2-rail-sep { height: 1px; background: var(--border); margin: 6px 6px; }
+
+.v2-canvas-wrap { padding: 14px; background: var(--bg); display: flex; align-items: center; justify-content: center; position: relative; }
+.v2-canvas { width: 100%; height: 280px; max-width: 360px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.v2-zoom {
+  position: absolute; left: 22px; bottom: 22px;
+  display: flex; align-items: center; gap: 4px;
+  background: var(--panel); border: 1px solid var(--border-strong);
+  border-radius: 3px; padding: 2px;
+  font-family: var(--mono); font-size: 10px; color: var(--muted);
+}
+.v2-zoom button { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; color: var(--ink-2); border-radius: 2px; }
+.v2-zoom-v { padding: 0 6px; }
+.v2-pos {
+  position: absolute; right: 22px; bottom: 22px;
+  font-family: var(--mono); font-size: 10px; color: var(--muted);
+  background: var(--panel); padding: 3px 8px; border: 1px solid var(--border);
+}
+
+.v2-side { background: var(--panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; }
+.v2-side-sec { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.v2-side-head { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; }
+.v2-side-head-r { margin-left: auto; font-family: var(--mono); color: var(--ink-2); text-transform: none; letter-spacing: 0.04em; }
+.v2-swatches { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.v2-swatch { aspect-ratio: 1; border-radius: 2px; cursor: pointer; border: 1px solid rgba(0,0,0,0.08); }
+.v2-swatch.sel { box-shadow: 0 0 0 2px var(--accent-ink); }
+.v2-slider-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); margin-bottom: 8px; }
+.v2-slider-row label { width: 56px; }
+.v2-slider {
+  flex: 1; height: 2px; background: var(--border); position: relative;
+}
+.v2-slider span { position: absolute; left: 0; top: 0; height: 100%; background: var(--accent-ink); }
+.v2-slider::after { content: ''; position: absolute; left: 32%; top: 50%; transform: translate(-50%, -50%); width: 11px; height: 11px; border-radius: 50%; background: var(--accent-ink); }
+.v2-slider-v { font-family: var(--mono); font-size: 10.5px; color: var(--muted); width: 28px; text-align: right; }
+.v2-layers { display: flex; flex-direction: column; gap: 4px; }
+.v2-layer { display: flex; align-items: center; gap: 6px; padding: 5px 6px; font-size: 12px; color: var(--ink-2); border-radius: 3px; }
+.v2-layer.sel { background: var(--accent-soft-2); color: var(--accent-ink); }
+.v2-layer-eye { width: 12px; height: 12px; opacity: 0.65; }
+.v2-layer-th { width: 18px; height: 18px; border-radius: 2px; background: var(--border); flex-shrink: 0; }
+
+.v2-foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--panel-2); border-top: 1px solid var(--border); }
+.v2-foot-info { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.06em; }
+.v2-foot-r { margin-left: auto; display: flex; gap: 6px; }
+.v2-btn { font-size: 12px; padding: 6px 12px; border: 1px solid var(--border-strong); border-radius: 3px; background: var(--panel); color: var(--ink); font-weight: 500; }
+.v2-btn.primary { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+
+/* ===== Variant 3 — MS Paint zine bezel ===== */
+.v3 {
+  width: 600px;
+  background: #2a2520;
+  padding: 8px;
+  border-radius: 4px;
+  box-shadow:
+    inset 0 0 0 1px #4a3f35,
+    inset 0 0 0 2px #1a1510,
+    0 24px 60px rgba(0,0,0,0.3);
+  font-family: var(--mono);
+  color: #f4eedf;
+}
+.v3-bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px 8px;
+}
+.v3-bar-t {
+  font-family: var(--serif); font-style: italic; font-size: 14px;
+  letter-spacing: 0.04em;
+}
+.v3-bar-tag { font-family: var(--mono); font-size: 9px; padding: 1px 6px; background: #e8763a; color: #1a1510; border-radius: 2px; letter-spacing: 0.16em; font-weight: 700; }
+.v3-bar-x { margin-left: auto; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; background: #1a1510; border: 1px solid #4a3f35; color: #f4eedf; font-size: 14px; line-height: 1; }
+.v3-frame {
+  background: #1a1510; padding: 6px;
+  border: 1px solid #4a3f35;
+}
+.v3-stage { display: grid; grid-template-columns: 56px 1fr; gap: 6px; }
+.v3-tools {
+  background: #2a2520;
+  border: 1px solid #4a3f35;
+  display: grid; grid-template-columns: 1fr 1fr;
+  padding: 4px; gap: 2px;
+  align-content: start;
+}
+.v3-tool {
+  aspect-ratio: 1;
+  background: #3a3025;
+  border: 1px solid #4a3f35;
+  color: #d4c19a;
+  display: flex; align-items: center; justify-content: center;
+}
+.v3-tool.sel { background: #e8763a; color: #1a1510; border-color: #ff8a4d; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3); }
+.v3-canvas-wrap {
+  background: #1a1510; padding: 4px;
+}
+.v3-canvas { height: 280px; border: 1px solid #4a3f35; }
+
+.v3-palette {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 0 0;
+}
+.v3-palette-grid {
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: 2px;
+  padding: 4px;
+  background: #1a1510;
+  border: 1px solid #4a3f35;
+}
+.v3-pchip { aspect-ratio: 1; cursor: pointer; }
+.v3-pchip.sel { box-shadow: inset 0 0 0 2px #f4eedf, 0 0 0 1px #1a1510; }
+.v3-statusrow {
+  display: flex; align-items: center; gap: 10px; padding: 6px 4px 0;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: #d4c19a;
+}
+.v3-statusrow .glow { color: #ff8a4d; }
+.v3-statusrow-r { margin-left: auto; display: flex; gap: 4px; }
+.v3-status-btn {
+  padding: 4px 10px;
+  font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.14em;
+  background: #3a3025; color: #f4eedf; border: 1px solid #4a3f35;
+  text-transform: uppercase;
+}
+.v3-status-btn.primary { background: #e8763a; color: #1a1510; border-color: #ff8a4d; }
+
+</style>
+</head>
+<body>
+<div class="oshell">
+  <div class="ohead">
+    <h1 class="oh1">Oekaki — three takes</h1>
+    <div class="osub">All three open from the new paintbrush button in the composer. Pick the vibe: warm + minimal sticky pad, clean Pleroma utility chrome, or a maximalist MS Paint zine look. They share the same toolset under the hood — just different garments.</div>
+  </div>
+
+  <div class="orow">
+    <div class="olabel"><span class="n">i.</span><span class="t">Sticky pad</span><span class="d">Tape-taped notepad. Minimal chrome — just a canvas, six pen colors, three sizes, post.</span></div>
+    <div class="v1">
+      <div class="v1-head">
+        <span class="v1-head-t">Doodle a quick note</span>
+        <button class="v1-head-x">×</button>
+      </div>
+      <div class="v1-canvas oek-canvas">
+        <svg viewBox="0 0 500 260" style="position:absolute;inset:0;width:100%;height:100%">
+          <path d="M40 200 Q80 100, 150 120 T280 80 Q320 70, 380 130" stroke="#2a2520" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+          <path d="M100 220 Q140 180, 190 200" stroke="#e8763a" stroke-width="3" fill="none" stroke-linecap="round"/>
+          <circle cx="370" cy="160" r="12" stroke="#d68b8b" stroke-width="2" fill="none"/>
+          <text x="160" y="60" font-family="serif" font-style="italic" font-size="22" fill="#5a4520">hi from the dunes</text>
+        </svg>
+      </div>
+      <div class="v1-tray">
+        <div class="v1-pen-strip">
+          <span class="v1-pen sel" style="background:#2a2520"></span>
+          <span class="v1-pen" style="background:#e8763a"></span>
+          <span class="v1-pen" style="background:#d68b8b"></span>
+          <span class="v1-pen" style="background:#7dc4be"></span>
+          <span class="v1-pen" style="background:#a48bd9"></span>
+          <span class="v1-pen" style="background:#a8d5b1"></span>
+        </div>
+        <div class="v1-size">
+          <span class="v1-size-d" style="width:3px;height:3px"></span>
+          <span class="v1-size-d" style="width:6px;height:6px;opacity:0.4"></span>
+          <span class="v1-size-d" style="width:10px;height:10px;opacity:0.4"></span>
+        </div>
+        <div class="v1-tools-r">
+          <button class="v1-icon-btn" title="Undo"><svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px"><path d="M3 7l4-4 4 4M7 3v14a4 4 0 004 4h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button class="v1-icon-btn" title="Eraser"><svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px"><path d="M3 18l8-8 5 5-3 5H8l-5-2zM11 10l7-7 3 3-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button class="v1-cta">Attach</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="orow">
+    <div class="olabel"><span class="n">ii.</span><span class="t">Utility panel</span><span class="d">Matches the IDE feel: titlebar, tool rail, swatch grid, layers, status footer. Power-user oekaki.</span></div>
+    <div class="v2">
+      <div class="v2-titlebar">
+        <span class="dot"></span>
+        <span class="v2-titlebar-l">oekaki</span>
+        <span>~/draft/untitled.png — 800×600 — 2 layers</span>
+        <span class="v2-titlebar-x">−  □  ×</span>
+      </div>
+      <div class="v2-body">
+        <div class="v2-rail">
+          <button class="v2-rail-btn sel" title="Brush"><svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px"><path d="M3 21l4-1 11.5-11.5a2.121 2.121 0 00-3-3L4 17l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+          <button class="v2-rail-btn" title="Pen"><svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px"><path d="M15 4l5 5L9 20l-5 1 1-5L16 5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+          <button class="v2-rail-btn" title="Eraser"><svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px"><path d="M3 18l8-8 5 5-3 5H8l-5-2zM11 10l7-7 3 3-7 7" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+          <button class="v2-rail-btn" title="Fill"><svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px"><path d="M4 12l8-8 8 8-8 8-8-8zM20 18c0 1.1-.9 2-2 2s-2-.9-2-2 2-4 2-4 2 2.9 2 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+          <button class="v2-rail-btn" title="Eyedrop"><svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px"><path d="M14 4l6 6-3 3-1-1-8 8-4 1 1-4 8-8-1-1 2-4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+          <div class="v2-rail-sep"></div>
+          <button class="v2-rail-btn" title="Rect"><svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px"><rect x="4" y="6" width="16" height="12" stroke="currentColor" stroke-width="1.6"/></svg></button>
+          <button class="v2-rail-btn" title="Circle"><svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px"><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="1.6"/></svg></button>
+          <button class="v2-rail-btn" title="Line"><svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px"><path d="M4 20L20 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          <button class="v2-rail-btn" title="Text"><svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px"><path d="M5 5h14M12 5v14M8 19h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        </div>
+
+        <div class="v2-canvas-wrap">
+          <div class="v2-canvas oek-canvas">
+            <svg viewBox="0 0 360 280" style="position:absolute;inset:0;width:100%;height:100%">
+              <path d="M30 200 Q80 80, 180 110 T330 100" stroke="#18203f" stroke-width="3" fill="none" stroke-linecap="round"/>
+              <path d="M60 220 L300 220" stroke="#e8763a" stroke-width="4" fill="none" stroke-linecap="round"/>
+              <circle cx="180" cy="140" r="14" stroke="#a48bd9" stroke-width="2" fill="none"/>
+            </svg>
+          </div>
+          <div class="v2-zoom">
+            <button>−</button>
+            <span class="v2-zoom-v">100%</span>
+            <button>+</button>
+          </div>
+          <div class="v2-pos">x:142 y:88</div>
+        </div>
+
+        <div class="v2-side">
+          <div class="v2-side-sec">
+            <div class="v2-side-head">Color <span class="v2-side-head-r">#18203F</span></div>
+            <div class="v2-swatches">
+              <span class="v2-swatch sel" style="background:#18203f"></span>
+              <span class="v2-swatch" style="background:#2a2520"></span>
+              <span class="v2-swatch" style="background:#7a7c95"></span>
+              <span class="v2-swatch" style="background:#f4ebd8"></span>
+              <span class="v2-swatch" style="background:#e8763a"></span>
+              <span class="v2-swatch" style="background:#d68b8b"></span>
+              <span class="v2-swatch" style="background:#e0b97a"></span>
+              <span class="v2-swatch" style="background:#a8d5b1"></span>
+              <span class="v2-swatch" style="background:#7dc4be"></span>
+              <span class="v2-swatch" style="background:#a48bd9"></span>
+              <span class="v2-swatch" style="background:#6b52a3"></span>
+              <span class="v2-swatch" style="background:#e7a8c9"></span>
+              <span class="v2-swatch" style="background:#5a4a3a"></span>
+              <span class="v2-swatch" style="background:#fbfaf3;border:1px solid #c9c4b3"></span>
+            </div>
+          </div>
+          <div class="v2-side-sec">
+            <div class="v2-side-head">Brush</div>
+            <div class="v2-slider-row"><label>Size</label><div class="v2-slider"><span style="width:32%"></span></div><span class="v2-slider-v">14</span></div>
+            <div class="v2-slider-row"><label>Opacity</label><div class="v2-slider" style="--p:80%"><span style="width:80%"></span></div><span class="v2-slider-v">80</span></div>
+            <div class="v2-slider-row"><label>Flow</label><div class="v2-slider" style="--p:60%"><span style="width:60%"></span></div><span class="v2-slider-v">60</span></div>
+          </div>
+          <div class="v2-side-sec" style="flex:1">
+            <div class="v2-side-head">Layers <span class="v2-side-head-r">2 / 8</span></div>
+            <div class="v2-layers">
+              <div class="v2-layer sel"><svg class="v2-layer-eye" viewBox="0 0 24 24" fill="none"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg><span class="v2-layer-th" style="background:#18203f"></span><span>Layer 2</span></div>
+              <div class="v2-layer"><svg class="v2-layer-eye" viewBox="0 0 24 24" fill="none"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg><span class="v2-layer-th"></span><span>Layer 1</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="v2-foot">
+        <span class="v2-foot-info">PNG · 800×600 · 32-bit · 14.2 KB</span>
+        <div class="v2-foot-r">
+          <button class="v2-btn">Save draft</button>
+          <button class="v2-btn primary">Attach to post</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="orow">
+    <div class="olabel"><span class="n">iii.</span><span class="t">Zine console</span><span class="d">Dithered & dark — MS Paint meets cassette deck. Big chunky tools, 16-color palette, all-caps mono. Plays well with Simoun.</span></div>
+    <div class="v3">
+      <div class="v3-bar">
+        <span class="v3-bar-tag">OEKAKI</span>
+        <span class="v3-bar-t">untitled scratch</span>
+        <button class="v3-bar-x">×</button>
+      </div>
+      <div class="v3-frame">
+        <div class="v3-stage">
+          <div class="v3-tools">
+            <button class="v3-tool sel"><svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px"><path d="M3 21l4-1 11.5-11.5a2.121 2.121 0 00-3-3L4 17l-1 4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
+            <button class="v3-tool"><svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px"><path d="M15 4l5 5L9 20l-5 1 1-5L16 5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
+            <button class="v3-tool"><svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px"><path d="M3 18l8-8 5 5-3 5H8l-5-2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
+            <button class="v3-tool"><svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px"><path d="M4 12l8-8 8 8-8 8z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
+            <button class="v3-tool"><svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px"><rect x="5" y="6" width="14" height="12" stroke="currentColor" stroke-width="1.8"/></svg></button>
+            <button class="v3-tool"><svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px"><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="1.8"/></svg></button>
+            <button class="v3-tool"><svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px"><path d="M5 19L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+            <button class="v3-tool"><svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px"><path d="M14 4l6 6-3 3-1-1-8 8-4 1 1-4 8-8-1-1z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
+          </div>
+          <div class="v3-canvas-wrap">
+            <div class="v3-canvas oek-canvas">
+              <svg viewBox="0 0 480 280" style="position:absolute;inset:0;width:100%;height:100%">
+                <rect x="40" y="80" width="120" height="120" stroke="#e8763a" stroke-width="3" fill="none"/>
+                <path d="M180 180 Q220 100, 280 130 T400 110" stroke="#18203f" stroke-width="3" fill="none" stroke-linecap="round"/>
+                <circle cx="380" cy="200" r="20" fill="#e8763a" opacity="0.6"/>
+                <text x="200" y="260" font-family="monospace" font-size="14" fill="#18203f" letter-spacing="3">SIROCCO</text>
+              </svg>
+            </div>
+          </div>
+        </div>
+        <div class="v3-palette">
+          <div class="v3-palette-grid">
+            <span class="v3-pchip" style="background:#000"></span>
+            <span class="v3-pchip" style="background:#18203f"></span>
+            <span class="v3-pchip" style="background:#3a4880"></span>
+            <span class="v3-pchip" style="background:#6471a0"></span>
+            <span class="v3-pchip sel" style="background:#e8763a"></span>
+            <span class="v3-pchip" style="background:#ff8a4d"></span>
+            <span class="v3-pchip" style="background:#e0b97a"></span>
+            <span class="v3-pchip" style="background:#f4ebd8"></span>
+            <span class="v3-pchip" style="background:#fff"></span>
+            <span class="v3-pchip" style="background:#d68b8b"></span>
+            <span class="v3-pchip" style="background:#a48bd9"></span>
+            <span class="v3-pchip" style="background:#6b52a3"></span>
+            <span class="v3-pchip" style="background:#7dc4be"></span>
+            <span class="v3-pchip" style="background:#a8d5b1"></span>
+            <span class="v3-pchip" style="background:#5a4a3a"></span>
+            <span class="v3-pchip" style="background:#2a2520"></span>
+          </div>
+          <div class="v3-statusrow">
+            <span>FG <span class="glow">#E8763A</span></span>
+            <span>SZ 04</span>
+            <span>·</span>
+            <span>X:142 Y:88</span>
+            <div class="v3-statusrow-r">
+              <button class="v3-status-btn">SAVE</button>
+              <button class="v3-status-btn primary">POST</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,502 @@
+/* ============================================================
+   Emoji-reaction variants — styles
+   Built on PleromaNet's tokens. Each variant lives under its
+   own .rv-vN scope so they don't collide.
+   ============================================================ */
+
+.rv-page {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.rv-page-h {
+  padding: 14px 22px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.rv-kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  margin-bottom: 4px;
+}
+.rv-h1 {
+  font-family: var(--serif);
+  font-size: 24px;
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.rv-sub {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 6px 0 0;
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+.rv-cheat {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 6px 14px;
+  padding: 10px 22px 12px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.rv-cheat-k {
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.rv-page-body {
+  flex: 1;
+  overflow: auto;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ---------- Post wrapper for context ---------- */
+.rv-postwrap {
+  width: 100%;
+  max-width: 600px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 16px 18px;
+}
+.rv-post-body {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+  margin-bottom: 14px;
+  text-wrap: pretty;
+}
+.rv-actionbar {
+  display: flex;
+  gap: 18px;
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ---------- Shared emoji + custom-emoji placeholders ---------- */
+.rv-emoji {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  line-height: 1;
+  display: inline-block;
+}
+
+/* Custom-emoji placeholder. Stands in for a 24×24 PNG. */
+.rv-cx {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+.rv-cx-i {
+  text-transform: uppercase;
+  line-height: 1;
+}
+.cx-summer {
+  background: linear-gradient(135deg, #f5a35a 0%, #e7a8c9 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+.cx-blobcat {
+  background: radial-gradient(circle at 30% 30%, #b5e8e2 0%, #7dc4be 65%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+.cx-shrug {
+  background:
+    linear-gradient(135deg, #a48bd9 0%, #6b52a3 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+/* ---------- Shared row layout ---------- */
+.rv-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+/* ============================================================
+   V0 · BASELINE — current Pleroma chip
+   ============================================================ */
+.rv-v0-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 6px;
+  background: #eef0f4;
+  border: 1px solid #d8dbe2;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #4a4e60;
+  font-family: var(--sans);
+  cursor: pointer;
+  line-height: 1;
+}
+.rv-v0-chip .rv-emoji { font-size: 16px; }
+.rv-v0-chip.you { background: #dfe5f7; border-color: #aab4d9; }
+.rv-v0-count { font-variant-numeric: tabular-nums; }
+.rv-v0-add {
+  width: 28px;
+  height: 28px;
+  background: #eef0f4;
+  border: 1px solid #d8dbe2;
+  border-radius: 4px;
+  color: #7a7c95;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* ============================================================
+   V1 · MONO RAIL · PleromaNet-refined
+   ============================================================ */
+.rv-v1-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px 0 7px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  cursor: pointer;
+}
+.rv-v1-chip:hover {
+  background: var(--accent-soft-2);
+  border-color: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.rv-v1-chip.you {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.rv-v1-chip .rv-emoji { font-size: 14px; }
+.rv-v1-count { letter-spacing: 0.02em; }
+.rv-v1-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  border-radius: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.rv-v1-add:hover { color: var(--accent-ink); border-color: var(--accent); }
+
+/* ============================================================
+   V2 · STACKED COUNT — emoji-forward
+   ============================================================ */
+.rv-v2-tile {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, transform 0.12s;
+}
+.rv-v2-tile:hover { border-color: var(--accent); transform: translateY(-1px); }
+.rv-v2-tile.you {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.rv-v2-emoji { font-size: 22px; }
+.rv-v2-count {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 14px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  letter-spacing: 0.02em;
+}
+.rv-v2-tile.you .rv-v2-count {
+  background: var(--accent-ink);
+  border-color: var(--accent-ink);
+  color: white;
+}
+.rv-v2-add {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.rv-v2-add:hover { color: var(--accent-ink); border-color: var(--accent); border-style: solid; }
+
+/* ============================================================
+   V3 · POSTMARK STAMPS — perforated edge + count caption
+   The mask is built from 5 layers (default source-over union):
+     1. solid center block, inset by the edge thickness
+     2-5. four edge strips with circular cut-outs along each side
+   This gives perforations only on the perimeter, not the whole face.
+   ============================================================ */
+.rv-v3.rv-reactions { gap: 10px 8px; padding: 2px 0 4px; }
+.rv-v3-stamp,
+.rv-v3-add {
+  --hole: 2px;
+  --period: 7px;
+  --edge: 4px;
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  width: 44px;
+  height: 56px;
+  padding: 6px 4px 4px;
+  background: var(--panel-2);
+  border-radius: 1px;
+  cursor: pointer;
+  transition: transform 0.15s ease, filter 0.15s ease, background 0.15s;
+  font-family: var(--mono);
+  border: none;
+  -webkit-mask:
+    linear-gradient(#000, #000) 50% 50% / calc(100% - 2 * var(--edge)) calc(100% - 2 * var(--edge)) no-repeat,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 100% / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--edge) var(--period) repeat-y,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 100% 0 / var(--edge) var(--period) repeat-y;
+  mask:
+    linear-gradient(#000, #000) 50% 50% / calc(100% - 2 * var(--edge)) calc(100% - 2 * var(--edge)) no-repeat,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 100% / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--edge) var(--period) repeat-y,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 100% 0 / var(--edge) var(--period) repeat-y;
+}
+/* faint frame inside */
+.rv-v3-stamp::before,
+.rv-v3-add::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px dashed rgba(122, 124, 149, 0.45);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.rv-v3-stamp:hover {
+  filter: brightness(1.04);
+  transform: scale(1.06) rotate(0deg) !important;
+  z-index: 2;
+}
+.rv-v3-stamp.you {
+  background: var(--accent-soft);
+}
+.rv-v3-stamp.you::before {
+  border-color: var(--accent);
+}
+.rv-v3-art {
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  line-height: 1;
+  z-index: 1;
+}
+.rv-v3-emoji { font-size: 22px; }
+.rv-v3-count {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.05em;
+  color: var(--ink-2);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  z-index: 1;
+  padding-bottom: 1px;
+}
+.rv-v3-stamp.you .rv-v3-count { color: var(--accent-ink); font-weight: 600; }
+.rv-v3-perf { display: none; }
+.rv-v3-add { color: var(--muted); }
+.rv-v3-add:hover { color: var(--accent-ink); }
+.rv-v3-add:hover::before { border-color: var(--accent); }
+.rv-v3-add .rv-v3-art svg { color: currentColor; }
+.rv-v3-add .rv-v3-count { color: currentColor; }
+
+/* ============================================================
+   V4 · MARGIN NOTES — typographic
+   ============================================================ */
+.rv-v4.rv-reactions {
+  gap: 4px 14px;
+  padding: 6px 0 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  flex-wrap: wrap;
+}
+.rv-v4-prefix {
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  margin-right: 6px;
+}
+.rv-v4-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+  position: relative;
+}
+.rv-v4-item:hover { color: var(--accent-ink); }
+.rv-v4-item.you {
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.rv-v4-item.you::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  height: 1px;
+  background: var(--accent);
+}
+.rv-v4-item .rv-emoji { font-size: 15px; }
+.rv-v4-count {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.rv-v4-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+.rv-v4-add:hover { color: var(--accent-ink); }
+.rv-v4-add svg { width: 10px; height: 10px; }
+
+/* ============================================================
+   V5 · AVATAR OVERLAY — social proof
+   ============================================================ */
+.rv-v5.rv-reactions { gap: 6px 8px; }
+.rv-v5-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px 0 7px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.rv-v5-chip:hover { background: var(--accent-soft-2); border-color: var(--accent-soft); }
+.rv-v5-chip.you {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.rv-v5-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.rv-v5-glyph .rv-emoji { font-size: 15px; }
+.rv-v5-avstack {
+  display: inline-flex;
+  align-items: center;
+}
+.rv-v5-av {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--panel);
+  margin-left: -4px;
+  background-clip: padding-box;
+  flex-shrink: 0;
+}
+.rv-v5-av:first-child { margin-left: 0; }
+.rv-v5-chip.you .rv-v5-av { border-color: var(--accent-soft); }
+.rv-v5-more {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  margin-left: 4px;
+  color: var(--muted);
+}
+.rv-v5-chip.you .rv-v5-more { color: var(--accent-ink); }
+.rv-v5-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  border-radius: 16px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.rv-v5-add:hover { color: var(--accent-ink); border-color: var(--accent); border-style: solid; }

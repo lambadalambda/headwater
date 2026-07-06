@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pleroma
+      POSTGRES_PASSWORD: pleroma
+      POSTGRES_USER: pleroma
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pleroma -d pleroma"]
+      interval: 2s
+      retries: 30
+      timeout: 5s
+    volumes:
+      - pleroma-db:/var/lib/postgresql/data
+
+  pleroma:
+    build:
+      context: .
+      args:
+        PLEROMA_RELEASE_FLAVOUR: amd64
+        PLEROMA_RELEASE_REF: stable
+    image: pleromanet-integration-pleroma:stable
+    platform: linux/amd64
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ADMIN_EMAIL: admin@example.test
+      DB_HOST: db
+      DB_NAME: pleroma
+      DB_PASS: pleroma
+      DB_PORT: "5432"
+      DB_USER: pleroma
+      DOMAIN: 127.0.0.1
+      INSTANCE_NAME: PleromaNet Integration
+      NOTIFY_EMAIL: notify@example.test
+      PLEROMANET_INTEGRATION_PORT: ${PLEROMANET_INTEGRATION_PORT:-4400}
+      PORT: "4000"
+    ports:
+      - "127.0.0.1:${PLEROMANET_INTEGRATION_PORT:-4400}:4000"
+    volumes:
+      - pleroma-data:/var/lib/pleroma
+
+volumes:
+  pleroma-data:
+  pleroma-db:

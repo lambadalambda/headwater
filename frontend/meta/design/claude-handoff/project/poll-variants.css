@@ -1,0 +1,819 @@
+/* ============================================================
+   Poll variants — styles
+   Built on PleromaNet tokens. Covers two surfaces:
+     A · Poll creator (inside composer)
+     B · Poll display (inside feed posts, focused thread, lightbox)
+   ============================================================ */
+
+.pv-page {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.pv-page-h {
+  padding: 16px 22px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.pv-kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  margin-bottom: 4px;
+}
+.pv-h1 {
+  font-family: var(--serif);
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.pv-sub {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 6px 0 0;
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+.pv-cheat {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 6px 14px;
+  padding: 12px 22px 14px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+.pv-cheat-k {
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.pv-page-body {
+  flex: 1;
+  overflow: auto;
+}
+
+/* ============================================================
+   A · Shared composer mock (for poll-creator variants)
+   ============================================================ */
+.pv-composer {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.pv-composer-row {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  padding: 16px 22px 10px;
+}
+.pv-composer-av {
+  width: 44px; height: 44px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #2a1f4a, #6b4d8e, #d889a0);
+}
+.pv-composer-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  width: 100%;
+  min-height: 32px;
+  font-family: var(--sans);
+  color: var(--ink);
+}
+.pv-composer-input::placeholder { color: var(--muted-2); }
+.pv-composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 22px 12px 78px;
+  border-top: 1px solid var(--border);
+}
+.pv-composer-tool {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pv-composer-tool.active {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.pv-composer-tool:hover { background: var(--bg); color: var(--accent-ink); }
+.pv-composer-spacer { flex: 1; }
+.pv-composer-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  margin-right: 10px;
+}
+.pv-composer-submit {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent);
+  padding: 6px 18px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pv-composer-submit:hover { background: var(--accent); color: white; }
+
+/* ============================================================
+   A1 · Inline expander — poll panel below textarea
+   ============================================================ */
+.pv-a1-panel {
+  margin: 4px 22px 0 78px;
+  border: 1px solid var(--accent-soft);
+  background: var(--accent-soft-2);
+  border-radius: 4px;
+  padding: 12px;
+}
+.pv-a1-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.pv-a1-head svg { margin-right: 6px; }
+.pv-a1-x {
+  margin-left: auto;
+  width: 22px; height: 22px;
+  display: grid; place-items: center;
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pv-a1-x:hover { color: var(--bad); background: var(--panel); }
+
+.pv-opt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pv-opt-handle {
+  color: var(--muted-2);
+  cursor: grab;
+  font-size: 14px;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+.pv-opt-handle:hover { color: var(--muted); }
+.pv-opt-input {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 7px 10px;
+  font-size: 13px;
+  outline: none;
+  color: var(--ink);
+  font-family: var(--sans);
+}
+.pv-opt-input:focus { border-color: var(--accent); }
+.pv-opt-input::placeholder { color: var(--muted-2); }
+.pv-opt-counter {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  min-width: 32px;
+  text-align: right;
+}
+.pv-opt-counter.over { color: var(--bad); }
+.pv-opt-x {
+  width: 22px; height: 22px;
+  display: grid; place-items: center;
+  border-radius: 3px;
+  color: var(--muted-2);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pv-opt-x:hover { color: var(--bad); background: var(--panel); }
+.pv-opt-x.disabled { opacity: 0.3; pointer-events: none; }
+.pv-add-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  color: var(--accent-ink);
+  padding: 5px 10px 5px 6px;
+  border: 1px dashed var(--accent-soft);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  margin-top: 2px;
+}
+.pv-add-opt:hover { background: var(--panel); border-color: var(--accent); }
+.pv-add-opt.disabled { opacity: 0.4; pointer-events: none; }
+
+.pv-poll-settings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--accent-soft);
+}
+.pv-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pv-setting-l {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pv-select {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 5px 24px 5px 10px;
+  font-size: 12.5px;
+  font-family: var(--sans);
+  color: var(--ink);
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5L6 8l3-3.5' stroke='%237a7c95' stroke-width='1.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  cursor: pointer;
+}
+.pv-select:focus { border-color: var(--accent); outline: none; }
+.pv-setting-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.pv-toggle {
+  width: 28px; height: 16px;
+  background: var(--border-strong);
+  border-radius: 8px;
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.pv-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 12px; height: 12px;
+  background: white;
+  border-radius: 50%;
+  transition: left 0.15s;
+}
+.pv-toggle.on { background: var(--accent); }
+.pv-toggle.on::after { left: 14px; }
+
+/* ============================================================
+   A2 · Modal-style poll builder
+   ============================================================ */
+.pv-a2-modal {
+  margin: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(28, 32, 70, 0.08);
+  overflow: hidden;
+}
+.pv-a2-head {
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--accent-soft-2), transparent);
+}
+.pv-a2-head-title {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1;
+}
+.pv-a2-head-sub {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.pv-a2-x {
+  margin-left: auto;
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pv-a2-x:hover { background: var(--bg); color: var(--ink); }
+.pv-a2-body {
+  padding: 18px;
+}
+.pv-a2-field {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 16px;
+  padding: 12px 0;
+  align-items: start;
+  border-bottom: 1px solid var(--border);
+}
+.pv-a2-field:last-child { border-bottom: none; }
+.pv-a2-field-l {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-weight: 500;
+  padding-top: 7px;
+}
+.pv-a2-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+.pv-a2-foot-hint {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  flex: 1;
+}
+.pv-a2-cancel {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 7px 14px;
+  cursor: pointer;
+}
+.pv-a2-cancel:hover { color: var(--ink); }
+
+/* ============================================================
+   A3 · Sidebar editor (the right-rail pattern)
+   ============================================================ */
+.pv-a3-split {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+}
+.pv-a3-side {
+  background: var(--panel-2);
+  border-left: 1px solid var(--border);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pv-a3-side-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+  font-weight: 600;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.pv-a3-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pv-a3-preview {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* ============================================================
+   B · Poll display — shared shell
+   ============================================================ */
+.pv-feed {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.pv-post {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  padding: 16px;
+}
+.pv-post-av {
+  width: 44px; height: 44px;
+  border-radius: 4px;
+}
+.pv-post-right { min-width: 0; }
+.pv-post-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.pv-post-name { font-weight: 600; font-size: 14px; }
+.pv-post-handle { font-family: var(--mono); font-size: 11px; color: var(--accent-ink); }
+.pv-post-time { font-family: var(--mono); font-size: 11px; color: var(--muted-2); margin-left: auto; }
+.pv-post-body {
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 4px 0 12px;
+  white-space: pre-wrap;
+  text-wrap: pretty;
+}
+.pv-post-actions {
+  display: flex;
+  gap: 18px;
+  margin-top: 14px;
+}
+.pv-post-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.pv-post-action:hover { color: var(--accent-ink); background: var(--accent-soft-2); }
+.pv-post-action svg { width: 14px; height: 14px; }
+
+/* ============================================================
+   B1 · Voting state — radio rows + vote button
+   ============================================================ */
+.pv-poll {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  padding: 4px;
+  margin: 10px 0 4px;
+}
+.pv-poll-opt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.pv-poll-opt:hover { background: var(--accent-soft-2); }
+.pv-poll-opt.selected { background: var(--accent-soft); }
+.pv-radio {
+  width: 16px; height: 16px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+  transition: border-color 0.12s;
+}
+.pv-poll-opt:hover .pv-radio,
+.pv-poll-opt.selected .pv-radio { border-color: var(--accent); }
+.pv-poll-opt.selected .pv-radio::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+.pv-check {
+  width: 16px; height: 16px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 3px;
+  flex-shrink: 0;
+  position: relative;
+  transition: border-color 0.12s, background 0.12s;
+}
+.pv-poll-opt:hover .pv-check,
+.pv-poll-opt.selected .pv-check { border-color: var(--accent); }
+.pv-poll-opt.selected .pv-check {
+  background: var(--accent);
+}
+.pv-poll-opt.selected .pv-check::after {
+  content: '';
+  position: absolute;
+  left: 4px; top: 1px;
+  width: 5px; height: 9px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.pv-poll-opt-text {
+  font-size: 14px;
+  color: var(--ink);
+  flex: 1;
+  min-width: 0;
+}
+.pv-poll-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.pv-poll-meta .dot { color: var(--muted-2); }
+.pv-poll-meta .pv-poll-deadline { color: var(--accent-ink); }
+.pv-poll-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.pv-poll-vote {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent);
+  padding: 6px 18px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pv-poll-vote:disabled { opacity: 0.5; cursor: not-allowed; }
+.pv-poll-vote:not(:disabled):hover { background: var(--accent); color: white; }
+.pv-poll-results-link {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.pv-poll-results-link:hover { color: var(--accent-ink); }
+
+/* ============================================================
+   B2 · Results state — bars + percentages
+   ============================================================ */
+.pv-result {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 3px;
+  margin-bottom: 4px;
+  overflow: hidden;
+  isolation: isolate;
+}
+.pv-result-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent-soft-2);
+  z-index: -1;
+  transition: width 0.4s cubic-bezier(.2,.7,.3,1);
+}
+.pv-result.winner .pv-result-bar { background: var(--accent-soft); }
+.pv-result.me .pv-result-bar { background: var(--accent-soft); }
+.pv-result-tick {
+  width: 16px; height: 16px;
+  flex-shrink: 0;
+  color: var(--muted-2);
+}
+.pv-result.me .pv-result-tick {
+  color: var(--accent);
+}
+.pv-result.winner .pv-result-tick {
+  color: var(--accent-ink);
+}
+.pv-result-text {
+  flex: 1;
+  font-size: 14px;
+  color: var(--ink);
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pv-result-text .pv-you {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  background: var(--panel);
+  border: 1px solid var(--accent-soft);
+  padding: 0 5px;
+  border-radius: 3px;
+}
+.pv-result-pct {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.pv-result.winner .pv-result-pct { color: var(--accent-ink); }
+
+/* ============================================================
+   B3 · Horizontal bar chart (compact)
+   ============================================================ */
+.pv-b3 { padding: 12px; }
+.pv-b3-row {
+  display: grid;
+  grid-template-columns: 1fr 60px;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.pv-b3-label {
+  font-size: 13px;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pv-b3-label .pv-you {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  padding: 0 5px;
+  border-radius: 3px;
+}
+.pv-b3-track {
+  height: 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.pv-b3-fill {
+  height: 100%;
+  background: var(--accent-soft);
+  transition: width 0.4s cubic-bezier(.2,.7,.3,1);
+}
+.pv-b3-row.winner .pv-b3-fill { background: var(--accent); }
+.pv-b3-row.me .pv-b3-fill { background: var(--accent-ink); }
+.pv-b3-pct {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.pv-b3-num {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  text-align: right;
+  margin-top: 2px;
+}
+
+/* ============================================================
+   B4 · Vertical bar chart (the wildcard)
+   ============================================================ */
+.pv-b4 {
+  padding: 14px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pv-b4-question {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pv-b4-chart {
+  display: grid;
+  gap: 10px;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  height: 140px;
+  align-items: end;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.pv-b4-col {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  position: relative;
+  cursor: pointer;
+  min-width: 0;
+}
+.pv-b4-bar {
+  width: 100%;
+  background: var(--accent-soft);
+  border-radius: 3px 3px 0 0;
+  position: relative;
+  transition: background 0.12s;
+  min-height: 4px;
+}
+.pv-b4-col.winner .pv-b4-bar { background: var(--accent); }
+.pv-b4-col.me .pv-b4-bar { background: var(--accent-ink); }
+.pv-b4-bar-pct {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.pv-b4-labels {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  text-align: center;
+}
+.pv-b4-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.pv-b4-label .pv-you {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  background: var(--accent-soft-2);
+  padding: 0 5px;
+  border-radius: 3px;
+}
+
+/* ============================================================
+   B5 · Expired / ended state
+   ============================================================ */
+.pv-ended-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.pv-ended-pill.live {
+  color: var(--good-ink);
+  border-color: #c2dcc5;
+  background: rgba(168, 213, 177, 0.12);
+}
+.pv-ended-pill .pv-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--muted-2);
+}
+.pv-ended-pill.live .pv-dot {
+  background: var(--good);
+  box-shadow: 0 0 0 3px rgba(168, 213, 177, 0.22);
+}

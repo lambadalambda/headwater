@@ -1,0 +1,23 @@
+[tools]
+node = "24"
+pnpm = "10"
+
+[tasks.check]
+description = "Run Svelte type checks"
+run = "pnpm check"
+
+[tasks.test]
+description = "Run default Playwright tests"
+run = "pnpm test"
+
+[tasks."test:integration"]
+description = "Run opt-in dockerized Pleroma integration tests"
+run = "bash scripts/test-integration.sh"
+
+[tasks.build]
+description = "Build the static SPA"
+run = "pnpm build"
+
+[tasks.opencode]
+description = "Run opencode"
+run = "safehouse --enable=playwright-chrome,clipboard --add-dirs-ro=~/Downloads opencode"

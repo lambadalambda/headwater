@@ -1,0 +1,268 @@
+/* ============================================================
+   Composer drag-and-drop variants — page chrome
+   ============================================================ */
+.dz-page {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.dz-kicker-bar { padding: 14px 22px 10px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.dz-kicker { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent-ink); margin-bottom: 4px; }
+.dz-kicker-h { font-family: var(--serif); font-size: 22px; line-height: 1.1; font-weight: 500; letter-spacing: -0.02em; margin: 0; }
+.dz-kicker-sub { font-size: 12.5px; color: var(--ink-2); margin: 6px 0 0; line-height: 1.5; text-wrap: pretty; max-width: 62ch; }
+.dz-cheat {
+  display: grid; grid-template-columns: 110px 1fr; gap: 4px 14px;
+  padding: 10px 22px; background: var(--panel-2);
+  border-bottom: 1px solid var(--border); border-top: 1px solid var(--border);
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); line-height: 1.5;
+}
+.dz-cheat-k { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 9.5px; }
+.dz-body { flex: 1; padding: 22px; background: var(--bg); }
+.dz-state-l {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--muted-2); margin: 14px 0 8px;
+}
+.dz-state-l:first-child { margin-top: 0; }
+
+/* ============================================================
+   Mock composer shell — close enough to the real .composer for
+   the drop interactions to be legible
+   ============================================================ */
+.dz-composer {
+  position: relative;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+  padding: 18px 20px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.dz-composer-av { width: 44px; height: 44px; border-radius: 4px; background: linear-gradient(135deg, #2a1f4a, #6b4d8e, #d889a0); }
+.dz-composer-right { min-width: 0; }
+.dz-editor {
+  font-size: 15px; line-height: 1.7; color: var(--ink);
+  min-height: 64px; padding: 4px 0 6px;
+}
+.dz-editor.empty::before {
+  content: 'What\'s on your mind?';
+  color: var(--muted-2);
+}
+.dz-foot {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.dz-tool {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border-radius: 4px; color: var(--muted-2);
+  border: 1px solid transparent; cursor: pointer;
+}
+.dz-tool:hover { color: var(--accent-ink); background: var(--accent-soft-2); }
+.dz-spacer { flex: 1; }
+.dz-count { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.dz-post {
+  margin-left: 8px;
+  background: var(--ink); color: var(--panel);
+  border: none; padding: 7px 16px;
+  border-radius: 4px; font-size: 13px; font-weight: 600;
+}
+
+/* ============================================================
+   V1 · OVERLAY DROPZONE
+   Composer itself goes accent-tinted; a centered "drop here"
+   tile fades in over the top.
+   ============================================================ */
+.dz-composer.v1-active { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft-2); }
+.dz-v1-overlay {
+  position: absolute; inset: 8px;
+  background: var(--accent-soft);
+  border: 2px dashed var(--accent);
+  border-radius: 4px;
+  display: grid; place-items: center;
+  pointer-events: none;
+  animation: dz-fade-in 140ms ease;
+}
+.dz-v1-card {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  color: var(--accent-ink);
+  text-align: center;
+}
+.dz-v1-card-h { font-family: var(--serif); font-size: 24px; font-weight: 500; }
+.dz-v1-card-s {
+  font-family: var(--mono); font-size: 10.5px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--accent-ink); opacity: 0.85;
+}
+.dz-v1-card .dz-supports {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--muted); letter-spacing: 0.08em;
+}
+
+/* ============================================================
+   V2 · IN-PLACE DROPZONE
+   A tile slot lives BELOW the text and turns into the active
+   drop target. Always present at low opacity; lifts on hover.
+   ============================================================ */
+.dz-v2-slot {
+  margin-top: 12px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 4px;
+  color: var(--muted);
+  background: var(--panel-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+.dz-v2-slot:hover { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft-2); }
+.dz-v2-slot.active {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.dz-v2-slot .dz-v2-glyph { color: var(--accent-ink); }
+.dz-v2-slot-l { flex: 1; }
+.dz-v2-slot-l b { color: var(--ink); font-weight: 600; }
+.dz-v2-slot-l span { color: var(--muted-2); }
+.dz-v2-slot-kbd {
+  font-family: var(--mono); font-size: 10px;
+  padding: 2px 5px; border: 1px solid var(--border-strong);
+  background: var(--panel); border-radius: 3px;
+  color: var(--ink-2);
+}
+
+/* ============================================================
+   V3 · FULL-WINDOW NET
+   When a drag enters the WINDOW (not the composer), a full
+   viewport overlay fades in with one big drop target. Composer
+   stays put underneath.
+   ============================================================ */
+.dz-v3-net {
+  position: absolute;
+  inset: 8px;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 30% 30%, var(--accent-soft) 0%, transparent 50%),
+    radial-gradient(circle at 80% 70%, var(--accent-soft-2) 0%, transparent 55%),
+    rgba(31, 35, 71, 0.55);
+  border: 2px dashed var(--accent);
+  display: grid;
+  place-items: center;
+  z-index: 80;
+  backdrop-filter: blur(2px);
+  animation: dz-fade-in 160ms ease;
+}
+.dz-v3-card {
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 26px 34px;
+  text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  border: 1px solid var(--accent-soft);
+  box-shadow: 0 18px 40px -10px rgba(28, 32, 70, 0.28);
+}
+.dz-v3-card-h {
+  font-family: var(--serif); font-size: 26px; font-weight: 500;
+  color: var(--ink);
+}
+.dz-v3-card-s {
+  font-size: 13px; color: var(--ink-2); max-width: 36ch; line-height: 1.5;
+}
+.dz-v3-card .dz-supports {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--muted); letter-spacing: 0.1em;
+  margin-top: 4px;
+}
+.dz-v3-glyph {
+  width: 48px; height: 48px;
+  display: grid; place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-radius: 50%;
+  margin-bottom: 4px;
+}
+
+/* ============================================================
+   Uploading state — attachments accepted, showing progress
+   ============================================================ */
+.dz-uploads {
+  margin-top: 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.dz-upload-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.dz-upload-thumb {
+  width: 36px; height: 36px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, #6b4d8e, #d889a0);
+  display: grid; place-items: center;
+  color: white;
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.1em;
+}
+.dz-upload-thumb.audio { background: linear-gradient(135deg, #1a4a4a, #4a8a8a); }
+.dz-upload-thumb.video { background: linear-gradient(135deg, #4a2a4a, #8a4a8a); }
+.dz-upload-meta { min-width: 0; }
+.dz-upload-name {
+  font-size: 12.5px; color: var(--ink); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dz-upload-prog-row {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 4px;
+  font-family: var(--mono); font-size: 10px; color: var(--muted);
+}
+.dz-upload-bar {
+  flex: 1; height: 3px; background: var(--border);
+  border-radius: 2px; overflow: hidden;
+}
+.dz-upload-bar > span {
+  display: block; height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 240ms ease;
+}
+.dz-upload-pct { color: var(--accent-ink); min-width: 30px; text-align: right; }
+.dz-upload-rm {
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  border-radius: 3px; color: var(--muted-2);
+  background: transparent; border: 1px solid transparent;
+  cursor: pointer;
+}
+.dz-upload-rm:hover { color: var(--bad); background: var(--panel); border-color: var(--border); }
+
+.dz-error {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--bad); margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(214, 139, 139, 0.08);
+  border-left: 2px solid var(--bad);
+  border-radius: 0 3px 3px 0;
+}
+
+@keyframes dz-fade-in {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Page body wrapper so artboards can use the dz-fake-window mode */
+.dz-body.v3 { position: relative; min-height: 360px; }

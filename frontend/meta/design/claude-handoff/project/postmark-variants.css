@@ -1,0 +1,634 @@
+/* ============================================================
+   Postmark variants — page chrome
+   ============================================================ */
+.pm-page {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.pm-page-h {
+  padding: 14px 22px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.pm-kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  margin-bottom: 4px;
+}
+.pm-h1 {
+  font-family: var(--serif);
+  font-size: 22px;
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.pm-sub {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 6px 0 0;
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+.pm-cheat {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 5px 14px;
+  padding: 10px 22px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.pm-cheat-k {
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.pm-page-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 18px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ============================================================
+   Thread context — mirrors the real PleromaNet thread shapes
+   so reactions sit where they will in the actual product.
+   ============================================================ */
+.pm-thread {
+  width: 100%;
+  max-width: 600px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.pm-post {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 12px;
+  padding: 14px 16px 8px;
+  position: relative;
+}
+.pm-line-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+.pm-line {
+  flex: 1;
+  width: 2px;
+  background: var(--border);
+  margin-top: 8px;
+  min-height: 16px;
+  border-radius: 1px;
+  position: relative;
+}
+.pm-line::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  margin-left: -1px;
+  width: 2px;
+  height: 24px;
+  background: var(--border);
+}
+.pm-line-wrap-reply .pm-line { display: none; }
+.pm-av {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+}
+.pm-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.pm-name { font-weight: 600; font-size: 14px; }
+.pm-handle { font-family: var(--mono); font-size: 11px; color: var(--accent-ink); }
+.pm-time { font-family: var(--mono); font-size: 11px; color: var(--muted-2); margin-left: auto; }
+.pm-body {
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 2px 0 0;
+  text-wrap: pretty;
+}
+.pm-mention { color: var(--accent-ink); }
+
+/* focused post */
+.pm-focused {
+  padding: 16px 18px 12px;
+  background: var(--panel-2);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+.pm-line-top {
+  position: absolute;
+  top: 0; left: 39px;
+  width: 2px; height: 14px;
+  background: var(--border);
+}
+.pm-focused-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.pm-av-focused {
+  width: 52px;
+  height: 52px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.pm-focused-name {
+  font-family: var(--serif);
+  font-size: 19px;
+  line-height: 1.1;
+  font-weight: 500;
+  color: var(--ink);
+}
+.pm-focused-handle {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--accent-ink);
+}
+.pm-follow {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--ink-2);
+}
+.pm-focused-body {
+  font-size: 15px;
+  line-height: 1.55;
+  margin: 6px 0 14px;
+  color: var(--ink);
+  text-wrap: pretty;
+}
+.pm-focused-actions {
+  display: flex;
+  gap: 18px;
+  padding-top: 10px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.pm-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 4px;
+}
+.pm-action.on { color: #e0a13f; }
+
+/* reply */
+.pm-post-reply {
+  padding-top: 12px;
+  padding-bottom: 14px;
+}
+
+/* ============================================================
+   Custom-emoji placeholders
+   ============================================================ */
+.pm-cx {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+.pm-cx-i { text-transform: uppercase; line-height: 1; }
+.pm-cx-summer {
+  background: linear-gradient(135deg, #f5a35a 0%, #e7a8c9 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+.pm-cx-blobcat {
+  background: radial-gradient(circle at 30% 30%, #b5e8e2 0%, #7dc4be 65%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+.pm-cx-shrug {
+  background: linear-gradient(135deg, #a48bd9 0%, #6b52a3 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+.pm-emoji {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  line-height: 1;
+  display: inline-block;
+}
+
+/* ============================================================
+   Shared reactions row
+   ============================================================ */
+.pm-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+/* ============================================================
+   Shared stamp base
+   The mask is built from a solid center block + 4 edge strips
+   with circular cut-outs, so perforations only sit on the edge.
+   Warm-cream paper gives proper contrast against the post panel.
+   ============================================================ */
+.pm-stamp {
+  --hole: 2px;
+  --period: 7px;
+  --edge: 5px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  background: #f3ead4;            /* warm cream paper */
+  cursor: pointer;
+  transition: transform 0.18s ease, filter 0.18s ease, background 0.18s;
+  font-family: var(--mono);
+  border: none;
+  padding: 0;
+  -webkit-mask:
+    linear-gradient(#000, #000) 50% 50% / calc(100% - 2 * var(--edge)) calc(100% - 2 * var(--edge)) no-repeat,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 100% / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--edge) var(--period) repeat-y,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 100% 0 / var(--edge) var(--period) repeat-y;
+  mask:
+    linear-gradient(#000, #000) 50% 50% / calc(100% - 2 * var(--edge)) calc(100% - 2 * var(--edge)) no-repeat,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 100% / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--edge) var(--period) repeat-y,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 100% 0 / var(--edge) var(--period) repeat-y;
+}
+.pm-stamp::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px dashed rgba(122, 124, 149, 0.45);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.pm-stamp:hover {
+  filter: brightness(1.04);
+  transform: scale(1.07) rotate(0deg) !important;
+  z-index: 2;
+}
+.pm-stamp.you { background: #e9dcc0; }   /* slightly darker paper for "you" */
+.pm-stamp.you::before { border-color: var(--accent); border-style: solid; }
+.pm-stamp-art {
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  z-index: 1;
+}
+
+/* ============================================================
+   V3a · Tinted paper + ×N count beside
+   ============================================================ */
+.pm-v3a { gap: 8px 14px; padding: 6px 0; }
+.pm-v3a-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pm-v3a-stamp {
+  width: 40px;
+  height: 48px;
+}
+.pm-v3a-stamp .pm-emoji { font-size: 24px; }
+.pm-v3a-count {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.pm-v3a-add { color: var(--muted); }
+.pm-v3a-add .pm-stamp-art svg { color: currentColor; }
+
+/* ============================================================
+   V3b · Cancellation postmark — circular mark over corner.
+   Outer button has no mask so the cancellation can sit on top
+   without getting clipped by the perforation pattern.
+   ============================================================ */
+.pm-v3b { gap: 10px 14px; padding: 6px 0 4px; }
+.pm-v3b-stamp {
+  position: relative;
+  display: inline-block;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+.pm-v3b-stamp:hover {
+  filter: brightness(1.04);
+  transform: scale(1.07) rotate(0deg) !important;
+  z-index: 2;
+}
+.pm-v3b-face {
+  width: 46px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+}
+.pm-v3b-face .pm-emoji { font-size: 26px; }
+.pm-v3b-emoji { font-size: 26px !important; }
+.pm-v3b-stamp.you .pm-v3b-face { background: #e9dcc0; }
+.pm-v3b-stamp.you .pm-v3b-face::before { border-color: var(--accent); border-style: solid; }
+
+/* The cancellation lives OUTSIDE the masked face, on the outer
+   button. Half-overlaps the bottom-right corner of the stamp. */
+.pm-v3b-cancel {
+  position: absolute;
+  bottom: 1px;
+  right: -3px;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fbfaf3;
+  z-index: 2;
+  transform: rotate(-14deg);
+  font-family: var(--mono);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.05);
+}
+.pm-v3b-cancel::before {
+  /* inner ring like a real cancellation mark */
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border: 1px dashed var(--ink);
+  border-radius: 50%;
+  opacity: 0.35;
+}
+.pm-v3b-cancel-n {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  position: relative;
+  z-index: 1;
+}
+.pm-v3b-stamp.you .pm-v3b-cancel {
+  border-color: var(--accent-ink);
+  background: #f3eefb;
+}
+.pm-v3b-stamp.you .pm-v3b-cancel::before { border-color: var(--accent-ink); }
+.pm-v3b-stamp.you .pm-v3b-cancel-n { color: var(--accent-ink); }
+.pm-v3b-add .pm-v3b-face { color: var(--muted); }
+.pm-v3b-add .pm-v3b-face .pm-stamp-art svg { color: currentColor; }
+
+/* ============================================================
+   V3c · Letterpress · count on caption row below
+   ============================================================ */
+.pm-v3c { gap: 4px 10px; padding: 6px 0 2px; }
+.pm-v3c-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.pm-v3c-stamp {
+  width: 56px;
+  height: 56px;
+  /* a touch warmer + inset shadow on the cream paper for the letterpress feel */
+  background: linear-gradient(180deg, #f5ecd7 0%, #efe3c4 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.pm-v3c-stamp .pm-emoji { font-size: 32px; }
+.pm-v3c-emoji { font-size: 32px !important; }
+.pm-v3c-stamp.you {
+  background: linear-gradient(180deg, #ecdef0 0%, #d8c5e0 100%);
+}
+.pm-v3c-count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-align: center;
+  min-width: 28px;
+}
+.pm-v3c-count.you {
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.pm-v3c-add { color: var(--muted); }
+.pm-v3c-add .pm-stamp-art svg { color: currentColor; }
+.pm-v3c-count-add {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 9px;
+}
+
+/* ============================================================
+   V3d · Stamp + perforated ticket stub
+   ============================================================ */
+.pm-v3d { gap: 10px 8px; padding: 6px 0 2px; }
+.pm-v3d-stamp {
+  --hole: 2px;
+  --period: 7px;
+  --edge: 5px;
+  position: relative;
+  display: inline-grid;
+  grid-template-rows: 42px 18px;
+  width: 42px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-family: var(--mono);
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+.pm-v3d-stamp:hover {
+  filter: brightness(1.04);
+  transform: scale(1.07) rotate(0deg) !important;
+  z-index: 2;
+}
+.pm-v3d-head,
+.pm-v3d-stub {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+/* shared mask geometry per cell */
+.pm-v3d-head {
+  background: #f3ead4;
+  -webkit-mask:
+    linear-gradient(#000, #000) 50% 50% / calc(100% - 2 * var(--edge)) calc(100% - 1 * var(--edge)) no-repeat,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 100% / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--edge) var(--period) repeat-y,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 100% 0 / var(--edge) var(--period) repeat-y;
+  mask:
+    linear-gradient(#000, #000) 50% 50% / calc(100% - 2 * var(--edge)) calc(100% - 1 * var(--edge)) no-repeat,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 100% / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--edge) var(--period) repeat-y,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 100% 0 / var(--edge) var(--period) repeat-y;
+}
+.pm-v3d-head::before {
+  content: '';
+  position: absolute;
+  inset: 5px 5px 0;
+  border: 1px dashed rgba(122, 124, 149, 0.45);
+  border-bottom: none;
+  border-radius: 1px;
+  pointer-events: none;
+}
+.pm-v3d-stub {
+  background: #d8c69a;            /* darker tag stock */
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #6a5a30;
+  letter-spacing: 0.04em;
+  -webkit-mask:
+    linear-gradient(#000, #000) 50% 50% / calc(100% - 2 * var(--edge)) calc(100% - 1 * var(--edge)) no-repeat,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 100% / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--edge) var(--period) repeat-y,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 100% 0 / var(--edge) var(--period) repeat-y;
+  mask:
+    linear-gradient(#000, #000) 50% 50% / calc(100% - 2 * var(--edge)) calc(100% - 1 * var(--edge)) no-repeat,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 100% / var(--period) var(--edge) repeat-x,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 0 0 / var(--edge) var(--period) repeat-y,
+    radial-gradient(circle var(--hole) at center, transparent 98%, #000 100%) 100% 0 / var(--edge) var(--period) repeat-y;
+}
+.pm-v3d-stamp.you .pm-v3d-head { background: #e9dcc0; }
+.pm-v3d-stamp.you .pm-v3d-head::before { border-color: var(--accent); border-style: solid; border-bottom: none; }
+.pm-v3d-stamp.you .pm-v3d-stub { background: #c9b5e4; color: var(--accent-ink); }
+.pm-v3d-head .pm-emoji { font-size: 24px; }
+.pm-v3d-emoji { font-size: 24px !important; }
+.pm-v3d-add .pm-v3d-head { color: var(--muted); }
+.pm-v3d-add .pm-v3d-head .pm-stamp-art svg { color: currentColor; }
+.pm-v3d-stub-add {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 9.5px;
+}
+
+
+/* ============================================================
+   Scoped theme variables for showing the same artboard in
+   multiple themes side-by-side. Mirrors body[data-theme=...]
+   from styles.css.
+   ============================================================ */
+.pm-theme-cream {
+  /* Default cream is the styles.css :root — no overrides needed */
+}
+.pm-theme-dusk {
+  --bg: #1a142e;
+  --panel: #221a3a;
+  --panel-2: #2a2046;
+  --border: #3a2f5a;
+  --border-strong: #4a3f6e;
+  --ink: #f4eef8;
+  --ink-2: #d8ccea;
+  --muted: #8b7eaa;
+  --muted-2: #6a5d88;
+  --accent: #e7a8c9;
+  --accent-ink: #f0c2dc;
+  --accent-soft: rgba(231, 168, 201, 0.22);
+  --accent-soft-2: rgba(231, 168, 201, 0.1);
+  --good-ink: #c1e4ca;
+  --warn-ink: #ecd4a5;
+}
+.pm-theme-drive {
+  --bg: #07091a;
+  --panel: #0e1228;
+  --panel-2: #131836;
+  --border: #1f2547;
+  --border-strong: #2c3360;
+  --ink: #e8efff;
+  --ink-2: #c5cfea;
+  --muted: #7a85a8;
+  --muted-2: #535d80;
+  --accent: #7dc4be;
+  --accent-ink: #a4dad4;
+  --accent-soft: rgba(125, 196, 190, 0.22);
+  --accent-soft-2: rgba(125, 196, 190, 0.1);
+  --good-ink: #c1e4ca;
+  --warn-ink: #ecd4a5;
+}
+.pm-theme-simoun {
+  --bg: #141b36;
+  --panel: #1c2547;
+  --panel-2: #232d54;
+  --border: #2d3866;
+  --border-strong: #3a4880;
+  --ink: #f4ebd8;
+  --ink-2: #d8cdb3;
+  --muted: #8a96bd;
+  --muted-2: #6471a0;
+  --accent: #e8763a;
+  --accent-ink: #f08c4f;
+  --accent-soft: rgba(232, 118, 58, 0.22);
+  --accent-soft-2: rgba(232, 118, 58, 0.1);
+  --good-ink: #c1e4ca;
+  --warn-ink: #ecd4a5;
+}
+/* On dark themes the "you" stamp should reach for the THEME accent,
+   not a hardcoded purple — keeps it findable on any background. */
+.pm-theme-dusk .pm-v3c-stamp.you,
+.pm-theme-drive .pm-v3c-stamp.you,
+.pm-theme-simoun .pm-v3c-stamp.you {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 35%, #f5ecd7) 0%, color-mix(in srgb, var(--accent) 50%, #efe3c4) 100%);
+}
+
+
+/* ============================================================
+   Duotone overlay variant — apply --photo-filter to stamps
+   so they tone into each theme's palette instead of staying
+   warm-cream. Applied via .pm-duo on a container.
+   ============================================================ */
+.pm-theme-cream  { --photo-filter: url(#duotoneCream); }
+.pm-theme-dusk   { --photo-filter: url(#duotoneDusk); }
+.pm-theme-drive  { --photo-filter: url(#duotoneDrive); }
+.pm-theme-simoun { --photo-filter: url(#duotoneSimoun); }
+
+/* Apply the filter to the stamp face. Caption row sits OUTSIDE
+   .pm-v3c-stamp so it stays theme-ink and remains legible.
+   On hover the duotone lifts (same as .ph:hover img). */
+.pm-duo .pm-v3c-stamp {
+  filter: var(--photo-filter);
+  transition: filter 240ms ease, transform 0.18s ease, background 0.18s;
+}
+.pm-duo .pm-v3c-stamp:hover {
+  filter: none;
+}

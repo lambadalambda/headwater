@@ -1,0 +1,162 @@
+/* ============================================================
+   Pinged-parent variants — Replying to … addressees
+   Each variant tweaks the prominence of the parent chip.
+   Built on PleromaNet's existing .post-pinged tokens.
+   ============================================================ */
+
+.pv-page {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.pv-page-h {
+  padding: 14px 20px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.pv-kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  margin-bottom: 4px;
+}
+.pv-h1 {
+  font-family: var(--serif);
+  font-size: 22px;
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.pv-sub {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 6px 0 0;
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+.pv-page-body {
+  flex: 1;
+  overflow: auto;
+  padding: 14px 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pv-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 14px 16px;
+}
+.pv-card-h {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.pv-card-h b {
+  color: var(--ink);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-family: var(--sans);
+  font-size: 13px;
+}
+.pv-card-h em {
+  color: var(--muted-2);
+  font-style: normal;
+  letter-spacing: 0.08em;
+}
+
+/* simulate the body context the chip lives under */
+.pv-body {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+  margin-bottom: 0;
+}
+
+/* === Variant A · ghost chip + ↪ glyph === */
+.pv-a .post-pinged-chip-parent {
+  color: var(--accent-ink);
+  background: var(--accent-soft-2);
+  border-color: transparent;
+  font-weight: 500;
+  font-size: 10.5px;
+  padding: 1px 8px 1px 6px;
+}
+.pv-a .post-pinged-chip-parent svg { opacity: 0.65; }
+.pv-a .post-pinged-chip-parent:hover {
+  background: var(--accent-soft);
+  filter: none;
+}
+
+/* === Variant B · plain link + ↪ glyph, no chip === */
+.pv-b .post-pinged-chip-parent {
+  color: var(--accent-ink);
+  background: transparent;
+  border-color: transparent;
+  font-weight: 500;
+  font-size: 10.5px;
+  padding: 0 2px 0 0;
+}
+.pv-b .post-pinged-chip-parent svg {
+  opacity: 0.55;
+  color: var(--muted-2);
+}
+.pv-b .post-pinged-chip-parent:hover {
+  background: transparent;
+  text-decoration: underline;
+  filter: none;
+}
+
+/* === Variant C · single ↪ marker outside chip; all chips ghost === */
+.pv-c .pv-pinged-marker {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted-2);
+  margin-right: 2px;
+}
+.pv-c .post-pinged-chip-parent {
+  color: var(--accent-ink);
+  background: var(--accent-soft-2);
+  border-color: transparent;
+  font-weight: 500;
+  font-size: 10.5px;
+  padding: 1px 7px;
+}
+.pv-c .post-pinged-chip-parent:hover {
+  background: var(--accent-soft);
+  filter: none;
+}
+
+/* === Variant D · muted fill, keep chip shape === */
+.pv-d .post-pinged-chip-parent {
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border-color: transparent;
+  font-weight: 500;
+  font-size: 10.5px;
+  padding: 1px 9px 1px 7px;
+}
+.pv-d .post-pinged-chip-parent svg { opacity: 0.7; }
+.pv-d .post-pinged-chip-parent:hover {
+  background: var(--accent);
+  color: white;
+  filter: none;
+}
+.pv-d .post-pinged-chip-parent:hover svg { opacity: 0.9; }
