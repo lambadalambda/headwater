@@ -10,10 +10,10 @@ Delta Chat/chatmail federation behind. Test frontend: PleromaNet.
 - **Transport via `@deltachat/stdio-rpc-server` + `@deltachat/jsonrpc-client`
   (v2.53.0)** — prebuilt core binary, typed JSON-RPC client. We don't touch
   SMTP/IMAP/Autocrypt ourselves at all.
-- **Feed = group chat, follow = securejoin invite link (v0).** Broadcast
-  channels (`createBroadcast`) would give proper read-only feeds, but the
-  join story over securejoin for broadcasts needs verification; groups are
-  battle-tested. Trade-off: followers can post into your feed group in v0.
+- **Feed = broadcast channel, follow = securejoin invite link.** Verified by
+  integration test: `createBroadcast` + `getChatSecurejoinQrCode` +
+  `secureJoin` works on core 2.53 — followers get a read-only `InBroadcast`
+  chat. (Original plan was symmetric group chats as fallback; not needed.)
 - **IDs**: Mastodon status id = DC message id (per-account integer, decimal
   string; monotonic so max_id/min_id pagination works). Account id = DC
   contact id. Fine for single-user; revisit if multi-account.
@@ -23,6 +23,18 @@ Delta Chat/chatmail federation behind. Test frontend: PleromaNet.
   adds nothing yet.
 - Accounts registered on nine.testrun.org (chatmail testing relay) via
   `POST /new`. Credentials live in gitignored `accounts.local.json`.
+
+### Findings
+
+- Full federation round-trip (register → invite → securejoin → post →
+  E2E-encrypted delivery) over nine.testrun.org takes ~9s end to end.
+  Securejoin handshake itself completes in a few seconds when both sides
+  are online.
+- The transport layer has no unit tests (network-bound by nature); it is
+  covered by `tests/integration/federation.test.ts` instead. TDD applies to
+  the mapping + API layers, which take the transport behind an interface.
+- First `IncomingMsg` after a join can be a securejoin system message, not
+  the followed feed's post — consumers should filter/poll, not assume.
 
 ### PleromaNet API surface (from code survey)
 
