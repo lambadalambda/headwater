@@ -41,11 +41,11 @@ describe('createStore: mid <-> msgId index', () => {
 });
 
 describe('createStore: reply edges', () => {
-  it('records a reply child under the parent mid', () => {
+  it('records a reply child under the parent mid (feed message, default)', () => {
     const store = createStore(filePath);
     const parentRef = { mid: 'parent-mid@example.org', addr: 'author@example.org' };
     const replyMsg = makeMessage({ id: 20, text: buildReplyText('a reply', parentRef) });
-    store.ingestMessage(replyMsg, 'child-mid@example.org');
+    store.ingestMessage(replyMsg, 'child-mid@example.org', true);
 
     expect(store.replyChildren(parentRef.mid)).toEqual([20]);
     expect(store.childrenCount(parentRef.mid)).toBe(1);
@@ -54,8 +54,8 @@ describe('createStore: reply edges', () => {
   it('accumulates multiple children in order ingested', () => {
     const store = createStore(filePath);
     const parentRef = { mid: 'parent-mid@example.org', addr: 'author@example.org' };
-    store.ingestMessage(makeMessage({ id: 21, text: buildReplyText('r1', parentRef) }), 'c1@example.org');
-    store.ingestMessage(makeMessage({ id: 22, text: buildReplyText('r2', parentRef) }), 'c2@example.org');
+    store.ingestMessage(makeMessage({ id: 21, text: buildReplyText('r1', parentRef) }), 'c1@example.org', true);
+    store.ingestMessage(makeMessage({ id: 22, text: buildReplyText('r2', parentRef) }), 'c2@example.org', true);
 
     expect(store.replyChildren(parentRef.mid)).toEqual([21, 22]);
   });
@@ -68,8 +68,41 @@ describe('createStore: reply edges', () => {
 
   it('does not record a reply edge for a plain, non-reply message', () => {
     const store = createStore(filePath);
-    store.ingestMessage(makeMessage({ id: 30, text: 'just a post' }), 'mid-30@example.org');
+    store.ingestMessage(makeMessage({ id: 30, text: 'just a post' }), 'mid-30@example.org', true);
     expect(store.replyChildren('mid-30@example.org')).toEqual([]);
+  });
+
+  it('does not record a reply edge when isFeedMessage is false (DM reply-notify copy)', () => {
+    const store = createStore(filePath);
+    const parentRef = { mid: 'parent-mid@example.org', addr: 'author@example.org' };
+    const replyMsg = makeMessage({ id: 23, text: buildReplyText('a DM copy of a reply', parentRef) });
+    store.ingestMessage(replyMsg, 'dm-child-mid@example.org', false);
+
+    expect(store.replyChildren(parentRef.mid)).toEqual([]);
+    expect(store.childrenCount(parentRef.mid)).toBe(0);
+    // But the mid <-> msgId mapping is still recorded for all messages.
+    expect(store.resolveMid('dm-child-mid@example.org')).toBe(23);
+  });
+
+  it('defaults isFeedMessage to true when the third argument is omitted (backward compatible)', () => {
+    const store = createStore(filePath);
+    const parentRef = { mid: 'parent-mid@example.org', addr: 'author@example.org' };
+    const replyMsg = makeMessage({ id: 24, text: buildReplyText('a reply', parentRef) });
+    store.ingestMessage(replyMsg, 'default-child-mid@example.org');
+
+    expect(store.replyChildren(parentRef.mid)).toEqual([24]);
+  });
+
+  it('a feed reply and its DM copy together register only one child (the fix for the double-count bug)', () => {
+    const store = createStore(filePath);
+    const parentRef = { mid: 'parent-mid@example.org', addr: 'author@example.org' };
+    const replyText = buildReplyText('a reply', parentRef);
+    // Same logical reply, delivered twice: once via feed broadcast, once as a DM copy — different rfc724Mids.
+    store.ingestMessage(makeMessage({ id: 29, text: replyText }), 'feed-copy-mid@example.org', true);
+    store.ingestMessage(makeMessage({ id: 30, text: replyText }), 'dm-copy-mid@example.org', false);
+
+    expect(store.replyChildren(parentRef.mid)).toEqual([29]);
+    expect(store.childrenCount(parentRef.mid)).toBe(1);
   });
 });
 
@@ -78,7 +111,7 @@ describe('createStore: boost edges', () => {
     const store = createStore(filePath);
     const ref = { mid: 'orig-mid@example.org', addr: 'author@example.org' };
     const boostMsg = makeMessage({ id: 40, text: buildBoostText(ref) });
-    store.ingestMessage(boostMsg, 'boost-mid@example.org');
+    store.ingestMessage(boostMsg, 'boost-mid@example.org', true);
 
     expect(store.boostsByMid(ref.mid)).toEqual([40]);
     expect(store.boostCount(ref.mid)).toBe(1);
@@ -88,7 +121,7 @@ describe('createStore: boost edges', () => {
     const store = createStore(filePath);
     const ref = { mid: 'orig-mid@example.org', addr: 'author@example.org' };
     const boostMsg = makeMessage({ id: 41, text: buildBoostText(ref), fromId: 1 });
-    store.ingestMessage(boostMsg, 'boost-mid-2@example.org');
+    store.ingestMessage(boostMsg, 'boost-mid-2@example.org', true);
 
     expect(store.isOwnBoost(ref.mid)).toBe(true);
   });
@@ -101,13 +134,33 @@ describe('createStore: boost edges', () => {
   it('finds our own boost msgId for a given mid (for unreblog)', () => {
     const store = createStore(filePath);
     const ref = { mid: 'orig-mid@example.org', addr: 'author@example.org' };
-    store.ingestMessage(makeMessage({ id: 42, text: buildBoostText(ref), fromId: 1 }), 'b@example.org');
+    store.ingestMessage(makeMessage({ id: 42, text: buildBoostText(ref), fromId: 1 }), 'b@example.org', true);
     expect(store.ownBoostMsgId(ref.mid)).toBe(42);
   });
 
   it('ownBoostMsgId is null when we have not boosted', () => {
     const store = createStore(filePath);
     expect(store.ownBoostMsgId('orig-mid@example.org')).toBeNull();
+  });
+
+  it('does not record a boost edge when isFeedMessage is false (DM boost-notify copy)', () => {
+    const store = createStore(filePath);
+    const ref = { mid: 'orig-mid@example.org', addr: 'author@example.org' };
+    const boostMsg = makeMessage({ id: 43, text: buildBoostText(ref) });
+    store.ingestMessage(boostMsg, 'dm-boost-mid@example.org', false);
+
+    expect(store.boostsByMid(ref.mid)).toEqual([]);
+    expect(store.boostCount(ref.mid)).toBe(0);
+  });
+
+  it('does not record ownBoosts when isFeedMessage is false, even from self', () => {
+    const store = createStore(filePath);
+    const ref = { mid: 'orig-mid@example.org', addr: 'author@example.org' };
+    const boostMsg = makeMessage({ id: 44, text: buildBoostText(ref), fromId: 1 });
+    store.ingestMessage(boostMsg, 'dm-own-boost-mid@example.org', false);
+
+    expect(store.isOwnBoost(ref.mid)).toBe(false);
+    expect(store.ownBoostMsgId(ref.mid)).toBeNull();
   });
 });
 

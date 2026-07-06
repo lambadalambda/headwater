@@ -84,7 +84,18 @@ const emptyData = (): StoreData => ({
 export type ReactionTally = { emoji: string; count: number; reactors: string[] };
 
 export type Store = {
-  ingestMessage(msg: T.Message, mid: string): void;
+  /**
+   * `isFeedMessage` (default `true`, for back-compat with existing callers)
+   * gates reply/boost edge registration: only messages delivered in a FEED
+   * chat (Group/OutBroadcast/InBroadcast) may register `replyChildren` /
+   * `boostsByMid` entries. DM copies of the same reply/boost (e.g. the
+   * reply-notify control DM to the original author) still get their mid
+   * <-> msgId mapping and `ownMids` bookkeeping recorded — just not the
+   * edge — so the same logical reply delivered twice (once via feed, once
+   * via DM) registers only once. See DEVLOG for the double-count bug this
+   * fixes.
+   */
+  ingestMessage(msg: T.Message, mid: string, isFeedMessage?: boolean): void;
   resolveMid(mid: string): number | null;
   midForMsgId(msgId: number): string | null;
   replyChildren(mid: string): number[];
@@ -149,7 +160,7 @@ export const createStore = (filePath: string): Store => {
   const ingestedSet = (): Set<number> => new Set(load().ingestedMsgIds);
 
   return {
-    ingestMessage: (msg, mid) => {
+    ingestMessage: (msg, mid, isFeedMessage = true) => {
       const d = load();
       if (ingestedSet().has(msg.id)) return;
 
@@ -160,18 +171,25 @@ export const createStore = (filePath: string): Store => {
         d.ownMids.push(mid);
       }
 
-      const parsed = parseMarkers(msg.text);
-      if (parsed.reply) {
-        const children = d.replyChildren[parsed.reply.mid] ?? [];
-        children.push(msg.id);
-        d.replyChildren[parsed.reply.mid] = children;
-      }
-      if (parsed.boost) {
-        const boosters = d.boostsByMid[parsed.boost.mid] ?? [];
-        boosters.push(msg.id);
-        d.boostsByMid[parsed.boost.mid] = boosters;
-        if (msg.fromId === DC_CONTACT_ID_SELF) {
-          d.ownBoosts[parsed.boost.mid] = msg.id;
+      // Reply/boost edges are only registered from FEED chats (Group/
+      // OutBroadcast/InBroadcast). DM copies of the same reply/boost
+      // (delivered under a different rfc724Mid) must not also register an
+      // edge, or context/reply-count would double-count a single logical
+      // reply/boost delivered both ways.
+      if (isFeedMessage) {
+        const parsed = parseMarkers(msg.text);
+        if (parsed.reply) {
+          const children = d.replyChildren[parsed.reply.mid] ?? [];
+          children.push(msg.id);
+          d.replyChildren[parsed.reply.mid] = children;
+        }
+        if (parsed.boost) {
+          const boosters = d.boostsByMid[parsed.boost.mid] ?? [];
+          boosters.push(msg.id);
+          d.boostsByMid[parsed.boost.mid] = boosters;
+          if (msg.fromId === DC_CONTACT_ID_SELF) {
+            d.ownBoosts[parsed.boost.mid] = msg.id;
+          }
         }
       }
 

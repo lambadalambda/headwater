@@ -436,3 +436,23 @@ missing-export error, then extracted and exported).
 
 `pnpm test` (315 tests, all passing) and `pnpm check` (`tsc --noEmit`,
 clean) both green.
+
+Fixed double-counted replies/boosts: a reply is delivered twice by design
+(feed broadcast + DM copy to the author, different rfc724Mids), and both
+copies registered in `replyChildren`/`boostsByMid`. `Store.ingestMessage`
+now takes `isFeedMessage` (default `true`) gating edge registration only —
+mid mapping/`ownMids` still record for every message; `deltachat.ts` reuses
+its existing `getBasicChatInfo` call (no extra RPC) via a new pure
+`isFeedChat(chatType)` predicate to classify each message, passed as
+`onMessage`'s 2nd arg through `main.ts`/`server.ts`. `deriveOnIngest` is
+unchanged, so DM reactions and mention-dedupe still work. `pnpm test`
+(325 tests) and `pnpm check` both green.
+
+Two more live-testing fixes: (1) profile pages 404ed — added
+`GET /api/v1/accounts/lookup?acct=` backed by a new
+`Transport.contactIdByAddr` (`rpc.lookupContactIdByAddr`; SELF matched
+first via pure `matchesSelfAddr`, tolerating "@"-prefix and bare own
+username). (2) self avatar placeholder showed "M" — `contactBadge` now
+applies the cached configured-displayname override via pure `badgeOf`
+instead of the raw SELF contact's "Me". `pnpm test` (340) + `pnpm check`
+green.

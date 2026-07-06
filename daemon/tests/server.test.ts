@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { T } from '@deltachat/jsonrpc-client';
 import { createApp, type AppContext } from '../src/server.js';
 import type { TimelineQuery, Transport } from '../src/transport/types.js';
+import { createStore, ephemeralStorePath } from '../src/store.js';
+import { buildReplyText } from '../src/protocol.js';
 import { makeContact, makeMessage } from './entities.test.js';
 
 const BASE = 'http://localhost:4030';
@@ -63,6 +65,13 @@ const makeFakeTransport = () => {
     feedInvite: async () => 'OPENPGP4FPR:FAKEINVITE',
     follow: async () => 99,
     contact: async (id) => (id === 1 ? self : id === 11 ? BOB : null),
+    contactIdByAddr: async (addr) => {
+      const handle = addr.toLowerCase();
+      const selfAddr = self.address.toLowerCase();
+      if (handle === selfAddr || handle === selfAddr.split('@')[0]) return 1;
+      if (handle === BOB.address.toLowerCase()) return 11;
+      return null;
+    },
     avatarPath: async () => null,
     contactBadge: async (id) =>
       id === 1 ? { initial: 'A', color: '#ff0000' } : null,
@@ -529,6 +538,62 @@ describe('GET /api/v1/statuses/:id/context', () => {
     const context = await (await makeApp().request('/api/v1/statuses/10/context')).json() as any;
     expect(context).toEqual({ ancestors: [], descendants: [] });
   });
+
+  it('a DM copy of a reply (isFeedMessage=false) does not appear in descendants or replies_count, only the feed copy does', async () => {
+    // Simulates the real-world double delivery: a reply is sent once via
+    // the replier's feed broadcast, and once as a DM copy to the original
+    // author — same content, different rfc724Mid. Only the feed copy may
+    // register a replyChildren edge (per the design rule this test guards).
+    const store = createStore(ephemeralStorePath());
+    const { transport, messages, mids } = makeFakeTransport();
+
+    const parentMid = mids.get(12)!; // "newest, from bob"
+    const parentAddr = messages.find((m) => m.id === 12)!.sender.address;
+    const ref = { mid: parentMid, addr: parentAddr };
+    const replyText = buildReplyText('a reply', ref);
+
+    const feedCopy = makeMessage({ id: 500, text: replyText, fromId: 1 });
+    const dmCopy = makeMessage({ id: 501, text: replyText, fromId: 1 });
+    messages.push(feedCopy, dmCopy);
+    mids.set(500, 'feed-copy@example.org');
+    mids.set(501, 'dm-copy@example.org');
+
+    // Feed copy: registers the reply edge.
+    store.ingestMessage(feedCopy, 'feed-copy@example.org', true);
+    // DM copy of the same logical reply: must NOT register a second edge.
+    store.ingestMessage(dmCopy, 'dm-copy@example.org', false);
+
+    expect(store.childrenCount(parentMid)).toBe(1);
+
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store });
+    const context = await (await app.request('/api/v1/statuses/12/context')).json() as any;
+    expect(context.descendants.map((s: any) => s.id)).toEqual(['500']);
+
+    const parentStatus = await (await app.request('/api/v1/statuses/12')).json() as any;
+    expect(parentStatus.replies_count).toBe(1);
+  });
+
+  it('a feed-chat reply registers normally (baseline, no DM copy involved)', async () => {
+    const store = createStore(ephemeralStorePath());
+    const { transport, messages, mids } = makeFakeTransport();
+
+    const parentMid = mids.get(12)!;
+    const parentAddr = messages.find((m) => m.id === 12)!.sender.address;
+    const ref = { mid: parentMid, addr: parentAddr };
+    const replyText = buildReplyText('a reply', ref);
+
+    const feedCopy = makeMessage({ id: 500, text: replyText, fromId: 1 });
+    messages.push(feedCopy);
+    mids.set(500, 'feed-copy@example.org');
+    store.ingestMessage(feedCopy, 'feed-copy@example.org', true);
+
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store });
+    const context = await (await app.request('/api/v1/statuses/12/context')).json() as any;
+    expect(context.descendants.map((s: any) => s.id)).toEqual(['500']);
+
+    const parentStatus = await (await app.request('/api/v1/statuses/12')).json() as any;
+    expect(parentStatus.replies_count).toBe(1);
+  });
 });
 
 describe('single status', () => {
@@ -668,6 +733,49 @@ describe('GET /api/v1/accounts/relationships', () => {
     const rels = await res.json() as any;
     expect(rels).toHaveLength(1);
     expect(rels[0].following).toBe(true);
+  });
+});
+
+describe('GET /api/v1/accounts/lookup', () => {
+  it('resolves a full address to the mapped account with relationship', async () => {
+    const res = await makeApp().request('/api/v1/accounts/lookup?acct=zbie604yz%40nine.testrun.org');
+    expect(res.status).toBe(200);
+    const account = await res.json() as any;
+    expect(account.id).toBe('11');
+    expect(account.acct).toBe('zbie604yz@nine.testrun.org');
+    expect(account.pleroma.relationship.following).toBe(true);
+  });
+
+  it('tolerates a leading "@" on the handle', async () => {
+    const res = await makeApp().request('/api/v1/accounts/lookup?acct=%40zbie604yz%40nine.testrun.org');
+    expect(res.status).toBe(200);
+    const account = await res.json() as any;
+    expect(account.id).toBe('11');
+  });
+
+  it('resolves our own full address to SELF (id 1)', async () => {
+    const res = await makeApp().request('/api/v1/accounts/lookup?acct=p6yalimhl%40nine.testrun.org');
+    expect(res.status).toBe(200);
+    const account = await res.json() as any;
+    expect(account.id).toBe('1');
+  });
+
+  it('resolves a bare local part matching our own username to SELF (id 1)', async () => {
+    const res = await makeApp().request('/api/v1/accounts/lookup?acct=p6yalimhl');
+    expect(res.status).toBe(200);
+    const account = await res.json() as any;
+    expect(account.id).toBe('1');
+    expect(account.username).toBe('p6yalimhl');
+  });
+
+  it('404s for an unknown handle', async () => {
+    const res = await makeApp().request('/api/v1/accounts/lookup?acct=nobody%40nowhere.org');
+    expect(res.status).toBe(404);
+  });
+
+  it('404s when acct is missing or blank', async () => {
+    expect((await makeApp().request('/api/v1/accounts/lookup')).status).toBe(404);
+    expect((await makeApp().request('/api/v1/accounts/lookup?acct=')).status).toBe(404);
   });
 });
 

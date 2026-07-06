@@ -95,12 +95,19 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir, store: injected
     ownAddr: () => ownAddrCache,
   };
 
-  /** Ingest a message into the store, tolerating a transport that can't resolve its mid. */
+  /**
+   * Ingest a message into the store, tolerating a transport that can't
+   * resolve its mid. Every message reaching this helper was loaded via
+   * `timeline`/`timelineFrom`/`message` (feed chats or ids resolved from
+   * feed-registered reply/boost edges), so it's always a FEED message —
+   * unlike the transport's `onMessage` event hook, which also sees DM
+   * copies and must classify per-message (see `deltachat.ts`).
+   */
   const ingest = async (transport: Transport, msg: T.Message): Promise<void> => {
     try {
       const mid = await transport.messageMid(msg.id);
       if (mid) {
-        store.ingestMessage(msg, mid);
+        store.ingestMessage(msg, mid, true);
         deriveOnIngest(store, msg, mid);
       }
     } catch (err) {
@@ -255,6 +262,23 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir, store: injected
     const ids = raw.map(Number);
     const followedIds = new Set((await transport.following()).map((f) => f.contactId));
     return c.json(ids.map((id) => relationshipFor(followedIds.has(id), id)));
+  });
+
+  // Registered before `/:id` so the static segment wins. The frontend
+  // resolves profile routes via this endpoint; the handle is an email
+  // address (our acct values are full addresses), optionally "@"-prefixed,
+  // or a bare local part matching our own account's username.
+  app.get('/api/v1/accounts/lookup', requireTransport, async (c) => {
+    const transport = c.get('transport');
+    const raw = (c.req.query('acct') ?? '').trim();
+    if (!raw) return c.json({ error: 'Record not found' }, 404);
+    const handle = raw.startsWith('@') ? raw.slice(1) : raw;
+    const contactId = await transport.contactIdByAddr(handle);
+    const contact = contactId !== null ? await transport.contact(contactId) : null;
+    if (!contact) return c.json({ error: 'Record not found' }, 404);
+    const followedIds = new Set((await transport.following()).map((f) => f.contactId));
+    const relationship = relationshipFor(followedIds.has(contact.id), contact.id);
+    return c.json(contactToAccount(contact, baseUrl, relationship));
   });
 
   app.get('/api/v1/accounts/:id', requireTransport, async (c) => {

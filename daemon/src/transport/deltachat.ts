@@ -29,6 +29,43 @@ export const shouldIngest = (msg: T.Message): boolean => {
   return true;
 };
 
+/**
+ * Pure predicate: does this chat's type make it a FEED chat (messages that
+ * appear in the timeline: Group/OutBroadcast/InBroadcast), as opposed to a
+ * DM (Single-chat)? Extracted so the FEED-vs-DM classification driving
+ * `Store.ingestMessage`'s reply/boost edge gating is unit-testable without a
+ * running core.
+ */
+export const isFeedChat = (chatType: T.ChatType): boolean => FEED_CHAT_TYPES.has(chatType);
+
+/**
+ * Pure predicate: does `handle` refer to our own account? Matches the full
+ * address or its bare local part (username), case-insensitively. Used by
+ * `contactIdByAddr` so profile lookups for "carol" or "carol@relay" resolve
+ * to SELF without an RPC round-trip.
+ */
+export const matchesSelfAddr = (handle: string, selfAddr: string): boolean => {
+  const h = handle.toLowerCase();
+  const addr = selfAddr.toLowerCase();
+  return h === addr || h === (addr.split('@')[0] ?? addr);
+};
+
+/**
+ * Pure mapping: a contact's avatar-placeholder badge. For the SELF contact
+ * (id 1) the core's `displayName` is a placeholder ("Me"), so the configured
+ * `displayname` — the same override `self()`/`withSelfDisplayName` apply —
+ * takes precedence when present.
+ */
+export const badgeOf = (
+  contact: T.Contact,
+  selfDisplayname: string | null,
+): { initial: string; color: string } => ({
+  initial: initialOf(
+    contact.id === DC_CONTACT_ID_SELF && selfDisplayname ? selfDisplayname : contact.displayName,
+  ),
+  color: contact.color,
+});
+
 export type ChatmailCredentials = {
   addr: string;
   password: string;
@@ -53,8 +90,16 @@ export type OpenTransportOptions = {
    * timeline render still get ingested). Failures are logged and otherwise
    * ignored — ingestion is best-effort bookkeeping, never load-bearing for
    * serving the request that triggered it.
+   *
+   * The second argument is `true` iff the message's chat is a FEED chat
+   * (Group/OutBroadcast/InBroadcast, per `FEED_CHAT_TYPES`) rather than a
+   * DM (Single-chat) — e.g. a reply-notify control DM. Callers use this to
+   * decide whether the message may register reply/boost edges (see
+   * `Store.ingestMessage`), since the same logical reply/boost is delivered
+   * twice: once via the feed broadcast, once as a DM copy to the original
+   * author.
    */
-  onMessage?: (msg: T.Message) => void | Promise<void>;
+  onMessage?: (msg: T.Message, isFeedMessage: boolean) => void | Promise<void>;
 };
 
 export const openTransport = async (
@@ -85,10 +130,9 @@ export const openTransport = async (
   // chat as soon as we see a message in it stops it being a pending request
   // so future deliveries flow through normal events. Best-effort: a failure
   // here must never block ingestion.
-  const acceptIfContactRequest = async (chatId: number): Promise<void> => {
+  const acceptIfContactRequest = async (chat: T.BasicChat): Promise<void> => {
     try {
-      const chat = await rpc.getBasicChatInfo(accountId, chatId);
-      if (chat.isContactRequest) await rpc.acceptChat(accountId, chatId);
+      if (chat.isContactRequest) await rpc.acceptChat(accountId, chat.id);
     } catch (err) {
       console.error('failed to accept contact-request chat (non-fatal):', err);
     }
@@ -96,10 +140,18 @@ export const openTransport = async (
 
   const notifyOnMessage = async (msg: T.Message): Promise<void> => {
     if (!shouldIngest(msg)) return;
-    await acceptIfContactRequest(msg.chatId);
+    // Single getBasicChatInfo lookup, reused for both the contact-request
+    // check and the FEED-vs-DM classification passed to onMessage — avoids
+    // firing a second RPC call for the same chatId.
+    const chat = await rpc.getBasicChatInfo(accountId, msg.chatId).catch((err) => {
+      console.error('failed to load chat info for ingestion (non-fatal):', err);
+      return null;
+    });
+    if (chat) await acceptIfContactRequest(chat);
     if (!options.onMessage) return;
+    const isFeedMessage = chat ? isFeedChat(chat.chatType) : false;
     try {
-      await options.onMessage(msg);
+      await options.onMessage(msg, isFeedMessage);
     } catch (err) {
       console.error('onMessage ingestion failed (non-fatal):', err);
     }
@@ -123,7 +175,7 @@ export const openTransport = async (
   const feedChatIds = async (): Promise<number[]> => {
     const entries = await rpc.getChatlistEntries(accountId, null, null, null);
     const chats = await Promise.all(entries.map((id) => rpc.getBasicChatInfo(accountId, id)));
-    return chats.filter((chat) => FEED_CHAT_TYPES.has(chat.chatType)).map((chat) => chat.id);
+    return chats.filter((chat) => isFeedChat(chat.chatType)).map((chat) => chat.id);
   };
 
   const ensureFeedChat = async (): Promise<number> => {
@@ -343,6 +395,13 @@ export const openTransport = async (
 
     contact: async (contactId) => rpc.getContact(accountId, contactId).catch(() => null),
 
+    contactIdByAddr: async (addr) => {
+      // SELF first: the daemon's own address (or its bare username) never
+      // needs an RPC lookup, and core's lookup may not know SELF by addr.
+      if (matchesSelfAddr(addr, creds.addr)) return DC_CONTACT_ID_SELF;
+      return rpc.lookupContactIdByAddr(accountId, addr).catch(() => null);
+    },
+
     avatarPath: async (contactId) => {
       const contact = await rpc.getContact(accountId, contactId).catch(() => null);
       return contact?.profileImage ?? null;
@@ -351,7 +410,9 @@ export const openTransport = async (
     contactBadge: async (contactId) => {
       const contact = await rpc.getContact(accountId, contactId).catch(() => null);
       if (!contact) return null;
-      return { initial: initialOf(contact.displayName), color: contact.color };
+      // Same cached self-displayname override used by loadMessages/self():
+      // the raw SELF contact's displayName is a placeholder ("Me").
+      return badgeOf(contact, await selfDisplayName());
     },
 
     blobPath: async (msgId) => {

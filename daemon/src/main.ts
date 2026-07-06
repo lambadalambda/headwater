@@ -31,12 +31,12 @@ const announce = async (transport: Transport) => {
 
 let transport: Transport | null = null;
 
-const ingestOnMessage = async (msg: T.Message) => {
+const ingestOnMessage = async (msg: T.Message, isFeedMessage: boolean) => {
   const t = transport;
   if (!t) return;
   const mid = await t.messageMid(msg.id);
   if (mid) {
-    store.ingestMessage(msg, mid);
+    store.ingestMessage(msg, mid, isFeedMessage);
     deriveOnIngest(store, msg, mid);
   }
 };

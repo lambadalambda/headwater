@@ -27,6 +27,12 @@ export interface Transport {
   /** Join someone else's feed from their invite link. Returns the chat id. */
   follow(invite: string): Promise<number>;
   contact(contactId: number): Promise<T.Contact | null>;
+  /**
+   * Resolve a contact id from an email address. Also matches SELF: if the
+   * handle equals our own address (or its bare local part / username),
+   * returns contact id 1. Null if no contact is known for the address.
+   */
+  contactIdByAddr(addr: string): Promise<number | null>;
   avatarPath(contactId: number): Promise<string | null>;
   /** Initial + stable color for the avatar placeholder; null if the contact is unknown. */
   contactBadge(contactId: number): Promise<{ initial: string; color: string } | null>;
