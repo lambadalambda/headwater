@@ -1024,3 +1024,33 @@ A's pending entry is cleared. A learns B's contact id from the inviter-side
 `SecurejoinInviterProgress` event (broadcast followers don't post into A's
 feed, so `contactIdByAddr` may not resolve yet). Full `pnpm test:integration`
 green (4 tests, ~97s).
+
+## 2026-07-06 — follow-back review corrections (duplicate execution + DM-only gating)
+
+Code review caught two wiring gaps in the follow-back implementation:
+
+- **Duplicate execution.** The follow-back block in `main.ts` ran on *every*
+  live delivery of a message — but one DM can reach the ingest hook via both
+  `IncomingMsg` AND the `MsgsChanged` safety net (plus repeat `MsgsChanged`
+  on state changes), so a single invite-request could send multiple grant
+  DMs. Fix: `store.ingestMessage` now returns a freshness boolean (`true` =
+  first time this msgId is seen, `false` = already-ingested no-op), and
+  action execution is gated on it for `'combined'`-phase messages. The
+  backfill `'derive'` cleanup path is untouched (idempotent by design).
+- **DM-only gating.** `deriveFollowbackActions` never saw `isFeedMessage`, so
+  a broadcast *post* containing `⇋ invite-request` would have made every
+  follower auto-DM the poster a grant (unintended amplification — the
+  convention is 1:1 DM-only). Fix: `isFeedMessage` is now a required
+  parameter and the function derives nothing for feed messages; gating lives
+  inside the pure function so no caller can forget it.
+
+While wiring the gates, the whole follow-back half of the ingest hook moved
+out of `main.ts` into an exported `runFollowbackOnIngest(store, transport,
+msg, isFeedMessage, phase, freshlyIngested)` in `src/ingest.ts` — `main.ts`
+and the integration test's mirrored ingest loop now call the *same* function,
+and the phase/freshness/DM-only rules are unit-tested directly
+(`tests/followback.test.ts`: same msgId twice → exactly one grant DM / one
+join; feed message with the marker → no actions even when fresh; `'derive'`
+→ cleanup only; `'index'` → nothing; no transport yet → no-op).
+Re-ran the follow-back integration test after the change: still green, so the
+freshness gate doesn't starve legitimate first-time execution.

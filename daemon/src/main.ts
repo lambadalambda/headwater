@@ -8,12 +8,7 @@ import { registerAccount } from './signup.js';
 import { openTransport, type ChatmailCredentials, type IngestPhase } from './transport/deltachat.js';
 import type { Transport } from './transport/types.js';
 import { createStore } from './store.js';
-import {
-  cleanupFollowbackAction,
-  deriveFollowbackActions,
-  deriveOnIngest,
-  executeFollowbackAction,
-} from './ingest.js';
+import { deriveOnIngest, runFollowbackOnIngest } from './ingest.js';
 import { createStatusMapper, mapNotification } from './mapping.js';
 import { createStreamingHub } from './streaming.js';
 import type { T } from '@deltachat/jsonrpc-client';
@@ -89,37 +84,32 @@ const ingestOnMessage = async (
   phase: IngestPhase,
 ) => {
   if (!mid) return;
+  // `fresh` is `ingestMessage`'s freshness return: true iff this msgId has
+  // never been ingested before. Captured here (the indexing call must run
+  // before the follow-back block) so execute-once side effects below can be
+  // gated on it — one live DM can arrive via both IncomingMsg AND the
+  // MsgsChanged safety net (plus repeat MsgsChanged on state changes), and
+  // without the gate a single invite-request would send one grant DM per
+  // delivery.
+  let fresh = false;
   if (phase === 'combined' || phase === 'index') {
-    store.ingestMessage(msg, mid, isFeedMessage);
+    fresh = store.ingestMessage(msg, mid, isFeedMessage);
   }
   let newNotifications: ReturnType<typeof deriveOnIngest> = [];
   if (phase === 'combined' || phase === 'derive') {
     newNotifications = deriveOnIngest(store, msg, mid);
   }
 
-  // Follow-back control DMs (`⇋ invite-request` / `⇋ invite <link>`).
-  // `deriveFollowbackActions` is pure/sync (store + message only); actions are
-  // executed against the live transport ONLY for live (`'combined'`) messages,
-  // so a restart replaying old requests via the backfill sweep never re-grants
-  // or re-joins. During backfill we still run the safe pending-state cleanup
-  // (a grant that arrived while we were down clears the now-satisfied pending
-  // marker) — see `cleanupFollowbackAction`. The grant/accept decision itself
-  // is store-gated (`store.hasPendingFollowRequest`), which is what prevents
-  // an unsolicited `⇋ invite` DM from ever joining us to a feed.
-  if (phase === 'combined' || phase === 'derive') {
-    const actions = deriveFollowbackActions(store, msg);
-    if (phase === 'derive') {
-      for (const action of actions) cleanupFollowbackAction(store, action);
-    } else if (transport) {
-      for (const action of actions) {
-        try {
-          await executeFollowbackAction(store, transport, action);
-        } catch (err) {
-          console.error('follow-back action failed (non-fatal):', err);
-        }
-      }
-    }
-  }
+  // Follow-back control DMs (`⇋ invite-request` / `⇋ invite <link>`), DM-only
+  // (`isFeedMessage` gates derivation — a broadcast post carrying the marker
+  // must not make every follower auto-DM the poster). All the phase/freshness
+  // rules live in `runFollowbackOnIngest` (see its doc comment): live
+  // (`'combined'`) + freshly-ingested messages execute against the transport;
+  // the `'derive'` backfill pass only runs the safe pending-state cleanup, so
+  // a restart never re-grants or re-joins. The grant/accept decision itself is
+  // store-gated (`store.hasPendingFollowRequest`), which is what prevents an
+  // unsolicited `⇋ invite` DM from ever joining us to a feed.
+  await runFollowbackOnIngest(store, transport, msg, isFeedMessage, phase, fresh);
 
   if (phase !== 'combined') return;
   const t = transport;

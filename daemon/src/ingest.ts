@@ -128,15 +128,25 @@ export type FollowbackAction =
  * Pure: derive the follow-back action(s) implied by a message's marker,
  * gated purely on store/message state (never on transport):
  *
- * - a non-SELF `⇋ invite-request` -> a `grant-invite` reply action.
- * - a non-SELF `⇋ invite <link>` grant -> an `accept-grant` action *only if*
- *   we have a recorded pending request to that sender's address. Unsolicited
- *   grants (no pending entry) return nothing, so they can never trigger a join.
+ * - the convention is **DM-only**: `isFeedMessage === true` (a Group/
+ *   OutBroadcast/InBroadcast delivery) derives nothing. Without this gate a
+ *   broadcast *post* containing `⇋ invite-request` would make every follower
+ *   auto-DM the poster a grant — unintended amplification.
+ * - a non-SELF `⇋ invite-request` DM -> a `grant-invite` reply action.
+ * - a non-SELF `⇋ invite <link>` grant DM -> an `accept-grant` action *only
+ *   if* we have a recorded pending request to that sender's address.
+ *   Unsolicited grants (no pending entry) return nothing, so they can never
+ *   trigger a join.
  *
  * SELF-authored copies of either marker are ignored (we never grant to, or
  * accept from, ourselves).
  */
-export const deriveFollowbackActions = (store: Store, msg: T.Message): FollowbackAction[] => {
+export const deriveFollowbackActions = (
+  store: Store,
+  msg: T.Message,
+  isFeedMessage: boolean,
+): FollowbackAction[] => {
+  if (isFeedMessage) return [];
   if (msg.fromId === DC_CONTACT_ID_SELF) return [];
   const text = msg.text;
 
@@ -198,4 +208,47 @@ export const executeFollowbackAction = async (
  */
 export const cleanupFollowbackAction = (store: Store, action: FollowbackAction): void => {
   if (action.kind === 'accept-grant') store.clearPendingFollowRequest(action.fromAddr);
+};
+
+/**
+ * The complete follow-back half of the ingest hook, extracted from `main.ts`
+ * so the wiring itself is unit-testable (see tests/followback.test.ts):
+ *
+ * - `'index'` phase: nothing (follow-back is derive-side work).
+ * - `'derive'` phase (startup backfill): pending-state cleanup only — never
+ *   any network action, so a restart replaying old requests/grants never
+ *   re-grants or re-joins (idempotent, safe to run repeatedly).
+ * - `'combined'` phase (live): execute the actions against the transport,
+ *   but ONLY when `freshlyIngested` is true — `store.ingestMessage`'s
+ *   freshness return for this msgId. One live DM can reach the hook several
+ *   times (IncomingMsg + the MsgsChanged safety net + repeat MsgsChanged on
+ *   state changes), and without this gate a single invite-request would send
+ *   one grant DM per delivery. Also skipped when no transport is available
+ *   yet (the same startup race main.ts tolerates for streaming): the message
+ *   is left un-actioned rather than crashing.
+ */
+export const runFollowbackOnIngest = async (
+  store: Store,
+  transport: Transport | null,
+  msg: T.Message,
+  isFeedMessage: boolean,
+  phase: 'combined' | 'index' | 'derive',
+  freshlyIngested: boolean,
+): Promise<void> => {
+  if (phase === 'index') return;
+  const actions = deriveFollowbackActions(store, msg, isFeedMessage);
+
+  if (phase === 'derive') {
+    for (const action of actions) cleanupFollowbackAction(store, action);
+    return;
+  }
+
+  if (!freshlyIngested || !transport) return;
+  for (const action of actions) {
+    try {
+      await executeFollowbackAction(store, transport, action);
+    } catch (err) {
+      console.error('follow-back action failed (non-fatal):', err);
+    }
+  }
 };

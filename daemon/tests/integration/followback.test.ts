@@ -15,7 +15,7 @@ import { createStore, type Store } from '../../src/store.js';
 import {
   deriveFollowbackActions,
   deriveOnIngest,
-  executeFollowbackAction,
+  runFollowbackOnIngest,
 } from '../../src/ingest.js';
 
 /**
@@ -38,10 +38,12 @@ describe('follow-back via invite-request over chatmail', () => {
   });
 
   /**
-   * A minimal live-ingest handler mirroring `main.ts`'s `ingestOnMessage`
-   * (the `'combined'` live path only — this test never uses backfill): index
-   * the message, derive notifications, then derive + execute follow-back
-   * actions against the real transport. `getTransport()` is a thunk so the
+   * A minimal ingest handler mirroring `main.ts`'s `ingestOnMessage`: index
+   * the message (capturing the freshness return, which gates execute-once
+   * follow-back actions against IncomingMsg/MsgsChanged double-delivery),
+   * derive notifications, then hand the follow-back half to
+   * `runFollowbackOnIngest` — the same function `main.ts` calls, with all its
+   * phase/DM-only/freshness gating. `getTransport()` is a thunk so the
    * handler can reach the transport the moment it's assigned, exactly as
    * `main.ts` reads its module-level `transport` variable.
    */
@@ -53,14 +55,12 @@ describe('follow-back via invite-request over chatmail', () => {
       phase: IngestPhase,
     ): Promise<void> => {
       if (!mid) return;
-      if (phase === 'combined' || phase === 'index') store.ingestMessage(msg, mid, isFeedMessage);
-      if (phase === 'combined' || phase === 'derive') deriveOnIngest(store, msg, mid);
-      if (phase !== 'combined') return;
-      const t = getTransport();
-      if (!t) return;
-      for (const action of deriveFollowbackActions(store, msg)) {
-        await executeFollowbackAction(store, t, action);
+      let fresh = false;
+      if (phase === 'combined' || phase === 'index') {
+        fresh = store.ingestMessage(msg, mid, isFeedMessage);
       }
+      if (phase === 'combined' || phase === 'derive') deriveOnIngest(store, msg, mid);
+      await runFollowbackOnIngest(store, getTransport(), msg, isFeedMessage, phase, fresh);
     };
   };
 
@@ -166,12 +166,12 @@ describe('follow-back via invite-request over chatmail', () => {
       text: '⇋ invite https://i.delta.chat/#EVILUNSOLICITED',
       sender: { address: 'stranger@example.org' },
     } as unknown as T.Message;
-    expect(deriveFollowbackActions(store, grant)).toEqual([]);
+    expect(deriveFollowbackActions(store, grant, false)).toEqual([]);
 
     // With a pending entry, the same grant would be accepted — proving the
     // gate is what makes the difference, not some unrelated rejection.
     store.addPendingFollowRequest('stranger@example.org', Date.now());
-    expect(deriveFollowbackActions(store, grant)).toEqual([
+    expect(deriveFollowbackActions(store, grant, false)).toEqual([
       { kind: 'accept-grant', link: 'https://i.delta.chat/#EVILUNSOLICITED', fromAddr: 'stranger@example.org' },
     ]);
   });

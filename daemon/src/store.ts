@@ -103,8 +103,15 @@ export type Store = {
    * edge — so the same logical reply delivered twice (once via feed, once
    * via DM) registers only once. See DEVLOG for the double-count bug this
    * fixes.
+   *
+   * Returns `true` iff this msgId was *freshly* ingested (first time seen),
+   * `false` for the already-ingested no-op case. A single live message can
+   * reach the ingest hook several times (IncomingMsg + the MsgsChanged
+   * safety net + repeat MsgsChanged on state changes — see deltachat.ts),
+   * so callers gate execute-once side effects (e.g. follow-back
+   * grant/accept actions in main.ts) on this return value.
    */
-  ingestMessage(msg: T.Message, mid: string, isFeedMessage?: boolean): void;
+  ingestMessage(msg: T.Message, mid: string, isFeedMessage?: boolean): boolean;
   resolveMid(mid: string): number | null;
   midForMsgId(msgId: number): string | null;
   replyChildren(mid: string): number[];
@@ -183,7 +190,7 @@ export const createStore = (filePath: string): Store => {
   return {
     ingestMessage: (msg, mid, isFeedMessage = true) => {
       const d = load();
-      if (ingestedSet().has(msg.id)) return;
+      if (ingestedSet().has(msg.id)) return false;
 
       d.midToMsgId[mid] = msg.id;
       d.msgIdToMid[msg.id] = mid;
@@ -216,6 +223,7 @@ export const createStore = (filePath: string): Store => {
 
       d.ingestedMsgIds.push(msg.id);
       save();
+      return true;
     },
 
     resolveMid: (mid) => load().midToMsgId[mid] ?? null,

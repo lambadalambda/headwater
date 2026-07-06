@@ -184,6 +184,17 @@ describe('createStore: idempotent ingest', () => {
 
     expect(store.boostsByMid(ref.mid)).toEqual([60]);
   });
+
+  it('reports freshness: true on first ingest of a msgId, false on re-ingest', () => {
+    const store = createStore(filePath);
+    const msg = makeMessage({ id: 61, text: 'hello' });
+    // One live DM can be delivered via both IncomingMsg and MsgsChanged (and
+    // repeat MsgsChanged on state changes); callers gate execute-once side
+    // effects (follow-back grant/accept) on this return value.
+    expect(store.ingestMessage(msg, 'fresh-mid@example.org')).toBe(true);
+    expect(store.ingestMessage(msg, 'fresh-mid@example.org')).toBe(false);
+    expect(store.ingestMessage(msg, 'fresh-mid@example.org')).toBe(false);
+  });
 });
 
 describe('createStore: persistence', () => {
