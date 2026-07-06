@@ -10,3 +10,4 @@
 - [x] [Follow/unfollow from profiles + relationships](issues/follow-unfollow-profiles.md)
 - [x] [Notifications](issues/notifications.md)
 - [x] [Real-time streaming (Mastodon websocket API)](issues/streaming-websocket.md)
+- [x] [Replies lack in_reply_to_account_id and mentions](issues/reply-mentions-metadata.md)
