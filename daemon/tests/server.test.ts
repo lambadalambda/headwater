@@ -31,6 +31,11 @@ const makeFakeTransport = () => {
   const posts: Array<{ text: string; file?: string; quotedText?: string }> = [];
   const dms: Array<{ contactId: number; text: string; quotedText?: string }> = [];
   const deleted: number[] = [];
+  const unfollowed: number[] = [];
+  const following: { contactId: number; chatId: number; name: string; addr: string }[] = [
+    { contactId: 11, chatId: 200, name: "bob's feed", addr: BOB.address },
+  ];
+  const followerHandlers = new Set<(contactId: number) => void>();
   const transport: Transport = {
     self: async () => self,
     timeline: async ({ limit, maxId, minId }: TimelineQuery) =>
@@ -72,8 +77,29 @@ const makeFakeTransport = () => {
       const idx = messages.findIndex((m) => m.id === msgId);
       if (idx !== -1) messages.splice(idx, 1);
     },
+    following: async () => following,
+    unfollow: async (contactId) => {
+      const idx = following.findIndex((f) => f.contactId === contactId);
+      if (idx === -1) return false;
+      following.splice(idx, 1);
+      unfollowed.push(contactId);
+      return true;
+    },
+    timelineFrom: async (contactId, { limit, maxId, minId }) =>
+      messages
+        .filter((m) => m.fromId === contactId)
+        .filter((m) => (maxId === undefined || m.id < maxId) && (minId === undefined || m.id > minId))
+        .sort((a, b) => b.id - a.id)
+        .slice(0, limit),
+    onFollower: (handler) => {
+      followerHandlers.add(handler);
+      return () => followerHandlers.delete(handler);
+    },
   };
-  return { transport, messages, posts, dms, deleted, mids };
+  const emitFollower = (contactId: number) => {
+    for (const handler of followerHandlers) handler(contactId);
+  };
+  return { transport, messages, posts, dms, deleted, unfollowed, following, mids, emitFollower };
 };
 
 /** A context that's already configured with a fixed fake transport. */
@@ -536,9 +562,224 @@ describe('deltanet follow endpoints', () => {
   });
 });
 
+describe('POST /api/v1/statuses/:id/favourite and unfavourite', () => {
+  it('favouriting another contact\'s status DMs a reaction and applies our own reaction locally', async () => {
+    const { transport, dms } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const res = await app.request('/api/v1/statuses/12/favourite', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const status = await res.json() as any;
+    expect(status.favourited).toBe(true);
+    expect(status.favourites_count).toBe(1);
+
+    expect(dms).toHaveLength(1);
+    expect(dms[0]?.contactId).toBe(11);
+    expect(dms[0]?.text).toContain('❤');
+    expect(dms[0]?.text).toContain('mid-12@example.org');
+  });
+
+  it('favouriting your own status applies directly without a DM', async () => {
+    const { transport, dms } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const res = await app.request('/api/v1/statuses/11/favourite', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const status = await res.json() as any;
+    expect(status.favourited).toBe(true);
+    expect(status.favourites_count).toBe(1);
+    expect(dms).toHaveLength(0);
+  });
+
+  it('unfavouriting sends a retraction DM and updates local state', async () => {
+    const { transport, dms } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    await app.request('/api/v1/statuses/12/favourite', { method: 'POST' });
+    const res = await app.request('/api/v1/statuses/12/unfavourite', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const status = await res.json() as any;
+    expect(status.favourited).toBe(false);
+    expect(status.favourites_count).toBe(0);
+
+    expect(dms).toHaveLength(2);
+    expect(dms[1]?.text).toContain('✖');
+  });
+
+  it('404s favouriting an unknown status', async () => {
+    const res = await makeApp().request('/api/v1/statuses/999/favourite', { method: 'POST' });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('PUT/DELETE /api/v1/pleroma/statuses/:id/reactions/:emoji', () => {
+  it('adds an arbitrary emoji reaction via DM + local state', async () => {
+    const { transport, dms } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const res = await app.request('/api/v1/pleroma/statuses/12/reactions/%F0%9F%8E%89', { method: 'PUT' });
+    expect(res.status).toBe(200);
+    const status = await res.json() as any;
+    expect(status.pleroma.emoji_reactions).toEqual([{ name: '🎉', count: 1, me: true }]);
+    expect(dms).toHaveLength(1);
+    expect(dms[0]?.text).toContain('🎉');
+  });
+
+  it('removes an emoji reaction via DELETE', async () => {
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    await app.request('/api/v1/pleroma/statuses/12/reactions/%F0%9F%8E%89', { method: 'PUT' });
+    const res = await app.request('/api/v1/pleroma/statuses/12/reactions/%F0%9F%8E%89', { method: 'DELETE' });
+    expect(res.status).toBe(200);
+    const status = await res.json() as any;
+    expect(status.pleroma.emoji_reactions).toEqual([]);
+  });
+
+  it('keeps ❤ favourite-only: reacting with ❤ via the emoji endpoint still counts as favourited', async () => {
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const res = await app.request('/api/v1/pleroma/statuses/12/reactions/%E2%9D%A4', { method: 'PUT' });
+    const status = await res.json() as any;
+    expect(status.favourited).toBe(true);
+    expect(status.pleroma.emoji_reactions).toEqual([]);
+  });
+});
+
+describe('GET /api/v1/accounts/relationships', () => {
+  it('reports following:true for a followed contact', async () => {
+    const res = await makeApp().request('/api/v1/accounts/relationships?id[]=11');
+    expect(res.status).toBe(200);
+    const rels = await res.json() as any;
+    expect(rels).toHaveLength(1);
+    expect(rels[0].id).toBe('11');
+    expect(rels[0].following).toBe(true);
+  });
+
+  it('reports following:false for an unfollowed contact', async () => {
+    const res = await makeApp().request('/api/v1/accounts/relationships?id[]=999');
+    const rels = await res.json() as any;
+    expect(rels[0].following).toBe(false);
+  });
+
+  it('accepts a single id without brackets', async () => {
+    const res = await makeApp().request('/api/v1/accounts/relationships?id=11');
+    const rels = await res.json() as any;
+    expect(rels).toHaveLength(1);
+    expect(rels[0].following).toBe(true);
+  });
+});
+
+describe('POST /api/v1/accounts/:id/unfollow and /follow', () => {
+  it('unfollow stops the feed and returns the relationship', async () => {
+    const { transport, unfollowed } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const res = await app.request('/api/v1/accounts/11/unfollow', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const rel = await res.json() as any;
+    expect(rel.following).toBe(false);
+    expect(unfollowed).toContain(11);
+  });
+
+  it('follow returns 422 pointing at invite links', async () => {
+    const res = await makeApp().request('/api/v1/accounts/11/follow', { method: 'POST' });
+    expect(res.status).toBe(422);
+    const body = await res.json() as any;
+    expect(body.error).toBeTypeOf('string');
+    expect(body.error.toLowerCase()).toContain('invite');
+  });
+});
+
+describe('GET /api/v1/accounts/:id/statuses', () => {
+  it('returns that contact\'s messages mapped as statuses', async () => {
+    const res = await makeApp().request('/api/v1/accounts/11/statuses');
+    expect(res.status).toBe(200);
+    const statuses = await res.json() as any;
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0].account.id).toBe('11');
+    expect(statuses[0].content).toContain('newest, from bob');
+  });
+
+  it('returns an empty list for a contact with no messages', async () => {
+    const res = await makeApp().request('/api/v1/accounts/999/statuses');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
+  it('returns our own posts for our own account id', async () => {
+    const res = await makeApp().request('/api/v1/accounts/1/statuses');
+    expect(res.status).toBe(200);
+    const statuses = await res.json() as any;
+    expect(statuses.map((s: any) => s.id).sort()).toEqual(['10', '11']);
+  });
+});
+
+describe('GET /api/v1/notifications', () => {
+  it('returns an empty list with no notifications', async () => {
+    const res = await makeApp().request('/api/v1/notifications');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
+  it('lists a favourite notification after a reaction DM is ingested', async () => {
+    const { transport, mids, messages } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    // First, ingest message 11 (our own post) so its mid is a known own mid.
+    await app.request('/api/v1/timelines/home');
+
+    // Then simulate bob's reaction DM arriving, targeting mid-11's mid.
+    const { buildReactionText } = await import('../src/protocol.js');
+    const reactionMsg = makeMessage({
+      id: 300,
+      fromId: 11,
+      sender: BOB,
+      text: buildReactionText('❤', mids.get(11)!),
+    });
+    messages.push(reactionMsg);
+    mids.set(300, 'reaction-mid@example.org');
+    transport.timeline = async () => [reactionMsg];
+    await app.request('/api/v1/timelines/home');
+
+    const res = await app.request('/api/v1/notifications');
+    expect(res.status).toBe(200);
+    const notifications = await res.json() as any;
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].type).toBe('favourite');
+    expect(notifications[0].account.acct).toBe(BOB.address);
+    expect(notifications[0].status.id).toBe('11');
+  });
+
+  it('supports a limit query param', async () => {
+    const { transport, mids, messages } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+    const { buildReactionText } = await import('../src/protocol.js');
+
+    await app.request('/api/v1/timelines/home');
+
+    for (let i = 0; i < 3; i++) {
+      const reactionMsg = makeMessage({
+        id: 300 + i,
+        fromId: 11,
+        sender: BOB,
+        text: buildReactionText(i === 0 ? '🎉' : i === 1 ? '🎈' : '🎁', mids.get(11)!),
+      });
+      messages.push(reactionMsg);
+      mids.set(300 + i, `reaction-mid-${i}@example.org`);
+      transport.timeline = async () => [reactionMsg];
+      await app.request('/api/v1/timelines/home');
+    }
+
+    const res = await app.request('/api/v1/notifications?limit=1');
+    const notifications = await res.json() as any;
+    expect(notifications).toHaveLength(1);
+  });
+});
+
 describe('stub endpoints pleromanet polls', () => {
   it.each([
-    '/api/v1/notifications',
     '/api/v1/custom_emojis',
     '/api/v1/trends/tags',
     '/api/v2/suggestions',

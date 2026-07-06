@@ -7,6 +7,47 @@ import { parseMarkers } from './protocol.js';
 
 const DC_CONTACT_ID_SELF = 1;
 
+export type NotificationType =
+  | 'follow'
+  | 'mention'
+  | 'reblog'
+  | 'favourite'
+  | 'pleroma:emoji_reaction';
+
+export type Notification = {
+  id: string;
+  type: NotificationType;
+  createdAt: string;
+  accountAddr: string;
+  accountContactId?: number;
+  emoji?: string;
+  statusMsgId?: number;
+};
+
+/** Input to `addNotification`: everything but the id/createdAt, plus an optional dedupe key source. */
+export type NotificationInput = {
+  type: NotificationType;
+  accountAddr: string;
+  accountContactId?: number;
+  emoji?: string;
+  statusMsgId?: number;
+  /**
+   * The mid this notification is "about" (the replied-to/boosted/reacted-to
+   * message), used to build the dedupe key `type:addr:mid[:emoji]`. Optional
+   * because follow notifications have no associated mid.
+   */
+  dedupeMid?: string;
+  /**
+   * Emoji to fold into the dedupe key, if different from (or absent from)
+   * the stored `emoji` field — e.g. a favourite notification stores no
+   * `emoji` field but still dedupes per-emoji against
+   * `pleroma:emoji_reaction`s on the same mid/reactor. Defaults to `emoji`.
+   */
+  dedupeEmoji?: string;
+};
+
+type StoredReactions = Record<string, Record<string, string[]>>;
+
 type StoreData = {
   midToMsgId: Record<string, number>;
   msgIdToMid: Record<number, string>;
@@ -16,6 +57,14 @@ type StoreData = {
   ownBoosts: Record<string, number>;
   /** msgIds already ingested, so re-ingesting the same message is a no-op. */
   ingestedMsgIds: number[];
+  /** mids authored by SELF (DC contact id 1). */
+  ownMids: string[];
+  /** mid -> reactor address -> emoji[] (a reactor may use several distinct emoji per mid). */
+  reactions: StoredReactions;
+  notifications: Notification[];
+  /** Dedupe keys already recorded, so re-adding the same notification is a no-op. */
+  notificationDedupeKeys: string[];
+  nextNotificationId: number;
 };
 
 const emptyData = (): StoreData => ({
@@ -25,7 +74,14 @@ const emptyData = (): StoreData => ({
   boostsByMid: {},
   ownBoosts: {},
   ingestedMsgIds: [],
+  ownMids: [],
+  reactions: {},
+  notifications: [],
+  notificationDedupeKeys: [],
+  nextNotificationId: 1,
 });
+
+export type ReactionTally = { emoji: string; count: number; reactors: string[] };
 
 export type Store = {
   ingestMessage(msg: T.Message, mid: string): void;
@@ -37,18 +93,35 @@ export type Store = {
   boostCount(mid: string): number;
   isOwnBoost(mid: string): boolean;
   ownBoostMsgId(mid: string): number | null;
+  /** Was this mid authored by SELF (DC contact id 1)? */
+  isOwnMid(mid: string): boolean;
+  applyReaction(mid: string, addr: string, emoji: string): void;
+  retractReaction(mid: string, addr: string, emoji: string): void;
+  reactionTallies(mid: string): ReactionTally[];
+  /** Returns the stored notification, or null if it was a dedupe no-op. */
+  addNotification(input: NotificationInput): Notification | null;
+  listNotifications(query: { limit?: number; maxId?: string; sinceId?: string }): Notification[];
 };
 
 /** A fresh scratch path for callers (tests, `createApp` defaults) that don't need cross-restart persistence. */
 export const ephemeralStorePath = (): string =>
   join(tmpdir(), `deltanet-store-${randomUUID()}.json`);
 
+const dedupeKey = (input: NotificationInput): string | null => {
+  if (!input.dedupeMid) return null;
+  const parts = [input.type, input.accountAddr, input.dedupeMid];
+  const emoji = input.dedupeEmoji ?? input.emoji;
+  if (emoji) parts.push(emoji);
+  return parts.join(':');
+};
+
 /**
  * Per-account persistent index over the deltanet wire convention: mid <->
- * msgId, reply children, and boost tallies. Loaded lazily from `filePath`
- * (a JSON file whose path is injected — one per account data dir) and
- * saved synchronously on every mutation; the data here is small (indices
- * over message ids/mids), so this stays simple rather than debounced.
+ * msgId, reply children, boost tallies, reactions, and notifications.
+ * Loaded lazily from `filePath` (a JSON file whose path is injected — one
+ * per account data dir) and saved synchronously on every mutation; the data
+ * here is small (indices over message ids/mids), so this stays simple
+ * rather than debounced.
  */
 export const createStore = (filePath: string): Store => {
   let data: StoreData | null = null;
@@ -83,6 +156,10 @@ export const createStore = (filePath: string): Store => {
       d.midToMsgId[mid] = msg.id;
       d.msgIdToMid[msg.id] = mid;
 
+      if (msg.fromId === DC_CONTACT_ID_SELF && !d.ownMids.includes(mid)) {
+        d.ownMids.push(mid);
+      }
+
       const parsed = parseMarkers(msg.text);
       if (parsed.reply) {
         const children = d.replyChildren[parsed.reply.mid] ?? [];
@@ -110,5 +187,81 @@ export const createStore = (filePath: string): Store => {
     boostCount: (mid) => (load().boostsByMid[mid] ?? []).length,
     isOwnBoost: (mid) => load().ownBoosts[mid] !== undefined,
     ownBoostMsgId: (mid) => load().ownBoosts[mid] ?? null,
+    isOwnMid: (mid) => load().ownMids.includes(mid),
+
+    applyReaction: (mid, addr, emoji) => {
+      const d = load();
+      const byReactor = d.reactions[mid] ?? {};
+      const emojis = byReactor[addr] ?? [];
+      if (!emojis.includes(emoji)) emojis.push(emoji);
+      byReactor[addr] = emojis;
+      d.reactions[mid] = byReactor;
+      save();
+    },
+
+    retractReaction: (mid, addr, emoji) => {
+      const d = load();
+      const byReactor = d.reactions[mid];
+      if (!byReactor) return;
+      const emojis = byReactor[addr];
+      if (!emojis) return;
+      const idx = emojis.indexOf(emoji);
+      if (idx === -1) return;
+      emojis.splice(idx, 1);
+      if (emojis.length === 0) delete byReactor[addr];
+      else byReactor[addr] = emojis;
+      save();
+    },
+
+    reactionTallies: (mid) => {
+      const byReactor = load().reactions[mid] ?? {};
+      const tallies = new Map<string, string[]>();
+      for (const [addr, emojis] of Object.entries(byReactor)) {
+        for (const emoji of emojis) {
+          const reactors = tallies.get(emoji) ?? [];
+          reactors.push(addr);
+          tallies.set(emoji, reactors);
+        }
+      }
+      return [...tallies.entries()].map(([emoji, reactors]) => ({
+        emoji,
+        count: reactors.length,
+        reactors,
+      }));
+    },
+
+    addNotification: (input) => {
+      const d = load();
+      const key = dedupeKey(input);
+      if (key && d.notificationDedupeKeys.includes(key)) return null;
+
+      const notification: Notification = {
+        id: String(d.nextNotificationId++),
+        type: input.type,
+        createdAt: new Date().toISOString(),
+        accountAddr: input.accountAddr,
+        ...(input.accountContactId !== undefined ? { accountContactId: input.accountContactId } : {}),
+        ...(input.emoji !== undefined ? { emoji: input.emoji } : {}),
+        ...(input.statusMsgId !== undefined ? { statusMsgId: input.statusMsgId } : {}),
+      };
+      d.notifications.push(notification);
+      if (key) d.notificationDedupeKeys.push(key);
+      save();
+      return notification;
+    },
+
+    listNotifications: ({ limit, maxId, sinceId }) => {
+      const all = load().notifications;
+      const maxIdNum = maxId !== undefined ? Number(maxId) : undefined;
+      const sinceIdNum = sinceId !== undefined ? Number(sinceId) : undefined;
+      const filtered = all.filter((n) => {
+        const idNum = Number(n.id);
+        if (maxIdNum !== undefined && !(idNum < maxIdNum)) return false;
+        if (sinceIdNum !== undefined && !(idNum > sinceIdNum)) return false;
+        return true;
+      });
+      const sorted = filtered.slice().sort((a, b) => Number(b.id) - Number(a.id));
+      return limit !== undefined ? sorted.slice(0, limit) : sorted;
+    },
   };
 };

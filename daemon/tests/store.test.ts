@@ -166,3 +166,204 @@ describe('createStore: resolver shape used by entities mapping', () => {
     expect(store.isOwnBoost('child-mid@example.org')).toBe(false);
   });
 });
+
+describe('createStore: ownMids', () => {
+  it('records a mid as own when ingested with sender = SELF (contact id 1)', () => {
+    const store = createStore(filePath);
+    store.ingestMessage(makeMessage({ id: 90, fromId: 1, text: 'mine' }), 'own-mid@example.org');
+    expect(store.isOwnMid('own-mid@example.org')).toBe(true);
+  });
+
+  it('does not record a mid as own when ingested from another contact', () => {
+    const store = createStore(filePath);
+    store.ingestMessage(makeMessage({ id: 91, fromId: 11, text: 'not mine' }), 'their-mid@example.org');
+    expect(store.isOwnMid('their-mid@example.org')).toBe(false);
+  });
+
+  it('reports false for an unknown mid', () => {
+    const store = createStore(filePath);
+    expect(store.isOwnMid('nope@example.org')).toBe(false);
+  });
+});
+
+describe('createStore: reactions', () => {
+  it('applies a reaction and tallies it', () => {
+    const store = createStore(filePath);
+    store.applyReaction('mid-1@example.org', 'bob@example.org', '❤');
+    expect(store.reactionTallies('mid-1@example.org')).toEqual([
+      { emoji: '❤', count: 1, reactors: ['bob@example.org'] },
+    ]);
+  });
+
+  it('groups multiple reactors under the same emoji', () => {
+    const store = createStore(filePath);
+    store.applyReaction('mid-1@example.org', 'bob@example.org', '❤');
+    store.applyReaction('mid-1@example.org', 'carol@example.org', '❤');
+    expect(store.reactionTallies('mid-1@example.org')).toEqual([
+      { emoji: '❤', count: 2, reactors: ['bob@example.org', 'carol@example.org'] },
+    ]);
+  });
+
+  it('supports multiple distinct emoji per reactor per mid', () => {
+    const store = createStore(filePath);
+    store.applyReaction('mid-1@example.org', 'bob@example.org', '❤');
+    store.applyReaction('mid-1@example.org', 'bob@example.org', '🎉');
+    const tallies = store.reactionTallies('mid-1@example.org');
+    expect(tallies).toHaveLength(2);
+    expect(tallies.find((t) => t.emoji === '❤')).toEqual({ emoji: '❤', count: 1, reactors: ['bob@example.org'] });
+    expect(tallies.find((t) => t.emoji === '🎉')).toEqual({ emoji: '🎉', count: 1, reactors: ['bob@example.org'] });
+  });
+
+  it('applying the same reactor+emoji twice does not double count', () => {
+    const store = createStore(filePath);
+    store.applyReaction('mid-1@example.org', 'bob@example.org', '❤');
+    store.applyReaction('mid-1@example.org', 'bob@example.org', '❤');
+    expect(store.reactionTallies('mid-1@example.org')).toEqual([
+      { emoji: '❤', count: 1, reactors: ['bob@example.org'] },
+    ]);
+  });
+
+  it('retracts a reaction', () => {
+    const store = createStore(filePath);
+    store.applyReaction('mid-1@example.org', 'bob@example.org', '❤');
+    store.retractReaction('mid-1@example.org', 'bob@example.org', '❤');
+    expect(store.reactionTallies('mid-1@example.org')).toEqual([]);
+  });
+
+  it('retracting one emoji leaves other reactions from the same reactor intact', () => {
+    const store = createStore(filePath);
+    store.applyReaction('mid-1@example.org', 'bob@example.org', '❤');
+    store.applyReaction('mid-1@example.org', 'bob@example.org', '🎉');
+    store.retractReaction('mid-1@example.org', 'bob@example.org', '❤');
+    expect(store.reactionTallies('mid-1@example.org')).toEqual([
+      { emoji: '🎉', count: 1, reactors: ['bob@example.org'] },
+    ]);
+  });
+
+  it('retracting a reaction that was never applied is a no-op', () => {
+    const store = createStore(filePath);
+    store.retractReaction('mid-1@example.org', 'bob@example.org', '❤');
+    expect(store.reactionTallies('mid-1@example.org')).toEqual([]);
+  });
+
+  it('returns an empty array for a mid with no reactions', () => {
+    const store = createStore(filePath);
+    expect(store.reactionTallies('nothing@example.org')).toEqual([]);
+  });
+});
+
+describe('createStore: notifications', () => {
+  it('appends a notification with a monotonic string id', () => {
+    const store = createStore(filePath);
+    const n1 = store.addNotification({ type: 'follow', accountAddr: 'bob@example.org' });
+    const n2 = store.addNotification({ type: 'follow', accountAddr: 'carol@example.org' });
+    expect(Number(n2!.id)).toBeGreaterThan(Number(n1!.id));
+  });
+
+  it('lists notifications newest first', () => {
+    const store = createStore(filePath);
+    store.addNotification({ type: 'follow', accountAddr: 'bob@example.org' });
+    store.addNotification({ type: 'follow', accountAddr: 'carol@example.org' });
+    const list = store.listNotifications({});
+    expect(list.map((n) => n.accountAddr)).toEqual(['carol@example.org', 'bob@example.org']);
+  });
+
+  it('dedupes on type:addr:mid[:emoji]', () => {
+    const store = createStore(filePath);
+    store.addNotification({
+      type: 'mention',
+      accountAddr: 'bob@example.org',
+      statusMsgId: 5,
+      dedupeMid: 'reply-mid@example.org',
+    });
+    const second = store.addNotification({
+      type: 'mention',
+      accountAddr: 'bob@example.org',
+      statusMsgId: 5,
+      dedupeMid: 'reply-mid@example.org',
+    });
+    expect(second).toBeNull();
+    expect(store.listNotifications({})).toHaveLength(1);
+  });
+
+  it('does not dedupe distinct emoji reactions from the same reactor on the same mid', () => {
+    const store = createStore(filePath);
+    store.addNotification({
+      type: 'pleroma:emoji_reaction',
+      accountAddr: 'bob@example.org',
+      dedupeMid: 'mid-1@example.org',
+      emoji: '❤',
+    });
+    store.addNotification({
+      type: 'pleroma:emoji_reaction',
+      accountAddr: 'bob@example.org',
+      dedupeMid: 'mid-1@example.org',
+      emoji: '🎉',
+    });
+    expect(store.listNotifications({})).toHaveLength(2);
+  });
+
+  it('a favourite notification omits the emoji field but still dedupes per dedupeEmoji', () => {
+    const store = createStore(filePath);
+    const n = store.addNotification({
+      type: 'favourite',
+      accountAddr: 'bob@example.org',
+      dedupeMid: 'mid-1@example.org',
+      dedupeEmoji: '❤',
+    });
+    expect(n).not.toHaveProperty('emoji');
+
+    // A distinct emoji reaction from the same reactor on the same mid is not deduped away.
+    const other = store.addNotification({
+      type: 'pleroma:emoji_reaction',
+      accountAddr: 'bob@example.org',
+      emoji: '🎉',
+      dedupeMid: 'mid-1@example.org',
+      dedupeEmoji: '🎉',
+    });
+    expect(other).not.toBeNull();
+    expect(store.listNotifications({})).toHaveLength(2);
+
+    // Re-adding the same favourite is deduped.
+    const dupe = store.addNotification({
+      type: 'favourite',
+      accountAddr: 'bob@example.org',
+      dedupeMid: 'mid-1@example.org',
+      dedupeEmoji: '❤',
+    });
+    expect(dupe).toBeNull();
+  });
+
+  it('paginates with limit', () => {
+    const store = createStore(filePath);
+    for (let i = 0; i < 5; i++) {
+      store.addNotification({ type: 'follow', accountAddr: `user${i}@example.org` });
+    }
+    expect(store.listNotifications({ limit: 2 })).toHaveLength(2);
+  });
+
+  it('paginates with max_id (strictly older than)', () => {
+    const store = createStore(filePath);
+    const ids = [0, 1, 2].map(
+      (i) => store.addNotification({ type: 'follow', accountAddr: `user${i}@example.org` })!.id,
+    );
+    const page = store.listNotifications({ maxId: ids[2] });
+    expect(page.map((n) => n.id)).toEqual([ids[1], ids[0]]);
+  });
+
+  it('paginates with since_id (strictly newer than)', () => {
+    const store = createStore(filePath);
+    const ids = [0, 1, 2].map(
+      (i) => store.addNotification({ type: 'follow', accountAddr: `user${i}@example.org` })!.id,
+    );
+    const page = store.listNotifications({ sinceId: ids[0] });
+    expect(page.map((n) => n.id)).toEqual([ids[2], ids[1]]);
+  });
+
+  it('persists notifications across store reloads', () => {
+    const store = createStore(filePath);
+    store.addNotification({ type: 'follow', accountAddr: 'bob@example.org' });
+    const reloaded = createStore(filePath);
+    expect(reloaded.listNotifications({})).toHaveLength(1);
+  });
+});

@@ -18,6 +18,12 @@ export type ParsedMarkers = {
 
 const REPLY_PREFIX = '↳re ';
 const BOOST_PREFIX = '♻ ';
+const REACT_INFIX = ' ↳ ';
+const UNREACT_PREFIX = '✖ ↳ ';
+
+export type ParsedReaction =
+  | { kind: 'react'; emoji: string; mid: string }
+  | { kind: 'unreact'; emoji: string; mid: string };
 
 /** A mid has no whitespace (it's an opaque Message-ID); addr is the trailing token. */
 const MARKER_LINE_RE = /^(\S+) (\S+)$/;
@@ -65,6 +71,41 @@ export const parseMarkers = (text: string): ParsedMarkers => {
   }
 
   return { body: text };
+};
+
+/** Reaction (like/emoji-react) control-DM text: `"<emoji> ↳ <mid>"`. */
+export const buildReactionText = (emoji: string, mid: string): string =>
+  `${emoji}${REACT_INFIX}${mid}`;
+
+/** Retraction control-DM text: `"✖ ↳ <mid> <emoji>"`. */
+export const buildUnreactionText = (emoji: string, mid: string): string =>
+  `${UNREACT_PREFIX}${mid} ${emoji}`;
+
+/**
+ * Recognizes reaction/unreaction control-DM texts — single-line only,
+ * tolerant otherwise (returns null for anything else, including
+ * reaction-shaped text with trailing lines or missing fields, so we never
+ * misfire on ordinary vanilla-DC messages).
+ */
+export const parseReaction = (text: string): ParsedReaction | null => {
+  if (text.includes('\n')) return null;
+
+  if (text.startsWith(UNREACT_PREFIX)) {
+    const rest = text.slice(UNREACT_PREFIX.length);
+    const lastSpace = rest.lastIndexOf(' ');
+    if (lastSpace === -1) return null;
+    const mid = rest.slice(0, lastSpace);
+    const emoji = rest.slice(lastSpace + 1);
+    if (!mid || !emoji) return null;
+    return { kind: 'unreact', emoji, mid };
+  }
+
+  const infixIndex = text.indexOf(REACT_INFIX);
+  if (infixIndex === -1) return null;
+  const emoji = text.slice(0, infixIndex);
+  const mid = text.slice(infixIndex + REACT_INFIX.length);
+  if (!emoji || !mid) return null;
+  return { kind: 'react', emoji, mid };
 };
 
 /** Build the freeform `quotedText` bubble vanilla Delta Chat renders. */

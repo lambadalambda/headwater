@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   buildBoostText,
   buildQuotedText,
+  buildReactionText,
   buildReplyText,
+  buildUnreactionText,
   parseMarkers,
   parseQuotedAuthor,
+  parseReaction,
 } from '../src/protocol.js';
 
 const REF = { mid: 'abc123@nine.testrun.org', addr: 'bob@nine.testrun.org' };
@@ -83,6 +86,59 @@ describe('parseMarkers tolerance', () => {
     const ref = { mid: '<weird+id.123@sub.nine.testrun.org>', addr: 'a.b+tag@nine.testrun.org' };
     const text = buildReplyText('body text', ref);
     expect(parseMarkers(text)).toEqual({ body: 'body text', reply: ref });
+  });
+});
+
+describe('buildReactionText / parseReaction (reaction round-trip)', () => {
+  it('builds "<emoji> ↳ <mid>"', () => {
+    expect(buildReactionText('❤', REF.mid)).toBe('❤ ↳ abc123@nine.testrun.org');
+  });
+
+  it('round-trips: parseReaction recovers the emoji, mid, and kind', () => {
+    const text = buildReactionText('❤', REF.mid);
+    expect(parseReaction(text)).toEqual({ kind: 'react', emoji: '❤', mid: REF.mid });
+  });
+
+  it('round-trips a non-heart emoji', () => {
+    const text = buildReactionText('🎉', REF.mid);
+    expect(parseReaction(text)).toEqual({ kind: 'react', emoji: '🎉', mid: REF.mid });
+  });
+});
+
+describe('buildUnreactionText / parseReaction (unreaction round-trip)', () => {
+  it('builds "✖ ↳ <mid> <emoji>"', () => {
+    expect(buildUnreactionText('❤', REF.mid)).toBe('✖ ↳ abc123@nine.testrun.org ❤');
+  });
+
+  it('round-trips: parseReaction recovers the emoji, mid, and kind', () => {
+    const text = buildUnreactionText('❤', REF.mid);
+    expect(parseReaction(text)).toEqual({ kind: 'unreact', emoji: '❤', mid: REF.mid });
+  });
+});
+
+describe('parseReaction tolerance', () => {
+  it('returns null for plain text', () => {
+    expect(parseReaction('just a normal message')).toBeNull();
+  });
+
+  it('returns null for a multi-line reaction-shaped text (single-line only)', () => {
+    expect(parseReaction('❤ ↳ abc123@nine.testrun.org\nextra line')).toBeNull();
+  });
+
+  it('returns null for a multi-line unreaction-shaped text (single-line only)', () => {
+    expect(parseReaction('✖ ↳ abc123@nine.testrun.org ❤\nextra line')).toBeNull();
+  });
+
+  it('returns null for a malformed reaction (missing mid)', () => {
+    expect(parseReaction('❤ ↳ ')).toBeNull();
+  });
+
+  it('returns null for a malformed unreaction (missing emoji)', () => {
+    expect(parseReaction('✖ ↳ abc123@nine.testrun.org')).toBeNull();
+  });
+
+  it('handles empty string', () => {
+    expect(parseReaction('')).toBeNull();
   });
 });
 

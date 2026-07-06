@@ -228,3 +228,135 @@ throughout (new unit tests written and shown red before each implementation).
   or run `pnpm test:integration`, per instructions — `openTransport`'s
   new third parameter is optional so that test's existing two-arg calls
   still typecheck.
+
+## 2026-07-06 — likes/favourites, emoji reactions, follow/unfollow, notifications
+
+Implemented all four remaining wire-convention-adjacent issues
+(`meta/issues/likes-favourites.md`, `emoji-reactions.md`,
+`follow-unfollow-profiles.md`, `notifications.md`) together, TDD throughout
+(protocol/store/derivation tests written and shown red before each piece of
+implementation, then endpoint tests against extended fakes).
+
+- **`src/protocol.ts`**: `buildReactionText(emoji, mid)` →
+  `"<emoji> ↳ <mid>"`; `buildUnreactionText(emoji, mid)` →
+  `"✖ ↳ <mid> <emoji>"`; `parseReaction(text)` recognizes both, single-line
+  only (a reaction/unreaction with a trailing newline, or missing
+  mid/emoji, is not recognized — same "never misfire on vanilla DC
+  messages" tolerance as `parseMarkers`).
+- **`src/store.ts`** gained:
+  - `ownMids` — tracked directly off `msg.fromId === 1` inside the existing
+    `ingestMessage` (no signature change was needed: `T.Message` already
+    carries `fromId`).
+  - Reactions: `Record<mid, Record<reactorAddr, emoji[]>>` (a reactor can
+    apply several distinct emoji to the same mid — required by the emoji
+    reactions issue). `applyReaction`/`retractReaction`/`reactionTallies`.
+  - Notifications: append-only `Notification[]` + a monotonic string id
+    counter, persisted like everything else. `addNotification` dedupes via
+    an explicit `dedupeMid`(`+dedupeEmoji`) input rather than overloading
+    the stored `emoji` field — a favourite notification stores no `emoji`
+    field at all (matches real Mastodon) but still needs the emoji folded
+    into its dedupe key so a ❤ and a 🎉 from the same reactor on the same
+    post don't collide. `listNotifications({limit, maxId, sinceId})` is
+    newest-first with strict `<`/`>` pagination bounds (Mastodon semantics).
+- **New `src/ingest.ts`** (`deriveOnIngest(store, msg, mid)`): the
+  notification/reaction-application pass, deliberately separate from
+  `Store.ingestMessage` (which only maintains mid/msgId/reply/boost
+  indices) so it's testable with a plain store + fake messages. SELF
+  messages are skipped entirely — not just "no notification" but also "no
+  reaction applied" — because the favourite/reaction endpoints apply our
+  own reaction to the store directly and DM the author; relying on
+  ingesting our own outgoing control DM would make the response depend on
+  IncomingMsg delivery timing. Wired into both `server.ts`'s `ingest()`
+  helper and `main.ts`'s `ingestOnMessage` (same call site as
+  `store.ingestMessage`, right after it, same mid).
+- **Transport** (`src/transport/types.ts` + `deltachat.ts`) gained
+  `following()`, `unfollow(contactId)`, `timelineFrom(contactId, query)`,
+  `onFollower(handler) => unsubscribe`.
+  - **InBroadcast contact shape** (finding, since this wasn't verified by
+    an integration test — no RPC docs spell it out either): a chat we
+    joined via `secureJoin` shows up in `getChatlistEntries` as
+    `chatType: 'InBroadcast'`, and `getFullChatById(...).contactIds` for
+    that chat contains the feed owner (the QR code's issuer) as the only
+    non-SELF contact. `following()` and `unfollow()`/`timelineFrom()`'s
+    `inBroadcastChatFor()` helper both rely on "first non-SELF id in
+    `contactIds`" — flagged in-code as based on this reasoning, not an
+    integration-tested fact, since `pnpm test:integration` was off-limits
+    for this task. `getFullChatById` was used over `getChatContacts`
+    because it also gives `name`, needed for `following()`'s return shape,
+    in the same call.
+  - **leave vs. block decision**: grepped `client.d.ts` for a broadcast
+    "leave" RPC — none exists; `leaveGroup` is documented as being for
+    `Group` chats only. Between `deleteChat` and `blockChat`, `deleteChat`'s
+    own doc comment says explicitly that it does *not* block the contact,
+    so a later broadcast delivery would silently resurrect the chat as a
+    contact request — the "unfollow" would be undone by the next post from
+    that account. `blockChat` was used instead: it actually stops delivery
+    and matches user intent ("stop following this account").
+  - `timelineFrom(1, ...)` (our own contact id) is special-cased to read
+    our own feed broadcast chat instead of hunting for an InBroadcast chat
+    for ourselves (we don't have one) — needed so
+    `GET /api/v1/accounts/:id/statuses` also works on our own profile.
+  - `onFollower` is a thin pub/sub over the `SecurejoinInviterProgress`
+    core event; per its own doc comment in `types.d.ts`, `progress` on that
+    event is *always* 1000 (there's no intermediate-progress variant for
+    the inviter side, unlike the joiner-side event) — the `progress !==
+    1000` guard is defensive rather than load-bearing today. `contactId` on
+    the event is the joiner, i.e. the new follower.
+- **`src/mastodon/entities.ts`**: `contactToAccount` gained an optional
+  `relationship: MastodonRelationship` param folded into
+  `pleroma.relationship` (full Mastodon relationship shape; only
+  `following`/`showing_reblogs` ever go true — the rest are honest
+  `false`s, no blocking/muting/endorsement features exist yet).
+  `StatusResolver` gained `reactionTallies(mid)` and `ownAddr()` (both
+  default to empty/null so every old call site keeps working);
+  `messageToStatus` now computes `favourites_count`/`favourited` from the
+  ❤ tally and `pleroma.emoji_reactions` (`{name, count, me}`) from every
+  *other* tally, `me` computed by checking `ownAddr()` against each
+  emoji's reactor list. Exported the existing (previously module-private)
+  `synthesizeAccount` helper for reuse by the notifications endpoint.
+- **Server** (`src/server.ts`):
+  - `POST/DELETE` favourite and `PUT/DELETE
+    /api/v1/pleroma/statuses/:id/reactions/:emoji` share one
+    `reactToStatus(c, emoji, action)` helper: resolves the target + its
+    mid, applies our own reaction to the store immediately (so the
+    response reflects it without waiting for DM round-trip delivery), and
+    — unless the target is our own post — sends the reaction/unreaction
+    control DM with a quoted excerpt. The emoji route param is
+    `decodeURIComponent`'d per the issue's instruction. ❤ stays
+    favourite-only in the mapping (excluded from `pleroma.emoji_reactions`)
+    purely as an entities-layer mapping rule; the store treats it as just
+    another emoji.
+  - `GET /api/v1/accounts/relationships` (registered before the `:id` GET
+    so Hono's static-route-first matching wins — verified via the test
+    suite) reads `transport.following()` and returns the full relationship
+    shape per requested id. `GET /api/v1/accounts/:id` now also includes
+    `pleroma.relationship`. `POST .../unfollow` calls `transport.unfollow`
+    and returns the post-unfollow relationship (idempotent: reports
+    `following:false` even if we weren't following). `POST .../follow`
+    always 422s with an error pointing at invite links, per the issue.
+  - `GET /api/v1/accounts/:id/statuses` replaced the `[]` stub with a real
+    implementation over `transport.timelineFrom`.
+  - `GET /api/v1/notifications` replaced the empty-list stub with a real
+    mapping over `store.listNotifications`, respecting `limit`/`max_id`/
+    `since_id`; account is the real contact when `accountContactId` is
+    known, else `synthesizeAccount` from the stored address; status is
+    `resolveMessage` + the shared `toStatus` mapper when `statusMsgId` is
+    present.
+  - New-follower wiring (`transport.onFollower` →
+    `store.addNotification({type: 'follow', ...})`) lives in `main.ts`, not
+    `server.ts`, matching the issue's instruction — it needs the live
+    transport instance from `openTransport`, which `server.ts`'s
+    request-scoped code doesn't have direct access to outside a request.
+- Deviations from the plan: none structural. Two things worth flagging:
+  (1) the InBroadcast "owner = first non-self contact" assumption above is
+  reasoned from RPC semantics + doc comments, not confirmed by
+  `pnpm test:integration` (off-limits for this task) — worth a follow-up
+  integration-test pass; (2) follow notifications have no natural
+  `dedupeMid`, so repeated joins-by-the-same-contact (e.g. rejoining after
+  an unfollow) will currently produce a second `follow` notification each
+  time — not addressed since the issue's dedupe requirement was specific to
+  reply-seen-twice, but flagged here in case it's surprising later.
+- `pnpm test` (279 tests, all passing) and `pnpm check` (`tsc --noEmit`,
+  clean) both green. Did not touch `tests/integration/federation.test.ts`
+  or run `pnpm test:integration`, `../frontend`, or `data/`, per
+  instructions.

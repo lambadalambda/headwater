@@ -147,6 +147,27 @@ export const openTransport = async (
       .catch((err) => console.error('failed to load incoming message for ingestion:', err));
   });
 
+  // Fires when someone finishes securejoin-ing our feed broadcast (i.e. a
+  // new follower). `progress` is always 1000 on this event per its core doc
+  // comment (there is no intermediate-progress variant here); `contactId`
+  // is the joiner.
+  const followerHandlers = new Set<(contactId: number) => void>();
+  dc.on('SecurejoinInviterProgress', (eventAccountId, event) => {
+    if (eventAccountId !== accountId) return;
+    if (event.progress !== 1000) return;
+    for (const handler of followerHandlers) handler(event.contactId);
+  });
+
+  /** The InBroadcast chat we joined for a given feed owner's contact id, or null. */
+  const inBroadcastChatFor = async (contactId: number): Promise<number | null> => {
+    const entries = await rpc.getChatlistEntries(accountId, null, null, null);
+    for (const chatId of entries) {
+      const full = await rpc.getFullChatById(accountId, chatId);
+      if (full.chatType === 'InBroadcast' && full.contactIds.includes(contactId)) return chatId;
+    }
+    return null;
+  };
+
   return {
     accountId,
     close: () => dc.close(),
@@ -286,6 +307,54 @@ export const openTransport = async (
 
     deleteMessage: async (msgId) => {
       await rpc.deleteMessagesForAll(accountId, [msgId]);
+    },
+
+    following: async () => {
+      const entries = await rpc.getChatlistEntries(accountId, null, null, null);
+      const chats = await Promise.all(entries.map((id) => rpc.getFullChatById(accountId, id)));
+      const inBroadcasts = chats.filter((chat) => chat.chatType === 'InBroadcast');
+      const results: { contactId: number; chatId: number; name: string; addr: string }[] = [];
+      for (const chat of inBroadcasts) {
+        // The feed owner is the only (non-SELF) contact in the InBroadcast
+        // chat we joined via securejoin — checked against the shape
+        // `getFullChatById` actually returns for these chats (see DEVLOG).
+        const ownerId = chat.contactIds.find((id) => id !== DC_CONTACT_ID_SELF);
+        if (ownerId === undefined) continue;
+        const contact = await rpc.getContact(accountId, ownerId).catch(() => null);
+        if (!contact) continue;
+        results.push({ contactId: ownerId, chatId: chat.id, name: chat.name, addr: contact.address });
+      }
+      return results;
+    },
+
+    unfollow: async (contactId) => {
+      const chatId = await inBroadcastChatFor(contactId);
+      if (chatId === null) return false;
+      // Broadcasts have no "leave" RPC (only `leaveGroup`, for Group chats).
+      // `blockChat` (rather than `deleteChat`) is used deliberately:
+      // `deleteChat`'s own doc comment says it does *not* block the contact,
+      // so a later delivery to the broadcast would silently resurrect the
+      // chat as a contact request. Blocking actually stops delivery.
+      await rpc.blockChat(accountId, chatId);
+      return true;
+    },
+
+    timelineFrom: async (contactId, { limit, maxId, minId }: TimelineQuery) => {
+      // Our own profile: read from our own feed broadcast (we're not a
+      // member of an InBroadcast chat for ourselves).
+      const chatId = contactId === DC_CONTACT_ID_SELF ? await ensureFeedChat() : await inBroadcastChatFor(contactId);
+      if (chatId === null) return [];
+      const ids = (await rpc.getMessageIds(accountId, chatId, false, false))
+        .filter((id) => (maxId === undefined || id < maxId) && (minId === undefined || id > minId))
+        .sort((a, b) => b - a)
+        .slice(0, limit * 2);
+      const messages = await loadMessages(ids);
+      return messages.sort((a, b) => b.sortTimestamp - a.sortTimestamp || b.id - a.id).slice(0, limit);
+    },
+
+    onFollower: (handler) => {
+      followerHandlers.add(handler);
+      return () => followerHandlers.delete(handler);
     },
   };
 };

@@ -7,6 +7,7 @@ import { registerAccount } from './signup.js';
 import { openTransport, type ChatmailCredentials } from './transport/deltachat.js';
 import type { Transport } from './transport/types.js';
 import { createStore } from './store.js';
+import { deriveOnIngest } from './ingest.js';
 import type { T } from '@deltachat/jsonrpc-client';
 
 const PORT = Number(process.env['PORT'] ?? 4030);
@@ -34,13 +35,26 @@ const ingestOnMessage = async (msg: T.Message) => {
   const t = transport;
   if (!t) return;
   const mid = await t.messageMid(msg.id);
-  if (mid) store.ingestMessage(msg, mid);
+  if (mid) {
+    store.ingestMessage(msg, mid);
+    deriveOnIngest(store, msg, mid);
+  }
+};
+
+/** New-follower notification: SecurejoinInviterProgress===1000 means someone just joined our feed broadcast. */
+const notifyFollower = async (contactId: number) => {
+  const t = transport;
+  if (!t) return;
+  const contact = await t.contact(contactId).catch(() => null);
+  if (!contact) return;
+  store.addNotification({ type: 'follow', accountAddr: contact.address, accountContactId: contactId });
 };
 
 const creds = readAccounts(ACCOUNTS_FILE)[ACCOUNT];
 if (creds) {
   console.log(`configuring ${creds.addr} (data: ${DATA_DIR}) ...`);
   transport = await openTransport(DATA_DIR, creds, { onMessage: ingestOnMessage });
+  transport.onFollower(notifyFollower);
   await announce(transport);
 } else {
   console.log(
@@ -55,6 +69,7 @@ const ctx: AppContext = {
     const newCreds: ChatmailCredentials = { addr, password, displayName };
     writeAccount(ACCOUNTS_FILE, ACCOUNT, newCreds);
     const opened = await openTransport(DATA_DIR, newCreds, { onMessage: ingestOnMessage });
+    opened.onFollower(notifyFollower);
     transport = opened;
     await announce(opened);
     return opened;

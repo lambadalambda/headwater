@@ -26,3 +26,21 @@ emoji is the favourite.
 - Favouriting in the UI fills the star and bumps the count; the author's
   node shows the like on their post and (with notifications issue) notifies.
 - Unit tests: control-message build/parse, store tally, endpoints, mapping.
+
+## Current Status (2026-07-06)
+
+Implemented. `buildReactionText`/`parseReaction` in `daemon/src/protocol.ts`;
+`Store.applyReaction`/`retractReaction`/`reactionTallies` in
+`daemon/src/store.ts`; `POST /api/v1/statuses/:id/favourite` and
+`/unfavourite` in `daemon/src/server.ts` (shared `reactToStatus` helper with
+the emoji-reactions issue) — self-posts apply directly, others get a
+control DM + immediate local application of our own reaction so the
+response doesn't wait on delivery. `favourites_count`/`favourited` come from
+the ❤ tally via `StatusResolver.reactionTallies`/`ownAddr` in
+`daemon/src/mastodon/entities.ts`. Incoming reaction DMs are applied and
+(if the target is our own post) turned into `favourite` notifications by
+`daemon/src/ingest.ts`'s `deriveOnIngest`. See `../../DEVLOG.md` entry
+"likes/favourites, emoji reactions, follow/unfollow, notifications" for
+details. Documented limitation from the issue still applies (counts
+authoritative on own posts only). Tests: `daemon/tests/protocol.test.ts`,
+`store.test.ts`, `ingest.test.ts`, `server.test.ts`.

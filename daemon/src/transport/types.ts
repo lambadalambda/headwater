@@ -39,4 +39,19 @@ export interface Transport {
   sendControlDm(contactId: number, text: string, quotedText?: string): Promise<void>;
   /** Delete a message for all recipients (used to implement unreblog). */
   deleteMessage(msgId: number): Promise<void>;
+  /** Feeds we've joined (InBroadcast chats), one entry per followed account. */
+  following(): Promise<{ contactId: number; chatId: number; name: string; addr: string }[]>;
+  /**
+   * Stop receiving a followed feed. Returns false if we weren't following
+   * that contact (no InBroadcast chat found for them).
+   */
+  unfollow(contactId: number): Promise<boolean>;
+  /** All messages from a specific contact's feed chat(s), newest first. */
+  timelineFrom(contactId: number, query: TimelineQuery): Promise<T.Message[]>;
+  /**
+   * Subscribe to new-follower events (securejoin completing on our feed,
+   * from the inviter's/our own point of view). Returns an unsubscribe
+   * function.
+   */
+  onFollower(handler: (contactId: number) => void): () => void;
 }

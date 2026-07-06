@@ -7,18 +7,30 @@ import {
   contactToAccount,
   headerSvg,
   messageToStatus,
+  synthesizeAccount,
   timelineLinkHeader,
+  type MastodonRelationship,
   type MastodonStatus,
   type StatusResolver,
 } from './mastodon/entities.js';
 import type { Transport } from './transport/types.js';
 import { createMediaStore, isSupportedImageMime } from './media.js';
-import { buildBoostText, buildQuotedText, buildReplyText, parseMarkers } from './protocol.js';
+import {
+  buildBoostText,
+  buildQuotedText,
+  buildReactionText,
+  buildReplyText,
+  buildUnreactionText,
+  parseMarkers,
+} from './protocol.js';
 import { createStore, ephemeralStorePath, type Store } from './store.js';
+import { deriveOnIngest } from './ingest.js';
 
 const DC_CONTACT_ID_SELF = 1;
+const FAVOURITE_EMOJI = '❤';
 const QUOTE_EXCERPT_CAP = 120;
 const BOOST_QUOTE_CAP = 500;
+const REACTION_QUOTE_CAP = 120;
 const MAX_CONTEXT_ANCESTORS = 20;
 const MAX_CONTEXT_DESCENDANTS = 100;
 
@@ -63,19 +75,34 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir, store: injected
   const mediaStore = createMediaStore();
   const store: Store = injectedStore ?? createStore(ephemeralStorePath());
 
+  // Cached per-request-cycle-ish: cleared whenever the transport identity
+  // could plausibly change (it can't, in practice, within one createApp
+  // lifetime) — simple in-memory cache of our own address for `favourited`/
+  // `me` flags, refreshed lazily from whichever transport call needs it.
+  let ownAddrCache: string | null = null;
+  const ownAddr = async (transport: Transport): Promise<string> => {
+    if (ownAddrCache === null) ownAddrCache = (await transport.self()).address;
+    return ownAddrCache;
+  };
+
   const resolver: StatusResolver = {
     resolveMid: (mid) => store.resolveMid(mid),
     childrenCount: (mid) => store.childrenCount(mid),
     boostCount: (mid) => store.boostCount(mid),
     isOwnBoost: (mid) => store.isOwnBoost(mid),
     midForMsgId: (msgId) => store.midForMsgId(msgId),
+    reactionTallies: (mid) => store.reactionTallies(mid),
+    ownAddr: () => ownAddrCache,
   };
 
   /** Ingest a message into the store, tolerating a transport that can't resolve its mid. */
   const ingest = async (transport: Transport, msg: T.Message): Promise<void> => {
     try {
       const mid = await transport.messageMid(msg.id);
-      if (mid) store.ingestMessage(msg, mid);
+      if (mid) {
+        store.ingestMessage(msg, mid);
+        deriveOnIngest(store, msg, mid);
+      }
     } catch (err) {
       console.error('ingest failed (non-fatal):', err);
     }
@@ -87,6 +114,7 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir, store: injected
     msg: T.Message,
     description: string | null = null,
   ): Promise<MastodonStatus> => {
+    await ownAddr(transport); // warm the cache the resolver reads synchronously
     const parsed = parseMarkers(msg.text);
     let boostedMsg: T.Message | null = null;
     if (parsed.boost) {
@@ -205,13 +233,69 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir, store: injected
     });
   });
 
+  const relationshipFor = (following: boolean, id: number): MastodonRelationship => ({
+    id: String(id),
+    following,
+    showing_reblogs: following,
+    notifying: false,
+    followed_by: false,
+    blocking: false,
+    blocked_by: false,
+    muting: false,
+    muting_notifications: false,
+    requested: false,
+    domain_blocking: false,
+    endorsed: false,
+    note: '',
+  });
+
+  app.get('/api/v1/accounts/relationships', requireTransport, async (c) => {
+    const transport = c.get('transport');
+    const raw = c.req.queries('id[]') ?? c.req.queries('id') ?? [];
+    const ids = raw.map(Number);
+    const followedIds = new Set((await transport.following()).map((f) => f.contactId));
+    return c.json(ids.map((id) => relationshipFor(followedIds.has(id), id)));
+  });
+
   app.get('/api/v1/accounts/:id', requireTransport, async (c) => {
     const contact = await c.get('transport').contact(Number(c.req.param('id')));
     if (!contact) return c.json({ error: 'Record not found' }, 404);
-    return c.json(contactToAccount(contact, baseUrl));
+    const followedIds = new Set((await c.get('transport').following()).map((f) => f.contactId));
+    const relationship = relationshipFor(followedIds.has(contact.id), contact.id);
+    return c.json(contactToAccount(contact, baseUrl, relationship));
   });
 
-  app.get('/api/v1/accounts/:id/statuses', requireTransport, (c) => c.json([]));
+  app.post('/api/v1/accounts/:id/unfollow', requireTransport, async (c) => {
+    const contactId = Number(c.req.param('id'));
+    await c.get('transport').unfollow(contactId);
+    return c.json(relationshipFor(false, contactId));
+  });
+
+  app.post('/api/v1/accounts/:id/follow', requireTransport, async (c) => {
+    return c.json(
+      {
+        error:
+          'Following requires an invite link for now: paste the account’s invite link into search to follow them.',
+      },
+      422,
+    );
+  });
+
+  app.get('/api/v1/accounts/:id/statuses', requireTransport, async (c) => {
+    const transport = c.get('transport');
+    const contactId = Number(c.req.param('id'));
+    const limit = intParam(c.req.query('limit')) ?? DEFAULT_PAGE;
+    const messages = await transport.timelineFrom(contactId, {
+      limit,
+      maxId: intParam(c.req.query('max_id')),
+      minId: intParam(c.req.query('min_id')) ?? intParam(c.req.query('since_id')),
+    });
+    for (const msg of messages) await ingest(transport, msg);
+    const statuses = await Promise.all(
+      messages.map((msg) => toStatus(transport, msg, mediaStore.descriptionForMessage(msg.id))),
+    );
+    return c.json(statuses);
+  });
 
   // --- Timelines ----------------------------------------------------------
 
@@ -355,6 +439,53 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir, store: injected
     return c.json({ ...status, reblogged: false });
   });
 
+  // --- Favourites / emoji reactions -----------------------------------------
+
+  /**
+   * Shared react/unreact flow for both `/favourite` (❤) and the arbitrary
+   * `pleroma/reactions/:emoji` endpoints. Applies our own reaction to the
+   * store immediately (so the response reflects it without waiting on
+   * delivery), and DMs the author unless the target is our own post.
+   */
+  const reactToStatus = async (
+    c: Context<TransportEnv>,
+    emoji: string,
+    action: 'react' | 'unreact',
+  ) => {
+    const transport = c.get('transport');
+    const target = await transport.message(Number(c.req.param('id')));
+    if (!target) return c.json({ error: 'Record not found' }, 404);
+    const mid = await transport.messageMid(target.id);
+    if (!mid) return c.json({ error: 'cannot resolve message id to react to' }, 422);
+    await ingest(transport, target);
+
+    const myAddr = await ownAddr(transport);
+    if (action === 'react') store.applyReaction(mid, myAddr, emoji);
+    else store.retractReaction(mid, myAddr, emoji);
+
+    if (target.sender.id !== DC_CONTACT_ID_SELF) {
+      const text = action === 'react' ? buildReactionText(emoji, mid) : buildUnreactionText(emoji, mid);
+      const quotedText = buildQuotedText(target.sender.displayName, target.text, REACTION_QUOTE_CAP);
+      await transport.sendControlDm(target.sender.id, text, quotedText).catch((err) => {
+        console.error('sendControlDm failed (non-fatal):', err);
+      });
+    }
+
+    return c.json(await toStatus(transport, target, mediaStore.descriptionForMessage(target.id)));
+  };
+
+  app.post('/api/v1/statuses/:id/favourite', requireTransport, (c) => reactToStatus(c, FAVOURITE_EMOJI, 'react'));
+  app.post('/api/v1/statuses/:id/unfavourite', requireTransport, (c) =>
+    reactToStatus(c, FAVOURITE_EMOJI, 'unreact'),
+  );
+
+  app.put('/api/v1/pleroma/statuses/:id/reactions/:emoji', requireTransport, (c) =>
+    reactToStatus(c, decodeURIComponent(c.req.param('emoji') ?? ''), 'react'),
+  );
+  app.delete('/api/v1/pleroma/statuses/:id/reactions/:emoji', requireTransport, (c) =>
+    reactToStatus(c, decodeURIComponent(c.req.param('emoji') ?? ''), 'unreact'),
+  );
+
   // --- Context (ancestors / descendants) -----------------------------------
 
   app.get('/api/v1/statuses/:id/context', requireTransport, async (c) => {
@@ -455,11 +586,46 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir, store: injected
     serveFile(await c.get('transport').blobPath(Number(c.req.param('msgId'))), c),
   );
 
+  // --- Notifications --------------------------------------------------------
+
+  app.get('/api/v1/notifications', async (c) => {
+    const transport = ctx.getTransport();
+    if (!transport) return c.json([]);
+    const notifications = store.listNotifications({
+      limit: intParam(c.req.query('limit')) ?? DEFAULT_PAGE,
+      maxId: c.req.query('max_id'),
+      sinceId: c.req.query('since_id'),
+    });
+    const mapped = await Promise.all(
+      notifications.map(async (n) => {
+        const contact = n.accountContactId !== undefined ? await transport.contact(n.accountContactId) : null;
+        const account = contact
+          ? contactToAccount(contact, baseUrl)
+          : synthesizeAccount(null, n.accountAddr, baseUrl);
+        const status =
+          n.statusMsgId !== undefined
+            ? await (async () => {
+                const msg = await transport.message(n.statusMsgId!);
+                return msg ? toStatus(transport, msg, mediaStore.descriptionForMessage(msg.id)) : null;
+              })()
+            : null;
+        return {
+          id: n.id,
+          type: n.type,
+          created_at: n.createdAt,
+          account,
+          status,
+          ...(n.emoji !== undefined ? { emoji: n.emoji } : {}),
+        };
+      }),
+    );
+    return c.json(mapped);
+  });
+
   // --- Stubs PleromaNet polls; empty is a valid, honest answer ------------
   // These work whether or not the daemon is configured yet.
 
   const emptyList = (path: string) => app.get(path, (c) => c.json([]));
-  emptyList('/api/v1/notifications');
   emptyList('/api/v1/custom_emojis');
   emptyList('/api/v1/trends/tags');
   emptyList('/api/v1/trends');

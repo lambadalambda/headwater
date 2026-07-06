@@ -119,6 +119,31 @@ describe('contactToAccount', () => {
     const account = contactToAccount(makeContact({ status: '<script>' }), BASE);
     expect(account.note).toBe('<p>&lt;script&gt;</p>');
   });
+
+  it('has no relationship by default', () => {
+    const account = contactToAccount(makeContact(), BASE);
+    expect((account.pleroma as any).relationship).toBeUndefined();
+  });
+
+  it('carries an optional relationship into pleroma.relationship', () => {
+    const relationship = {
+      id: '1',
+      following: true,
+      showing_reblogs: true,
+      notifying: false,
+      followed_by: false,
+      blocking: false,
+      blocked_by: false,
+      muting: false,
+      muting_notifications: false,
+      requested: false,
+      domain_blocking: false,
+      endorsed: false,
+      note: '',
+    };
+    const account = contactToAccount(makeContact(), BASE, relationship);
+    expect((account.pleroma as any).relationship).toEqual(relationship);
+  });
 });
 
 describe('messageToStatus', () => {
@@ -259,6 +284,63 @@ describe('messageToStatus: boost markers', () => {
     const status = messageToStatus(msg, BASE, null, resolver);
     expect(status.reblogs_count).toBe(2);
     expect(status.reblogged).toBe(true);
+  });
+});
+
+describe('messageToStatus: reaction tallies', () => {
+  it('defaults to favourited:false, favourites_count:0, empty emoji_reactions', () => {
+    const status = messageToStatus(makeMessage({ id: 100 }), BASE);
+    expect(status.favourited).toBe(false);
+    expect(status.favourites_count).toBe(0);
+    expect(status.pleroma.emoji_reactions).toEqual([]);
+  });
+
+  it('reports favourites_count/favourited from reaction tallies keyed by own mid', () => {
+    const msg = makeMessage({ id: 101 });
+    const resolver: StatusResolver = {
+      ...noopResolver,
+      midForMsgId: (id) => (id === 101 ? 'own-mid@example.org' : null),
+      reactionTallies: (mid) =>
+        mid === 'own-mid@example.org'
+          ? [{ emoji: '❤', count: 2, reactors: ['bob@example.org', 'me@example.org'] }]
+          : [],
+      ownAddr: () => 'me@example.org',
+    };
+    const status = messageToStatus(msg, BASE, null, resolver);
+    expect(status.favourites_count).toBe(2);
+    expect(status.favourited).toBe(true);
+  });
+
+  it('favourited is false when our own address has not reacted with ❤', () => {
+    const msg = makeMessage({ id: 102 });
+    const resolver: StatusResolver = {
+      ...noopResolver,
+      midForMsgId: (id) => (id === 102 ? 'own-mid-2@example.org' : null),
+      reactionTallies: (mid) =>
+        mid === 'own-mid-2@example.org' ? [{ emoji: '❤', count: 1, reactors: ['bob@example.org'] }] : [],
+      ownAddr: () => 'me@example.org',
+    };
+    const status = messageToStatus(msg, BASE, null, resolver);
+    expect(status.favourites_count).toBe(1);
+    expect(status.favourited).toBe(false);
+  });
+
+  it('maps non-heart reactions into pleroma.emoji_reactions with me flag, excluding heart', () => {
+    const msg = makeMessage({ id: 103 });
+    const resolver: StatusResolver = {
+      ...noopResolver,
+      midForMsgId: (id) => (id === 103 ? 'own-mid-3@example.org' : null),
+      reactionTallies: (mid) =>
+        mid === 'own-mid-3@example.org'
+          ? [
+              { emoji: '❤', count: 1, reactors: ['bob@example.org'] },
+              { emoji: '🎉', count: 2, reactors: ['bob@example.org', 'me@example.org'] },
+            ]
+          : [],
+      ownAddr: () => 'me@example.org',
+    };
+    const status = messageToStatus(msg, BASE, null, resolver);
+    expect(status.pleroma.emoji_reactions).toEqual([{ name: '🎉', count: 2, me: true }]);
   });
 });
 

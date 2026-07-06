@@ -5,6 +5,23 @@ const DC_CONTACT_ID_SELF = 1;
 
 export type MastodonAccount = ReturnType<typeof contactToAccount>;
 
+/** Full Mastodon relationship shape (only `following` is ever true today; the rest are honest `false`s). */
+export type MastodonRelationship = {
+  id: string;
+  following: boolean;
+  showing_reblogs: boolean;
+  notifying: boolean;
+  followed_by: boolean;
+  blocking: boolean;
+  blocked_by: boolean;
+  muting: boolean;
+  muting_notifications: boolean;
+  requested: boolean;
+  domain_blocking: boolean;
+  endorsed: boolean;
+  note: string;
+};
+
 export type MastodonStatus = {
   id: string;
   uri: string;
@@ -85,7 +102,11 @@ export const headerSvg = (): string =>
   `</linearGradient></defs>` +
   `<rect width="1500" height="500" fill="url(#g)"/></svg>`;
 
-export const contactToAccount = (contact: T.Contact, baseUrl: string) => {
+export const contactToAccount = (
+  contact: T.Contact,
+  baseUrl: string,
+  relationship?: MastodonRelationship,
+) => {
   const username = contact.address.split('@')[0] ?? contact.address;
   return {
     id: String(contact.id),
@@ -112,6 +133,7 @@ export const contactToAccount = (contact: T.Contact, baseUrl: string) => {
       is_admin: false,
       is_moderator: false,
       tags: [],
+      ...(relationship ? { relationship } : {}),
     },
   };
 };
@@ -146,6 +168,10 @@ export type StatusResolver = {
   isOwnBoost(mid: string): boolean;
   /** This message's own mid, if known — needed to look up its reply/boost counts. */
   midForMsgId?(msgId: number): string | null;
+  /** Reaction tallies for a mid (see ../store.ts `reactionTallies`); default empty. */
+  reactionTallies?(mid: string): { emoji: string; count: number; reactors: string[] }[];
+  /** Our own account's address, to compute `favourited`/`me` flags; default null (never "me"). */
+  ownAddr?(): string | null;
 };
 
 export const noopResolver: StatusResolver = {
@@ -154,10 +180,15 @@ export const noopResolver: StatusResolver = {
   boostCount: () => 0,
   isOwnBoost: () => false,
   midForMsgId: () => null,
+  reactionTallies: () => [],
+  ownAddr: () => null,
 };
 
+const FAVOURITE_EMOJI = '❤';
+
 /** A minimal, non-resolvable account for a boost/reply whose author we can't map to a real contact. */
-const synthesizeAccount = (authorName: string | null, addr: string, baseUrl: string) => {
+/** A minimal, non-resolvable account for an address we can't map to a real contact (e.g. a boost/reply author, or a notification's sender before their contact is known). */
+export const synthesizeAccount = (authorName: string | null, addr: string, baseUrl: string) => {
   const username = addr.split('@')[0] ?? addr;
   return {
     id: '0',
@@ -266,6 +297,15 @@ export const messageToStatus = (
   const reblogsCount = ownMid ? resolver.boostCount(ownMid) : 0;
   const reblogged = ownMid ? resolver.isOwnBoost(ownMid) : false;
 
+  const tallies = ownMid ? (resolver.reactionTallies?.(ownMid) ?? []) : [];
+  const ownAddr = resolver.ownAddr?.() ?? null;
+  const favouriteTally = tallies.find((t) => t.emoji === FAVOURITE_EMOJI);
+  const favouritesCount = favouriteTally?.count ?? 0;
+  const favourited = ownAddr !== null && (favouriteTally?.reactors.includes(ownAddr) ?? false);
+  const emojiReactions = tallies
+    .filter((t) => t.emoji !== FAVOURITE_EMOJI)
+    .map((t) => ({ name: t.emoji, count: t.count, me: ownAddr !== null && t.reactors.includes(ownAddr) }));
+
   return {
     id: String(msg.id),
     uri: `${baseUrl}/deltanet/message/${msg.id}`,
@@ -275,10 +315,10 @@ export const messageToStatus = (
     account: contactToAccount(msg.sender, baseUrl),
     in_reply_to_id: inReplyToId,
     in_reply_to_account_id: null,
-    favourites_count: 0,
+    favourites_count: favouritesCount,
     reblogs_count: reblogsCount,
     replies_count: repliesCount,
-    favourited: false,
+    favourited,
     reblogged,
     bookmarked: false,
     muted: false,
@@ -298,7 +338,7 @@ export const messageToStatus = (
     pleroma: {
       local: msg.sender.id === DC_CONTACT_ID_SELF,
       conversation_id: msg.chatId,
-      emoji_reactions: [],
+      emoji_reactions: emojiReactions,
       quote: null,
       quote_id: null,
       quote_visible: false,
