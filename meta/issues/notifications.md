@@ -2,28 +2,28 @@
 
 ## Summary
 
-`/api/v1/notifications` is a stub. Derive real notifications from Delta Chat
-events and message data.
+`/api/v1/notifications` is a stub. Real notifications derive from securejoin
+events and ingested wire-convention messages.
 
 ## Requirements
 
-- Daemon keeps a notification store (in-memory + JSON file in the data dir
-  so restarts don't lose it), fed by DC core events:
-  - new follower: securejoin inviter success → `type: follow`
-  - reply: incoming message whose quote resolves to an own message →
-    `type: mention` (closest Mastodon analog; carries the status)
-  - boost of your post: incoming empty-text message quoting an own message →
-    `type: reblog`
-  - reaction on your message: `IncomingReaction`-style event → ❤ becomes
-    `type: favourite`, others `pleroma:emoji_reaction` with `emoji` field
-- `GET /api/v1/notifications` returns them newest-first with Mastodon
-  notification JSON (id, type, created_at, account, status where relevant);
-  supports `limit` and `max_id`/`since_id` pagination minimally.
-- Frontend polls this already; no streaming needed for v1.
+- Notification records persist in the daemon store (data dir JSON), fed by:
+  - new follower: `SecurejoinInviterProgress` progress 1000 → `type: follow`
+  - reply: ingested message/DM with a `↳re` marker resolving to an own
+    message → `type: mention` (carries the reply status)
+  - boost: ingested feed message with `♻` marker resolving to an own
+    message → `type: reblog`
+  - reaction control DM on an own message → ❤ → `type: favourite`, other
+    emoji → `type: pleroma:emoji_reaction` with `emoji` field
+- Dedupe (a reply seen both via DM copy and via followed feed must notify
+  once — key on sender+marker).
+- `GET /api/v1/notifications`: newest first, Mastodon notification JSON
+  (id, type, created_at, account, status where relevant), `limit` +
+  `max_id`/`since_id` pagination.
+- Frontend polls; no streaming needed for v1.
 
 ## Acceptance Criteria
 
-- After a follower joins, a reply arrives, and a reaction lands, the
-  notifications page shows all three with sensible rendering.
-- Unit tests: event → notification derivation with a fake event source;
-  endpoint pagination.
+- Follower join, incoming reply, and incoming reaction each produce exactly
+  one notification rendering sensibly on the notifications page.
+- Unit tests: derivation from a fake event/ingest source; pagination.

@@ -1,22 +1,28 @@
-# Likes (favourites) via reactions
+# Likes (favourites) via reaction DMs
 
 ## Summary
 
-Map Mastodon favourites onto Delta Chat message reactions with the ❤ emoji.
+Read-only broadcast members can't use native reactions (DEVLOG 2026-07-06).
+Likes are control DMs to the post's author per the wire convention; the ❤
+emoji is the favourite.
 
 ## Requirements
 
-- `POST /api/v1/statuses/:id/favourite` → `sendReaction(accountId, :id, "❤")`;
-  `POST /api/v1/statuses/:id/unfavourite` → clear own reaction (sendReaction
-  with empty list per DC semantics).
-- Status mapping reads `msg.reactions`: `favourites_count` = ❤ count,
+- Wire format: DM to author, text `❤ ↳ <rfc724Mid>` (+ `quotedText` excerpt
+  for vanilla DC); retraction `✖ ↳ <rfc724Mid> ❤`.
+- `POST /api/v1/statuses/:id/favourite` / `unfavourite`: resolve mid, send
+  the control DM (self-posts: skip DM, update store directly), record own
+  reaction in the store, return the updated status.
+- Ingest: incoming control DMs update the reaction tally for the referenced
+  mid; control DMs never render in timelines (DMs already excluded) and the
+  1:1 chats they create are acceptable v1 noise.
+- Status mapping: `favourites_count` = ❤ tally from store,
   `favourited` = own ❤ present.
-- Reactions in read-only broadcast channels must be verified experimentally;
-  if recipients can't react in `InBroadcast` chats, document the limitation
-  in DEVLOG and still wire everything up so it works where DC allows it.
+- Documented limitation: counts are only authoritative on your own posts
+  (only the author receives everyone's reaction DMs).
 
 ## Acceptance Criteria
 
-- Favouriting in the UI updates count + filled state after refetch; the
-  author's node sees the reaction on their message where DC supports it.
-- Unit tests: reaction→favourite mapping, endpoints call transport correctly.
+- Favouriting in the UI fills the star and bumps the count; the author's
+  node shows the like on their post and (with notifications issue) notifies.
+- Unit tests: control-message build/parse, store tally, endpoints, mapping.

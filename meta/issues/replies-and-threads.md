@@ -1,36 +1,40 @@
-# Replies and threads via quote model
+# Replies and threads via wire convention
 
 ## Summary
 
-Replying must work across feeds even though followers can't post into a
-broadcast channel. Model: a reply is a post in YOUR OWN feed that quotes the
-original message (Delta Chat quotes work cross-chat — the "reply privately"
-feature relies on it — and carry email `References`, so receivers who have
-the original get a resolvable link; others see quoted text).
+Experiments (see DEVLOG 2026-07-06) killed the native-quote design: core
+rejects cross-chat `quotedMessageId`. Replies instead use the deltanet wire
+convention v0: a reply is a post in YOUR OWN feed whose text ends with a
+marker line referencing the original's global email Message-ID
+(`rfc724Mid`), plus `quotedText` for vanilla-DC rendering, plus a DM copy to
+the original author.
 
 ## Requirements
 
-- `POST /api/v1/statuses` with `in_reply_to_id` posts to own feed with
-  `quotedMessageId` set (transport.post gains options).
-- Status mapping derives `in_reply_to_id` from `msg.quote` (kind
-  `WithMessage` → messageId). Stop using `parentId` (it points at securejoin
-  system messages sometimes).
-- When the quote is unresolvable (`JustText`), render the quoted text via
-  `pleroma.quote`-style fallback or prefix — degrade, don't break.
-- `GET /api/v1/statuses/:id/context`: ancestors by walking the quote chain;
-  descendants by scanning known messages whose quote resolves to :id
-  (bounded scan over feed chats is fine for v1).
-- `replies_count` on statuses where cheaply derivable (optional).
+- Wire format (protocol module, pure functions to build/parse):
+  - reply marker, final line of text: `↳re <rfc724Mid> <authorAddr>`
+  - outgoing `quotedText`: `"<authorName>: <excerpt≤120>"`
+  - DM copy to the author carries the same text+marker.
+- `POST /api/v1/statuses` with `in_reply_to_id`: resolve target message,
+  fetch its rfc724Mid (`getMessageInfoObject`), post to own feed with marker
+  + quotedText, send DM copy to author (skip DM when replying to self).
+- Daemon store (persisted per account in the data dir): mid→msgId index and
+  reply-children index, fed by an idempotent ingest step (timeline loads +
+  incoming-message events). No reverse-lookup RPC exists — we own the index.
+- Status mapping: strip the marker from `content`; `in_reply_to_id` from the
+  resolved mid (unresolvable → keep quotedText rendering, no link).
+- `GET /api/v1/statuses/:id/context`: ancestors by walking reply refs,
+  descendants from the children index. `replies_count` from children index.
 
 ## Acceptance Criteria
 
-- Reply from the UI to a followed post → appears threaded (context endpoint
-  returns the parent as ancestor); on a follower's node that has both
-  messages, the linkage resolves.
-- Unit tests for mapping (quote → in_reply_to_id) and context assembly with
-  a fake transport.
+- Reply from the UI to a followed post → threaded in the thread view;
+  a follower of both parties sees the linkage resolve on their node.
+- Original author receives the reply (DM copy) even without following the
+  replier.
+- Unit tests: marker build/parse round-trip, mapping, context assembly.
 
 ## Notes
 
-- Verify cross-chat `quotedMessageId` behavior experimentally before
-  building on it (see experiment findings in DEVLOG once run).
+- Markers are visible to vanilla Delta Chat readers by design (readable
+  footer); revisit with webxdc/headers later.
