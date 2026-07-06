@@ -420,3 +420,48 @@ describe('createStore: notifications', () => {
     expect(reloaded.listNotifications({})).toHaveLength(1);
   });
 });
+
+describe('createStore: pending follow requests', () => {
+  const ALICE = 'alice@example.org';
+  const BOB = 'bob@example.org';
+
+  it('records a pending follow request with its requested-at timestamp', () => {
+    const store = createStore(filePath);
+    expect(store.hasPendingFollowRequest(ALICE)).toBe(false);
+    store.addPendingFollowRequest(ALICE, 1000);
+    expect(store.hasPendingFollowRequest(ALICE)).toBe(true);
+    expect(store.pendingFollowRequests()).toEqual({ [ALICE]: 1000 });
+  });
+
+  it('clears a pending follow request', () => {
+    const store = createStore(filePath);
+    store.addPendingFollowRequest(ALICE, 1000);
+    store.clearPendingFollowRequest(ALICE);
+    expect(store.hasPendingFollowRequest(ALICE)).toBe(false);
+    expect(store.pendingFollowRequests()).toEqual({});
+  });
+
+  it('clearing an unknown addr is a harmless no-op', () => {
+    const store = createStore(filePath);
+    expect(() => store.clearPendingFollowRequest(BOB)).not.toThrow();
+    expect(store.hasPendingFollowRequest(BOB)).toBe(false);
+  });
+
+  it('tracks pending requests to several contacts independently', () => {
+    const store = createStore(filePath);
+    store.addPendingFollowRequest(ALICE, 1000);
+    store.addPendingFollowRequest(BOB, 2000);
+    store.clearPendingFollowRequest(ALICE);
+    expect(store.hasPendingFollowRequest(ALICE)).toBe(false);
+    expect(store.hasPendingFollowRequest(BOB)).toBe(true);
+    expect(store.pendingFollowRequests()).toEqual({ [BOB]: 2000 });
+  });
+
+  it('persists pending follow requests across store reloads', () => {
+    const store = createStore(filePath);
+    store.addPendingFollowRequest(ALICE, 1234);
+    const reloaded = createStore(filePath);
+    expect(reloaded.hasPendingFollowRequest(ALICE)).toBe(true);
+    expect(reloaded.pendingFollowRequests()).toEqual({ [ALICE]: 1234 });
+  });
+});

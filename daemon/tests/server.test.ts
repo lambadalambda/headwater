@@ -5,7 +5,7 @@ import type { T } from '@deltachat/jsonrpc-client';
 import { createApp, type AppContext } from '../src/server.js';
 import type { TimelineQuery, Transport } from '../src/transport/types.js';
 import { createStore, ephemeralStorePath } from '../src/store.js';
-import { buildReplyText } from '../src/protocol.js';
+import { buildInviteRequestText, buildReplyText } from '../src/protocol.js';
 import { createStreamingHub, type StreamingSocket } from '../src/streaming.js';
 import { makeContact, makeMessage } from './entities.test.js';
 
@@ -1016,12 +1016,79 @@ describe('POST /api/v1/accounts/:id/unfollow and /follow', () => {
     expect(unfollowed).toContain(11);
   });
 
-  it('follow returns 422 pointing at invite links', async () => {
-    const res = await makeApp().request('/api/v1/accounts/11/follow', { method: 'POST' });
-    expect(res.status).toBe(422);
-    const body = await res.json() as any;
-    expect(body.error).toBeTypeOf('string');
-    expect(body.error.toLowerCase()).toContain('invite');
+  it('follow on a not-yet-followed known contact records a pending invite-request', async () => {
+    const { transport, dms } = makeFakeTransport();
+    // Make id 11 (bob) a *known but not-yet-followed* contact.
+    transport.following = async () => [];
+    const store = createStore(ephemeralStorePath());
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store });
+
+    const res = await app.request('/api/v1/accounts/11/follow', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const rel = await res.json() as any;
+    expect(rel.id).toBe('11');
+    expect(rel.following).toBe(false);
+    expect(rel.requested).toBe(true);
+
+    // An invite-request DM was sent to bob (contact 11), with a friendly quote.
+    expect(dms).toHaveLength(1);
+    expect(dms[0]?.contactId).toBe(11);
+    expect(dms[0]?.text).toBe(buildInviteRequestText());
+    expect(dms[0]?.quotedText).toBeTypeOf('string');
+
+    // Pending recorded against bob's address.
+    expect(store.hasPendingFollowRequest(BOB.address)).toBe(true);
+  });
+
+  it('follow on an already-followed contact is a no-op returning following:true', async () => {
+    const { transport, dms } = makeFakeTransport(); // bob (11) is already followed
+    const store = createStore(ephemeralStorePath());
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store });
+
+    const res = await app.request('/api/v1/accounts/11/follow', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const rel = await res.json() as any;
+    expect(rel.following).toBe(true);
+    expect(rel.requested).toBe(false);
+    expect(dms).toHaveLength(0); // no invite-request sent
+    expect(store.hasPendingFollowRequest(BOB.address)).toBe(false);
+  });
+
+  it('follow on an unknown contact id 404s', async () => {
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+    const res = await app.request('/api/v1/accounts/999/follow', { method: 'POST' });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('follow-back: relationships report requested for pending contacts', () => {
+  it('reports requested:true for a contact with a pending invite-request', async () => {
+    const { transport } = makeFakeTransport();
+    transport.following = async () => [];
+    const store = createStore(ephemeralStorePath());
+    store.addPendingFollowRequest(BOB.address, 1000);
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store });
+
+    const res = await app.request('/api/v1/accounts/relationships?id[]=11');
+    const rels = await res.json() as any;
+    expect(rels[0].id).toBe('11');
+    expect(rels[0].following).toBe(false);
+    expect(rels[0].requested).toBe(true);
+  });
+
+  it('does not report requested once the pending entry is cleared (join completed)', async () => {
+    const { transport } = makeFakeTransport(); // bob already in following()
+    const store = createStore(ephemeralStorePath());
+    // Simulate: request was pending, then the grant arrived and we joined.
+    store.addPendingFollowRequest(BOB.address, 1000);
+    store.clearPendingFollowRequest(BOB.address);
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store });
+
+    const res = await app.request('/api/v1/accounts/relationships?id[]=11');
+    const rels = await res.json() as any;
+    expect(rels[0].following).toBe(true);
+    expect(rels[0].requested).toBe(false);
   });
 });
 

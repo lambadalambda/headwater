@@ -65,6 +65,14 @@ type StoreData = {
   /** Dedupe keys already recorded, so re-adding the same notification is a no-op. */
   notificationDedupeKeys: string[];
   nextNotificationId: number;
+  /**
+   * Follow-back gating: outgoing invite-requests we've sent and are still
+   * awaiting a grant for, keyed by the contact's address -> requested-at ms.
+   * An incoming `⇋ invite <link>` grant is only auto-joined if its sender has
+   * an entry here (see ../meta/issues/follow-back-invite-request.md); this is
+   * what stops an *unsolicited* grant from silently joining us to a feed.
+   */
+  pendingFollowRequests: Record<string, number>;
 };
 
 const emptyData = (): StoreData => ({
@@ -79,6 +87,7 @@ const emptyData = (): StoreData => ({
   notifications: [],
   notificationDedupeKeys: [],
   nextNotificationId: 1,
+  pendingFollowRequests: {},
 });
 
 export type ReactionTally = { emoji: string; count: number; reactors: string[] };
@@ -112,6 +121,18 @@ export type Store = {
   /** Returns the stored notification, or null if it was a dedupe no-op. */
   addNotification(input: NotificationInput): Notification | null;
   listNotifications(query: { limit?: number; maxId?: string; sinceId?: string }): Notification[];
+  /**
+   * Record that we've sent an invite-request to `addr` and are awaiting a
+   * grant. `requestedAtMs` is passed in by the caller (daemon code uses
+   * `Date.now()`; tests pass a fixed value).
+   */
+  addPendingFollowRequest(addr: string, requestedAtMs: number): void;
+  /** Clear a pending request (on grant received, or when we abandon it). No-op if absent. */
+  clearPendingFollowRequest(addr: string): void;
+  /** Is there an outstanding invite-request awaiting a grant from `addr`? */
+  hasPendingFollowRequest(addr: string): boolean;
+  /** All pending invite-requests: addr -> requested-at ms. */
+  pendingFollowRequests(): Record<string, number>;
 };
 
 /** A fresh scratch path for callers (tests, `createApp` defaults) that don't need cross-restart persistence. */
@@ -281,5 +302,22 @@ export const createStore = (filePath: string): Store => {
       const sorted = filtered.slice().sort((a, b) => Number(b.id) - Number(a.id));
       return limit !== undefined ? sorted.slice(0, limit) : sorted;
     },
+
+    addPendingFollowRequest: (addr, requestedAtMs) => {
+      const d = load();
+      d.pendingFollowRequests[addr] = requestedAtMs;
+      save();
+    },
+
+    clearPendingFollowRequest: (addr) => {
+      const d = load();
+      if (!(addr in d.pendingFollowRequests)) return;
+      delete d.pendingFollowRequests[addr];
+      save();
+    },
+
+    hasPendingFollowRequest: (addr) => addr in load().pendingFollowRequests,
+
+    pendingFollowRequests: () => ({ ...load().pendingFollowRequests }),
   };
 };

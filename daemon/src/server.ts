@@ -19,6 +19,7 @@ import type { Transport } from './transport/types.js';
 import { createMediaStore, isSupportedImageMime } from './media.js';
 import {
   buildBoostText,
+  buildInviteRequestText,
   buildQuotedText,
   buildReactionText,
   buildReplyText,
@@ -365,7 +366,7 @@ export const createApp = (
     return c.json(await selfAccountJson(transport));
   });
 
-  const relationshipFor = (following: boolean, id: number): MastodonRelationship => ({
+  const relationshipFor = (following: boolean, id: number, requested = false): MastodonRelationship => ({
     id: String(id),
     following,
     showing_reblogs: following,
@@ -375,18 +376,45 @@ export const createApp = (
     blocked_by: false,
     muting: false,
     muting_notifications: false,
-    requested: false,
+    // A follow-back invite-request we've sent but whose grant hasn't arrived
+    // yet: not following yet, but the request is outstanding. Cleared to false
+    // once the grant lands and the join completes (`store.clearPendingFollowRequest`).
+    requested: requested && !following,
     domain_blocking: false,
     endorsed: false,
     note: '',
   });
+
+  /**
+   * The relationship for a resolved contact: `following` from the transport's
+   * live follow list, `requested` from the store's pending invite-requests
+   * (keyed by address). Shared by the relationships/lookup/account endpoints
+   * so `requested` surfaces consistently.
+   */
+  const relationshipForContact = (
+    contact: T.Contact,
+    followedIds: Set<number>,
+  ): MastodonRelationship =>
+    relationshipFor(
+      followedIds.has(contact.id),
+      contact.id,
+      store.hasPendingFollowRequest(contact.address),
+    );
 
   app.get('/api/v1/accounts/relationships', requireTransport, async (c) => {
     const transport = c.get('transport');
     const raw = c.req.queries('id[]') ?? c.req.queries('id') ?? [];
     const ids = raw.map(Number);
     const followedIds = new Set((await transport.following()).map((f) => f.contactId));
-    return c.json(ids.map((id) => relationshipFor(followedIds.has(id), id)));
+    const contacts = await Promise.all(ids.map((id) => transport.contact(id)));
+    return c.json(
+      ids.map((id, i) => {
+        const contact = contacts[i];
+        return contact
+          ? relationshipForContact(contact, followedIds)
+          : relationshipFor(followedIds.has(id), id);
+      }),
+    );
   });
 
   // Registered before `/:id` so the static segment wins. The frontend
@@ -402,7 +430,7 @@ export const createApp = (
     const contact = contactId !== null ? await transport.contact(contactId) : null;
     if (!contact) return c.json({ error: 'Record not found' }, 404);
     const followedIds = new Set((await transport.following()).map((f) => f.contactId));
-    const relationship = relationshipFor(followedIds.has(contact.id), contact.id);
+    const relationship = relationshipForContact(contact, followedIds);
     return c.json(contactToAccount(contact, baseUrl, relationship));
   });
 
@@ -410,7 +438,7 @@ export const createApp = (
     const contact = await c.get('transport').contact(Number(c.req.param('id')));
     if (!contact) return c.json({ error: 'Record not found' }, 404);
     const followedIds = new Set((await c.get('transport').following()).map((f) => f.contactId));
-    const relationship = relationshipFor(followedIds.has(contact.id), contact.id);
+    const relationship = relationshipForContact(contact, followedIds);
     return c.json(contactToAccount(contact, baseUrl, relationship));
   });
 
@@ -420,14 +448,30 @@ export const createApp = (
     return c.json(relationshipFor(false, contactId));
   });
 
+  // Follow-back via invite-request (see ../meta/issues/follow-back-invite-request.md):
+  // a known contact already shares a verified 1:1 channel with us, so instead
+  // of pasting an invite link we DM them a `⇋ invite-request` and record the
+  // request as pending. Their daemon auto-grants (replies with its feed
+  // invite); our ingest hook joins on the grant and clears the pending marker,
+  // flipping `following` true via the normal `transport.following()` path.
   app.post('/api/v1/accounts/:id/follow', requireTransport, async (c) => {
-    return c.json(
-      {
-        error:
-          'Following requires an invite link for now: paste the account’s invite link into search to follow them.',
-      },
-      422,
-    );
+    const transport = c.get('transport');
+    const contactId = Number(c.req.param('id'));
+    const contact = await transport.contact(contactId);
+    if (!contact) return c.json({ error: 'Record not found' }, 404);
+
+    const followedIds = new Set((await transport.following()).map((f) => f.contactId));
+    // Already following: no-op, return the current relationship unchanged.
+    if (followedIds.has(contactId)) {
+      return c.json(relationshipForContact(contact, followedIds));
+    }
+
+    const self = await transport.self();
+    const quotedText = `${self.displayName} would like to follow you`;
+    await transport.sendControlDm(contactId, buildInviteRequestText(), quotedText);
+    store.addPendingFollowRequest(contact.address, Date.now());
+
+    return c.json(relationshipFor(false, contactId, true));
   });
 
   app.get('/api/v1/accounts/:id/statuses', requireTransport, async (c) => {

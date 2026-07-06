@@ -8,7 +8,12 @@ import { registerAccount } from './signup.js';
 import { openTransport, type ChatmailCredentials, type IngestPhase } from './transport/deltachat.js';
 import type { Transport } from './transport/types.js';
 import { createStore } from './store.js';
-import { deriveOnIngest } from './ingest.js';
+import {
+  cleanupFollowbackAction,
+  deriveFollowbackActions,
+  deriveOnIngest,
+  executeFollowbackAction,
+} from './ingest.js';
 import { createStatusMapper, mapNotification } from './mapping.js';
 import { createStreamingHub } from './streaming.js';
 import type { T } from '@deltachat/jsonrpc-client';
@@ -90,6 +95,30 @@ const ingestOnMessage = async (
   let newNotifications: ReturnType<typeof deriveOnIngest> = [];
   if (phase === 'combined' || phase === 'derive') {
     newNotifications = deriveOnIngest(store, msg, mid);
+  }
+
+  // Follow-back control DMs (`⇋ invite-request` / `⇋ invite <link>`).
+  // `deriveFollowbackActions` is pure/sync (store + message only); actions are
+  // executed against the live transport ONLY for live (`'combined'`) messages,
+  // so a restart replaying old requests via the backfill sweep never re-grants
+  // or re-joins. During backfill we still run the safe pending-state cleanup
+  // (a grant that arrived while we were down clears the now-satisfied pending
+  // marker) — see `cleanupFollowbackAction`. The grant/accept decision itself
+  // is store-gated (`store.hasPendingFollowRequest`), which is what prevents
+  // an unsolicited `⇋ invite` DM from ever joining us to a feed.
+  if (phase === 'combined' || phase === 'derive') {
+    const actions = deriveFollowbackActions(store, msg);
+    if (phase === 'derive') {
+      for (const action of actions) cleanupFollowbackAction(store, action);
+    } else if (transport) {
+      for (const action of actions) {
+        try {
+          await executeFollowbackAction(store, transport, action);
+        } catch (err) {
+          console.error('follow-back action failed (non-fatal):', err);
+        }
+      }
+    }
   }
 
   if (phase !== 'combined') return;

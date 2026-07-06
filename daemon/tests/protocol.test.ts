@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildBoostText,
+  buildInviteGrantText,
+  buildInviteRequestText,
   buildQuotedText,
   buildReactionText,
   buildReplyText,
   buildUnreactionText,
+  parseInviteGrant,
+  parseInviteRequest,
   parseMarkers,
   parseQuotedAuthor,
   parseReaction,
@@ -139,6 +143,78 @@ describe('parseReaction tolerance', () => {
 
   it('handles empty string', () => {
     expect(parseReaction('')).toBeNull();
+  });
+});
+
+describe('buildInviteRequestText / parseInviteRequest (invite-request round-trip)', () => {
+  it('builds the human-readable "⇋ invite-request" marker', () => {
+    expect(buildInviteRequestText()).toBe('⇋ invite-request');
+  });
+
+  it('round-trips: parseInviteRequest recognizes the exact marker', () => {
+    expect(parseInviteRequest(buildInviteRequestText())).toBe(true);
+  });
+
+  it('tolerates trailing text after the marker on the first line', () => {
+    expect(parseInviteRequest('⇋ invite-request (please let me follow you!)')).toBe(true);
+  });
+
+  it('tolerates the marker as the first line of a multi-line message', () => {
+    expect(parseInviteRequest('⇋ invite-request\nsent by deltanet')).toBe(true);
+  });
+
+  it('returns false for plain text', () => {
+    expect(parseInviteRequest('just a normal message')).toBe(false);
+  });
+
+  it('returns false when the marker is not at the start of the line', () => {
+    expect(parseInviteRequest('please: ⇋ invite-request')).toBe(false);
+  });
+
+  it('does not confuse an invite grant for an invite request', () => {
+    expect(parseInviteRequest(buildInviteGrantText('https://i.delta.chat/#FOO'))).toBe(false);
+  });
+
+  it('handles empty string', () => {
+    expect(parseInviteRequest('')).toBe(false);
+  });
+});
+
+describe('buildInviteGrantText / parseInviteGrant (invite-grant round-trip)', () => {
+  const HTTPS_LINK = 'https://i.delta.chat/#FOO&a=b';
+  const FPR_LINK = 'OPENPGP4FPR:ABCDEF#a=b';
+
+  it('builds "⇋ invite <link>"', () => {
+    expect(buildInviteGrantText(HTTPS_LINK)).toBe(`⇋ invite ${HTTPS_LINK}`);
+  });
+
+  it('round-trips an https i.delta.chat invite link', () => {
+    expect(parseInviteGrant(buildInviteGrantText(HTTPS_LINK))).toBe(HTTPS_LINK);
+  });
+
+  it('round-trips an OPENPGP4FPR invite link', () => {
+    expect(parseInviteGrant(buildInviteGrantText(FPR_LINK))).toBe(FPR_LINK);
+  });
+
+  it('returns null for plain text', () => {
+    expect(parseInviteGrant('just a normal message')).toBeNull();
+  });
+
+  it('returns null when the link does not look like an invite', () => {
+    expect(parseInviteGrant('⇋ invite https://evil.example.org/phish')).toBeNull();
+  });
+
+  it('returns null for a grant with no link', () => {
+    expect(parseInviteGrant('⇋ invite')).toBeNull();
+    expect(parseInviteGrant('⇋ invite ')).toBeNull();
+  });
+
+  it('does not confuse an invite request for an invite grant', () => {
+    expect(parseInviteGrant(buildInviteRequestText())).toBeNull();
+  });
+
+  it('handles empty string', () => {
+    expect(parseInviteGrant('')).toBeNull();
   });
 });
 

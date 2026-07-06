@@ -43,3 +43,27 @@ enables one-click follow-back.
 - Unsolicited `⇋ invite` DMs never cause a join.
 - Unit tests: protocol round-trips, pending-state gating, follow endpoint
   + relationship states.
+
+## Current Status
+
+Daemon-side implementation complete and green (unit + integration).
+
+- Protocol markers (`buildInviteRequestText`/`parseInviteRequest`,
+  `buildInviteGrantText`/`parseInviteGrant`, invite-link validation) —
+  round-trip + tolerance tested.
+- Store: persisted `pendingFollowRequests` (addr → requested-at) with
+  add/clear/has/list accessors.
+- Ingest: pure `deriveFollowbackActions` returns typed grant/accept actions;
+  `executeFollowbackAction` runs them against the transport. Wired in
+  `main.ts`, executed for live (`'combined'`) messages only; backfill does
+  pending-state cleanup only (restart-safe — never re-grants/re-joins).
+  Accept is store-gated (pending-only) — unsolicited grants are ignored.
+- Server: `POST /api/v1/accounts/:id/follow` sends the invite-request, records
+  pending, returns `{following:false, requested:true}`; 404 unknown; already-
+  following is a no-op. Relationships/lookup/account endpoints report
+  `requested` from the store; cleared on join.
+- Tests: `pnpm test` (488) + `pnpm check` + `pnpm test:integration` (4,
+  incl. a real-network follow-back + unsolicited-grant guard) all green.
+
+Remaining (not in this pass): UI browser verification of the Follow button;
+"locked account" deny-mode for grants (documented as future work in DEVLOG).

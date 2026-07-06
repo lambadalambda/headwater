@@ -108,6 +108,51 @@ export const parseReaction = (text: string): ParsedReaction | null => {
   return { kind: 'react', emoji, mid };
 };
 
+/**
+ * Follow-back wire convention (see ../meta/issues/follow-back-invite-request.md):
+ * a known contact can *ask* for our feed invite over the shared 1:1 channel,
+ * and we reply with the invite link. Both markers are human-readable so a
+ * vanilla Delta Chat user seeing them in a DM can still make sense of them.
+ */
+const INVITE_REQUEST_MARKER = '⇋ invite-request';
+const INVITE_GRANT_PREFIX = '⇋ invite ';
+
+/** An invite link is either a chatmail deep link or an OpenPGP fingerprint URI. */
+const looksLikeInvite = (link: string): boolean =>
+  link.startsWith('https://i.delta.chat/') || link.startsWith('OPENPGP4FPR:');
+
+/** DM text asking a contact to send us their feed invite. */
+export const buildInviteRequestText = (): string => INVITE_REQUEST_MARKER;
+
+/**
+ * Tolerant parse: true iff the message's *first line* starts with the
+ * invite-request marker (trailing text on that line is allowed, e.g. a
+ * friendly human-readable explanation). Anything else — including the marker
+ * appearing mid-line — is not an invite request, so we never misfire on an
+ * ordinary vanilla-DC message that merely mentions the glyph.
+ */
+export const parseInviteRequest = (text: string): boolean => {
+  const firstLine = text.split('\n', 1)[0] ?? '';
+  return firstLine.startsWith(INVITE_REQUEST_MARKER);
+};
+
+/** DM text granting a feed invite: `"⇋ invite <link>"`. */
+export const buildInviteGrantText = (link: string): string => `${INVITE_GRANT_PREFIX}${link}`;
+
+/**
+ * Recover the invite link from a grant DM, or null. The link is validated to
+ * actually look like a feed invite (chatmail deep link or `OPENPGP4FPR:`
+ * URI) so a grant-shaped message carrying a bogus/hostile URL never reaches
+ * `follow()`. Single-line grants only; trailing whitespace is trimmed.
+ */
+export const parseInviteGrant = (text: string): string | null => {
+  const firstLine = text.split('\n', 1)[0] ?? '';
+  if (!firstLine.startsWith(INVITE_GRANT_PREFIX)) return null;
+  const link = firstLine.slice(INVITE_GRANT_PREFIX.length).trim();
+  if (!link || !looksLikeInvite(link)) return null;
+  return link;
+};
+
 /** Build the freeform `quotedText` bubble vanilla Delta Chat renders. */
 export const buildQuotedText = (authorName: string, text: string, cap: number): string => {
   const capped = text.length > cap ? `${text.slice(0, cap)}…` : text;

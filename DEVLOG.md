@@ -924,3 +924,103 @@ green. Did not run `pnpm test:integration` (per task instructions).
   the extension (png/jpg/jpeg/webp/gif/svg → image/*; else
   application/octet-stream); no new RPC calls. Covered by new
   `served-file content types` suite in `daemon/tests/server.test.ts`.
+
+## 2026-07-06 — follow-back via invite-request (`meta/issues/follow-back-invite-request.md`)
+
+Made the profile Follow button real for known contacts: instead of pasting an
+invite link, a daemon *asks* a contact (any follower / anyone we share a
+verified 1:1 channel with) for their feed invite and joins on the reply.
+
+### Wire convention (`daemon/src/protocol.ts`)
+
+- `buildInviteRequestText()` → `⇋ invite-request` (human-readable to vanilla
+  DC users). `parseInviteRequest(text)` is tolerant: true iff the *first line*
+  starts with the marker (trailing human text on that line allowed), so we
+  never misfire on ordinary messages that merely contain the glyph.
+- `buildInviteGrantText(link)` → `⇋ invite <link>`. `parseInviteGrant(text)`
+  recovers the link only if it *looks like* an invite (`https://i.delta.chat/`
+  or `OPENPGP4FPR:`), so a grant-shaped DM carrying a bogus/hostile URL never
+  reaches `follow()`. Round-trip + tolerance tests in `tests/protocol.test.ts`.
+- These control DMs are inert to the existing parsers: `parseReaction`
+  (needs the ` ↳ ` infix) and `parseMarkers` (needs REPLY/BOOST prefixes)
+  both fall through to plain-body, so they register no reply/boost edge and
+  never crash the reaction path. They're DMs, so edge-gating already excludes
+  them anyway; verified by a `deriveOnIngest` test asserting zero notifications.
+
+### Store (`daemon/src/store.ts`)
+
+`pendingFollowRequests: Record<addr, requestedAtMs>`, persisted, with
+`add`/`clear`/`has`/list accessors. Callers pass timestamps in (`Date.now()`
+at daemon call sites; fixed values in tests) so the store stays pure/testable.
+
+### Async side effects from a sync derivation pass (`daemon/src/ingest.ts`)
+
+Interpreting these DMs needs *async* transport work (reply with our invite;
+securejoin a feed), but `deriveOnIngest` and the whole store-derivation path
+are sync. Rather than force async in, a sibling **pure** function
+`deriveFollowbackActions(store, msg)` returns typed actions —
+`{kind:'grant-invite', toContactId}` / `{kind:'accept-grant', link, fromAddr}`
+— gated purely on store+message state (never transport). `main.ts`'s ingest
+hook executes them against the live `Transport` via `executeFollowbackAction`:
+
+- `grant-invite`: `feedInvite()` → `sendControlDm(buildInviteGrantText(...))`.
+- `accept-grant`: `follow(link)` then clear the pending marker (in a `finally`,
+  even if the join throws — a persistently-failing link must never loop
+  re-answering the same grant on every restart).
+
+Actions flow: transport `onMessage` hook (`deltachat.ts`) → `main.ts`
+`ingestOnMessage(msg, isFeedMessage, mid, phase)` → `deriveFollowbackActions`
+→ `executeFollowbackAction(store, transport, action)` → transport RPC.
+
+### Phase gating (the restart-safety wrinkle)
+
+`main.ts` executes actions **only for live (`'combined'`) messages**. The
+startup backfill sweep (`'index'`/`'derive'`) must not re-grant or re-join old
+requests — otherwise a restart would re-answer every historical
+invite-request and re-join every historical grant. During the `'derive'`
+backfill pass we still run `cleanupFollowbackAction` (pending-state cleanup
+only, no network): a grant that arrived while the daemon was down clears the
+now-satisfied pending marker, so `requested` doesn't stick for a follow that
+completed before shutdown.
+
+### Follow endpoint + relationships (`daemon/src/server.ts`)
+
+`POST /api/v1/accounts/:id/follow` is now real: resolve the contact (404 if
+unknown); if already following, return the current relationship unchanged;
+otherwise `sendControlDm(buildInviteRequestText(), friendlyQuote)`, record
+pending by address, return `{following:false, requested:true}`. The
+relationships/lookup/`:id` endpoints report `requested` from the store for
+pending addrs (via a shared `relationshipForContact` helper). When the grant
+later arrives and the join completes, the pending entry is cleared, so
+`following` flips true through the normal `transport.following()` path and
+`requested` stops sticking.
+
+### Security reasoning
+
+- **Pending-gating prevents unsolicited joins.** An incoming `⇋ invite <link>`
+  grant is auto-joined *only if* `store.hasPendingFollowRequest(sender)` — i.e.
+  we actually asked. `deriveFollowbackActions` returns no action for a grant
+  from a sender with no pending entry, so a stranger DMing us a feed invite can
+  never silently subscribe us to their feed. Exercised directly in the
+  integration file's fast unit-style "unsolicited grant" case (action for a
+  pending sender, none for a non-pending one — proving the gate is the
+  difference).
+- **Open auto-grant policy (v1), documented.** We grant our feed invite to
+  *anyone* who asks (never to SELF; idempotent on repeats). This is a
+  deliberate v1 choice: a "locked account" deny mode (grant only to approved
+  requesters) is future work. Granting a *read-only* broadcast invite is far
+  lower-stakes than auto-*joining* someone else's feed, which is why the
+  asymmetric gating (open grant, pending-gated accept) is safe.
+
+### Integration test (`daemon/tests/integration/followback.test.ts`)
+
+Real network, fresh accounts + `data/int-followback-{alice,bob}` dirs. A and B
+both create feeds; B follows A via A's link; A follows B back by DMing an
+invite-request over the shared channel (driven the way `main.ts` wires
+ingestion — a minimal live-`'combined'` ingest loop per node; no test
+shortcuts). B's ingest auto-grants; A's ingest joins B's feed off the grant
+and clears pending. Asserts A ends up with B's feed (B posts → A receives) and
+A's pending entry is cleared. A learns B's contact id from the inviter-side
+`SecurejoinInviterProgress` event (broadcast followers don't post into A's
+feed, so `contactIdByAddr` may not resolve yet). Full `pnpm test:integration`
+green (4 tests, ~97s).
