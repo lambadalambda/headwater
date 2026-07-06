@@ -120,3 +120,26 @@ message text, with the rfc724 Message-ID as the global post reference:
   pass over timeline loads + incoming-message events.
 - Honest limitations: reaction counts are only authoritative on your own
   posts; markers are visible (if unobtrusive) to vanilla DC readers.
+
+## 2026-07-06 — default images, image attachments, self display name
+
+Closed three small daemon issues via TDD (`tests/entities.test.ts` +
+`tests/server.test.ts` first, then implementation). `GET /deltanet/header.png`
+now serves a generated SVG gradient banner (kept the `.png` path from the
+account entity mapping; browsers render SVG regardless of extension), and the
+avatar placeholder (`entities.avatarPlaceholderSvg` + `initialOf`) uses the
+contact's first grapheme and `color` field instead of a fixed glyph — added
+`Transport.contactBadge(contactId)` for this, with a neutral fallback so the
+avatar route never 404s for an unknown contact while configured. Added
+`POST /api/v1/media` (multipart upload, 422 on non-image mime) backed by a new
+`src/media.ts` in-memory registry over an OS-tmpdir upload dir, and extended
+`POST /api/v1/statuses` to accept `media_ids[]`/`media_ids`, allow image-only
+posts, and pass `{file}` through `Transport.post()` — the deltachat impl uses
+`rpc.sendMsg(..., {viewtype: 'Image', file, ...})` instead of
+`miscSendTextMessage` when a file is present. Alt text round-trips into the
+posted status's `media_attachments[0].description` and into later timeline/
+status reads via a msgId-keyed lookup in the same registry. Own posts (DC
+contact id 1) now get the configured `displayname` substituted onto
+`msg.sender` inside the deltachat transport's `loadMessages`, same trick as
+`self()`, with the config read cached per transport instance rather than
+per message.

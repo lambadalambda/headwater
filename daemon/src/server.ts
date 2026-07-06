@@ -2,12 +2,15 @@ import { Hono, type Context, type Next } from 'hono';
 import { cors } from 'hono/cors';
 import { serveStatic } from '@hono/node-server/serve-static';
 import {
+  avatarPlaceholderSvg,
   contactToAccount,
+  headerSvg,
   messageToStatus,
   timelineLinkHeader,
   type MastodonStatus,
 } from './mastodon/entities.js';
 import type { Transport } from './transport/types.js';
+import { createMediaStore, isSupportedImageMime } from './media.js';
 
 export type ServerOptions = {
   baseUrl: string;
@@ -39,6 +42,7 @@ const intParam = (value: string | undefined): number | undefined => {
 
 export const createApp = (ctx: AppContext, { baseUrl, staticDir }: ServerOptions) => {
   const app = new Hono();
+  const mediaStore = createMediaStore();
 
   app.use(
     '*',
@@ -167,7 +171,9 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir }: ServerOptions
       maxId: intParam(c.req.query('max_id')),
       minId: intParam(c.req.query('min_id')) ?? intParam(c.req.query('since_id')),
     });
-    const statuses: MastodonStatus[] = messages.map((msg) => messageToStatus(msg, baseUrl));
+    const statuses: MastodonStatus[] = messages.map((msg) =>
+      messageToStatus(msg, baseUrl, mediaStore.descriptionForMessage(msg.id)),
+    );
     const link = timelineLinkHeader(
       `${baseUrl}${new URL(c.req.url).pathname}`,
       statuses.map((s) => s.id),
@@ -181,15 +187,48 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir }: ServerOptions
 
   // --- Statuses -----------------------------------------------------------
 
+  const firstMediaId = (body: Record<string, unknown>): string | undefined => {
+    const raw = body['media_ids[]'] ?? body['media_ids'];
+    if (Array.isArray(raw)) return raw.length > 0 ? String(raw[0]) : undefined;
+    return raw === undefined ? undefined : String(raw);
+  };
+
   app.post('/api/v1/statuses', requireTransport, async (c) => {
     const contentType = c.req.header('content-type') ?? '';
     const body = contentType.includes('json')
       ? await c.req.json()
-      : await c.req.parseBody();
+      : await c.req.parseBody({ all: true });
     const text = String(body['status'] ?? '').trim();
-    if (!text) return c.json({ error: 'Validation failed: text cannot be blank' }, 422);
-    const msg = await c.get('transport').post(text);
-    return c.json(messageToStatus(msg, baseUrl));
+    const mediaId = firstMediaId(body as Record<string, unknown>);
+    const media = mediaId ? mediaStore.get(mediaId) : undefined;
+    if (!text && !media) {
+      return c.json({ error: 'Validation failed: text cannot be blank' }, 422);
+    }
+    const msg = await c.get('transport').post(text, media ? { file: media.path } : undefined);
+    if (media) mediaStore.tagMessage(msg.id, media.description);
+    return c.json(messageToStatus(msg, baseUrl, media?.description ?? null));
+  });
+
+  // --- Media uploads --------------------------------------------------------
+
+  app.post('/api/v1/media', requireTransport, async (c) => {
+    const body = await c.req.parseBody();
+    const file = body['file'];
+    if (!(file instanceof File)) {
+      return c.json({ error: "Validation failed: file can't be blank" }, 422);
+    }
+    if (!isSupportedImageMime(file.type)) {
+      return c.json({ error: 'Validation failed: unsupported media type' }, 422);
+    }
+    const description = body['description'] != null ? String(body['description']) : null;
+    const { id } = await mediaStore.save(file, description);
+    return c.json({
+      id,
+      type: 'image',
+      url: '',
+      preview_url: '',
+      description,
+    });
   });
 
   app.get('/api/v1/statuses/:id/context', requireTransport, (c) =>
@@ -199,7 +238,7 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir }: ServerOptions
   app.get('/api/v1/statuses/:id', requireTransport, async (c) => {
     const msg = await c.get('transport').message(Number(c.req.param('id')));
     if (!msg) return c.json({ error: 'Record not found' }, 404);
-    return c.json(messageToStatus(msg, baseUrl));
+    return c.json(messageToStatus(msg, baseUrl, mediaStore.descriptionForMessage(msg.id)));
   });
 
   // --- deltanet-specific: feed invite + follow ----------------------------
@@ -224,13 +263,22 @@ export const createApp = (ctx: AppContext, { baseUrl, staticDir }: ServerOptions
     return new Response(new Uint8Array(data));
   };
 
+  const NEUTRAL_BADGE = { initial: '?', color: '#2a3542' };
+
   app.get('/deltanet/avatar/:contactId', requireTransport, async (c) => {
-    const path = await c.get('transport').avatarPath(Number(c.req.param('contactId')));
+    const contactId = Number(c.req.param('contactId'));
+    const path = await c.get('transport').avatarPath(contactId);
     if (path) return serveFile(path, c);
-    const initial = 'δ';
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" fill="#2a3542"/><text x="48" y="62" font-size="44" text-anchor="middle" fill="#9fd">${initial}</text></svg>`;
+    const badge = (await c.get('transport').contactBadge(contactId)) ?? NEUTRAL_BADGE;
+    const svg = avatarPlaceholderSvg(badge.initial, badge.color);
     return c.body(svg, 200, { 'Content-Type': 'image/svg+xml' });
   });
+
+  // Path keeps the .png extension the account entities advertise; content is
+  // an SVG banner, which browsers happily render regardless of extension.
+  app.get('/deltanet/header.png', (c) =>
+    c.body(headerSvg(), 200, { 'Content-Type': 'image/svg+xml' }),
+  );
 
   app.get('/deltanet/blob/:msgId', requireTransport, async (c) =>
     serveFile(await c.get('transport').blobPath(Number(c.req.param('msgId'))), c),

@@ -22,6 +22,30 @@ export const textToHtml = (text: string): string => {
   return `<p>${linkified.replaceAll('\n', '<br/>')}</p>`;
 };
 
+/** First grapheme of a display name, uppercased; '?' for an empty name. */
+export const initialOf = (displayName: string): string => {
+  if (!displayName) return '?';
+  const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' });
+  const first = [...segmenter.segment(displayName)][0]?.segment ?? '?';
+  return first.toUpperCase();
+};
+
+/** Placeholder avatar: the contact's initial on their stable color. */
+export const avatarPlaceholderSvg = (initial: string, color: string): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96">` +
+  `<rect width="96" height="96" fill="${escapeHtml(color)}"/>` +
+  `<text x="48" y="62" font-size="44" text-anchor="middle" fill="#fff" ` +
+  `font-family="sans-serif">${escapeHtml(initial)}</text></svg>`;
+
+/** Default profile header banner: a pleasant generated gradient. */
+export const headerSvg = (): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="500">` +
+  `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+  `<stop offset="0%" stop-color="#2a3542"/>` +
+  `<stop offset="100%" stop-color="#4a6a8a"/>` +
+  `</linearGradient></defs>` +
+  `<rect width="1500" height="500" fill="url(#g)"/></svg>`;
+
 export const contactToAccount = (contact: T.Contact, baseUrl: string) => {
   const username = contact.address.split('@')[0] ?? contact.address;
   return {
@@ -53,7 +77,7 @@ export const contactToAccount = (contact: T.Contact, baseUrl: string) => {
   };
 };
 
-const mediaAttachments = (msg: T.Message, baseUrl: string) => {
+const mediaAttachments = (msg: T.Message, baseUrl: string, description: string | null) => {
   if (!msg.file || !msg.fileMime) return [];
   const kind = msg.fileMime.split('/')[0];
   const type =
@@ -65,12 +89,17 @@ const mediaAttachments = (msg: T.Message, baseUrl: string) => {
       url: `${baseUrl}/deltanet/blob/${msg.id}`,
       preview_url: `${baseUrl}/deltanet/blob/${msg.id}`,
       remote_url: null,
-      description: null,
+      description,
     },
   ];
 };
 
-export const messageToStatus = (msg: T.Message, baseUrl: string) => ({
+/**
+ * `description` is the uploaded alt text for this message's attachment, if
+ * we have it on hand (in-memory registry keyed by media/msg id) — chatmail
+ * itself has no per-attachment alt text field.
+ */
+export const messageToStatus = (msg: T.Message, baseUrl: string, description: string | null = null) => ({
   id: String(msg.id),
   uri: `${baseUrl}/deltanet/message/${msg.id}`,
   url: `${baseUrl}/deltanet/message/${msg.id}`,
@@ -87,7 +116,7 @@ export const messageToStatus = (msg: T.Message, baseUrl: string) => ({
   bookmarked: false,
   muted: false,
   pinned: false,
-  media_attachments: mediaAttachments(msg, baseUrl),
+  media_attachments: mediaAttachments(msg, baseUrl, description),
   sensitive: false,
   spoiler_text: '',
   visibility: 'public' as const,

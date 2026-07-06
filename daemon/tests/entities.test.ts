@@ -5,6 +5,9 @@ import {
   messageToStatus,
   textToHtml,
   timelineLinkHeader,
+  avatarPlaceholderSvg,
+  headerSvg,
+  initialOf,
 } from '../src/mastodon/entities.js';
 
 const BASE = 'http://localhost:4030';
@@ -159,6 +162,49 @@ describe('messageToStatus', () => {
         description: null,
       },
     ]);
+  });
+
+  it('carries an optional description through to the attachment', () => {
+    const msg = makeMessage({ file: '/blobs/x.png', fileMime: 'image/png', viewType: 'Image' });
+    const status = messageToStatus(msg, BASE, 'a lovely photo');
+    expect(status.media_attachments[0]?.description).toBe('a lovely photo');
+  });
+});
+
+describe('initialOf', () => {
+  it('uppercases the first grapheme of a display name', () => {
+    expect(initialOf('alice')).toBe('A');
+  });
+
+  it('handles emoji/multi-codepoint display names without splitting them', () => {
+    expect(initialOf('👍cool person')).toBe('👍');
+  });
+
+  it('falls back to a neutral glyph for an empty name', () => {
+    expect(initialOf('')).toBe('?');
+  });
+});
+
+describe('avatarPlaceholderSvg', () => {
+  it('renders the initial and color into an svg', () => {
+    const svg = avatarPlaceholderSvg('A', '#ff0000');
+    expect(svg).toContain('<svg');
+    expect(svg).toContain('#ff0000');
+    expect(svg).toContain('>A<');
+  });
+
+  it('produces a neutral placeholder for unknown contacts', () => {
+    const svg = avatarPlaceholderSvg('?', '#2a3542');
+    expect(svg).toContain('>?<');
+    expect(svg).toContain('#2a3542');
+  });
+});
+
+describe('headerSvg', () => {
+  it('renders a banner svg', () => {
+    const svg = headerSvg();
+    expect(svg).toContain('<svg');
+    expect(svg).toMatch(/<svg[^>]*width="1500"/);
   });
 });
 

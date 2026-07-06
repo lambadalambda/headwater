@@ -20,6 +20,7 @@ const makeFakeTransport = () => {
     }),
   ];
   let nextId = 100;
+  const posts: Array<{ text: string; file?: string }> = [];
   const transport: Transport = {
     self: async () => self,
     timeline: async ({ limit, maxId, minId }: TimelineQuery) =>
@@ -28,8 +29,16 @@ const makeFakeTransport = () => {
         .sort((a, b) => b.id - a.id)
         .slice(0, limit),
     message: async (msgId) => messages.find((m) => m.id === msgId) ?? null,
-    post: async (text) => {
-      const msg = makeMessage({ id: nextId++, text, timestamp: 1751900000 });
+    post: async (text, opts) => {
+      posts.push({ text, file: opts?.file });
+      const msg = makeMessage({
+        id: nextId++,
+        text,
+        timestamp: 1751900000,
+        file: opts?.file ?? null,
+        fileMime: opts?.file ? 'image/png' : null,
+        viewType: opts?.file ? 'Image' : 'Text',
+      });
       messages.push(msg);
       return msg;
     },
@@ -37,10 +46,12 @@ const makeFakeTransport = () => {
     follow: async () => 99,
     contact: async (id) => (id === 1 ? self : null),
     avatarPath: async () => null,
+    contactBadge: async (id) =>
+      id === 1 ? { initial: 'A', color: '#ff0000' } : null,
     blobPath: async () => null,
     stats: async () => ({ followers: 3, following: 2, statuses: 7 }),
   };
-  return { transport, messages };
+  return { transport, messages, posts };
 };
 
 /** A context that's already configured with a fixed fake transport. */
@@ -203,6 +214,110 @@ describe('posting', () => {
       body: new URLSearchParams({ status: '' }),
     });
     expect(res.status).toBe(422);
+  });
+});
+
+describe('deltanet: default images', () => {
+  it('serves a header banner image', async () => {
+    const res = await makeApp().request('/deltanet/header.png');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('image/svg+xml');
+    expect(await res.text()).toContain('<svg');
+  });
+
+  it('serves the header even when unconfigured', async () => {
+    const app = createApp(makeUnconfiguredCtx(), { baseUrl: BASE });
+    const res = await app.request('/deltanet/header.png');
+    expect(res.status).toBe(200);
+  });
+
+  it('serves a placeholder avatar using the contact initial and color', async () => {
+    const res = await makeApp().request('/deltanet/avatar/1');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('image/svg+xml');
+    const svg = await res.text();
+    expect(svg).toContain('#ff0000');
+    expect(svg).toContain('>A<');
+  });
+
+  it('never 404s for an unknown contact id, serving a neutral placeholder instead', async () => {
+    const res = await makeApp().request('/deltanet/avatar/999');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('image/svg+xml');
+  });
+});
+
+describe('media uploads', () => {
+  it('uploads an image and returns a media attachment id', async () => {
+    const app = makeApp();
+    const form = new FormData();
+    form.append('file', new File(['fakepngbytes'], 'photo.png', { type: 'image/png' }));
+    form.append('description', 'a lovely photo');
+    const res = await app.request('/api/v1/media', { method: 'POST', body: form });
+    expect(res.status).toBe(200);
+    const media = await res.json() as any;
+    expect(media.id).toBeTypeOf('string');
+    expect(media.type).toBe('image');
+    expect(media.description).toBe('a lovely photo');
+  });
+
+  it('rejects non-image uploads with 422', async () => {
+    const app = makeApp();
+    const form = new FormData();
+    form.append('file', new File(['not an image'], 'notes.txt', { type: 'text/plain' }));
+    const res = await app.request('/api/v1/media', { method: 'POST', body: form });
+    expect(res.status).toBe(422);
+  });
+
+  it('attaches an uploaded media id to a new status', async () => {
+    const { transport, posts } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const form = new FormData();
+    form.append('file', new File(['fakepngbytes'], 'photo.png', { type: 'image/png' }));
+    const uploadRes = await app.request('/api/v1/media', { method: 'POST', body: form });
+    const media = await uploadRes.json() as any;
+
+    const statusForm = new FormData();
+    statusForm.append('status', 'look at this');
+    statusForm.append('media_ids[]', media.id);
+    const res = await app.request('/api/v1/statuses', { method: 'POST', body: statusForm });
+    expect(res.status).toBe(200);
+    expect(posts[posts.length - 1]?.file).toBeTypeOf('string');
+  });
+
+  it('round-trips the alt text description into the posted status attachment', async () => {
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const form = new FormData();
+    form.append('file', new File(['fakepngbytes'], 'photo.png', { type: 'image/png' }));
+    form.append('description', 'a lovely photo');
+    const uploadRes = await app.request('/api/v1/media', { method: 'POST', body: form });
+    const media = await uploadRes.json() as any;
+
+    const statusForm = new FormData();
+    statusForm.append('status', 'look at this');
+    statusForm.append('media_ids[]', media.id);
+    const res = await app.request('/api/v1/statuses', { method: 'POST', body: statusForm });
+    const status = await res.json() as any;
+    expect(status.media_attachments[0]?.description).toBe('a lovely photo');
+  });
+
+  it('allows an image-only post with no text', async () => {
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const form = new FormData();
+    form.append('file', new File(['fakepngbytes'], 'photo.png', { type: 'image/png' }));
+    const uploadRes = await app.request('/api/v1/media', { method: 'POST', body: form });
+    const media = await uploadRes.json() as any;
+
+    const statusForm = new FormData();
+    statusForm.append('status', '');
+    statusForm.append('media_ids[]', media.id);
+    const res = await app.request('/api/v1/statuses', { method: 'POST', body: statusForm });
+    expect(res.status).toBe(200);
   });
 });
 

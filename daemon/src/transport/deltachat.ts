@@ -1,6 +1,7 @@
 import { startDeltaChat } from '@deltachat/stdio-rpc-server';
 import type { T } from '@deltachat/jsonrpc-client';
 import type { TimelineQuery, Transport } from './types.js';
+import { initialOf } from '../mastodon/entities.js';
 
 const DC_CONTACT_ID_SELF = 1;
 const FEED_CHAT_ID_KEY = 'ui.deltanet.feed_chat_id';
@@ -64,12 +65,29 @@ export const openTransport = async (
     return chatId;
   };
 
+  // Cached so we don't hit getConfig once per message when mapping timelines.
+  let cachedDisplayName: string | null | undefined;
+  const selfDisplayName = async (): Promise<string | null> => {
+    if (cachedDisplayName === undefined) {
+      cachedDisplayName = await rpc.getConfig(accountId, 'displayname');
+    }
+    return cachedDisplayName;
+  };
+
+  /** Same trick as self(): the SELF contact's displayName is a placeholder ("Me"). */
+  const withSelfDisplayName = (msg: T.Message, displayname: string | null): T.Message =>
+    msg.sender.id === DC_CONTACT_ID_SELF && displayname
+      ? { ...msg, sender: { ...msg.sender, displayName: displayname } }
+      : msg;
+
   const loadMessages = async (msgIds: number[]): Promise<T.Message[]> => {
     if (msgIds.length === 0) return [];
     const loaded = await rpc.getMessages(accountId, msgIds);
+    const displayname = await selfDisplayName();
     return Object.values(loaded)
       .filter((res): res is Extract<T.MessageLoadResult, { kind: 'message' }> => res.kind === 'message')
-      .filter((msg) => !msg.isInfo);
+      .filter((msg) => !msg.isInfo)
+      .map((msg) => withSelfDisplayName(msg, displayname));
   };
 
   return {
@@ -123,8 +141,23 @@ export const openTransport = async (
       return msg ?? null;
     },
 
-    post: async (text: string) => {
+    post: async (text: string, opts) => {
       const chatId = await ensureFeedChat();
+      if (opts?.file) {
+        const base: T.MessageData = {
+          text: text || null,
+          html: null,
+          viewtype: 'Image',
+          file: opts.file,
+          filename: null,
+          location: null,
+          overrideSenderName: null,
+          quotedMessageId: null,
+          quotedText: null,
+        };
+        const msgId = await rpc.sendMsg(accountId, chatId, base);
+        return rpc.getMessage(accountId, msgId);
+      }
       const msgId = await rpc.miscSendTextMessage(accountId, chatId, text);
       return rpc.getMessage(accountId, msgId);
     },
@@ -145,6 +178,12 @@ export const openTransport = async (
     avatarPath: async (contactId) => {
       const contact = await rpc.getContact(accountId, contactId).catch(() => null);
       return contact?.profileImage ?? null;
+    },
+
+    contactBadge: async (contactId) => {
+      const contact = await rpc.getContact(accountId, contactId).catch(() => null);
+      if (!contact) return null;
+      return { initial: initialOf(contact.displayName), color: contact.color };
     },
 
     blobPath: async (msgId) => {

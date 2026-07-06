@@ -15,13 +15,15 @@ export interface Transport {
   /** Feed messages across all subscribed feeds, newest first. */
   timeline(query: TimelineQuery): Promise<T.Message[]>;
   message(msgId: number): Promise<T.Message | null>;
-  post(text: string): Promise<T.Message>;
+  post(text: string, opts?: { file?: string }): Promise<T.Message>;
   /** Invite link others use to follow (join) our feed. */
   feedInvite(): Promise<string>;
   /** Join someone else's feed from their invite link. Returns the chat id. */
   follow(invite: string): Promise<number>;
   contact(contactId: number): Promise<T.Contact | null>;
   avatarPath(contactId: number): Promise<string | null>;
+  /** Initial + stable color for the avatar placeholder; null if the contact is unknown. */
+  contactBadge(contactId: number): Promise<{ initial: string; color: string } | null>;
   blobPath(msgId: number): Promise<string | null>;
   /** Real follower/following/post counts for the self account. */
   stats(): Promise<{ followers: number; following: number; statuses: number }>;

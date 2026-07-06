@@ -26,3 +26,20 @@ the Mastodon API; the daemon must accept uploads and attach them to posts.
   timeline on both the poster's and a follower's node.
 - Unit tests: media upload returns id; statuses with media_ids call the
   transport with the file; image-only post allowed.
+
+## Current Status (2026-07-06)
+
+Implemented in the daemon: `POST /api/v1/media` (multipart, field `file`,
+optional `description`) persists uploads via a new `src/media.ts` in-memory
+registry over an OS-tmpdir directory, 422s on non-image mime, returns
+`{id, type: 'image', url: '', preview_url: '', description}`.
+`POST /api/v1/statuses` accepts `media_ids[]`/`media_ids`, allows image-only
+posts (empty text + media), still 422s when both are empty, and passes
+`{file}` through the extended `Transport.post(text, opts?)`; the deltachat
+transport uses `rpc.sendMsg(..., {viewtype: 'Image', file, ...})` in that
+case. Alt text round-trips into the immediate post response and into later
+timeline/status reads via a msgId-keyed lookup in the same registry. Covered
+by `tests/server.test.ts` (media upload, non-image 422, media_ids attaches
+file, image-only post, description round-trip) with the fake transport;
+`pnpm test`/`pnpm check` pass. Real end-to-end delivery across two chatmail
+nodes not exercised here — leaving this issue open per instructions.
