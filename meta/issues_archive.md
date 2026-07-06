@@ -17,3 +17,4 @@
 - [x] [Emoji normalization (withdrawn — by design)](issues/emoji-normalization.md)
 - [x] [Dual-copy identity split: canonical-mid unification](issues/canonical-mid-unification.md)
 - [x] [Thread ancestor/descendant rows do not render reactions](issues/thread-rows-reactions.md)
+- [x] [Wire convention v1: logical post UUIDs](issues/post-uuids.md)
