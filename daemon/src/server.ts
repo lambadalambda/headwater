@@ -198,6 +198,62 @@ export const createApp = (
   };
 
   /**
+   * Parse a `/statuses/:id` path param into a typed target. Status ids are
+   * OPAQUE strings on the wire: a numeric id is a local DC msgId, while a
+   * verified boost embed's nested status carries an `orig-<uuid>` id (see
+   * `verifiedEmbedToStatus`) that points at an original post we may never hold.
+   * Returning a discriminated union (instead of scattering `Number(id)` +
+   * `isNaN` guards) is what lets every `:id` handler treat a non-numeric id as
+   * a clean 404 rather than crashing on `transport.message(NaN)` (→ 500).
+   *   - all-digits           → `{ kind: 'msg', msgId }`  (an actionable local id)
+   *   - `orig-<uuid>`        → `{ kind: 'orig', uuid }`  (a verified-embed ref)
+   *   - anything else / empty → `null`                    (→ 404)
+   */
+  const parseStatusId = (raw: string | undefined): { kind: 'msg'; msgId: number } | { kind: 'orig'; uuid: string } | null => {
+    if (!raw) return null;
+    if (/^\d+$/.test(raw)) return { kind: 'msg', msgId: Number(raw) };
+    if (raw.startsWith('orig-')) {
+      const uuid = raw.slice('orig-'.length);
+      return uuid ? { kind: 'orig', uuid } : null;
+    }
+    return null;
+  };
+
+  /**
+   * Resolve an `orig-<uuid>` status id to the status the thread view should
+   * focus, WITHOUT re-implementing any verification (0002): reuse the exact
+   * timeline mapper.
+   *   1. If we actually hold the original post (the uuid resolves locally),
+   *      return the real local status — the honest thing when we have it.
+   *   2. Otherwise walk the store's boost index (`boostsByMid[<uuid>]`) for a
+   *      held boost message whose embedded `orig` verifies: `toStatus` runs the
+   *      full ladder (sig + pin + media hash + contact-first attribution) and
+   *      yields a status whose `.reblog` IS the verified embed. Return that
+   *      nested reblog (its own id is `orig-<uuid>`).
+   *   3. No verifiable candidate → `null` (the caller 404s; never 500).
+   */
+  const resolveOrigStatus = async (
+    transport: Transport,
+    uuid: string,
+  ): Promise<MastodonStatus | null> => {
+    const localMsgId = store.resolveKey(uuid);
+    if (localMsgId !== null) {
+      const msg = await transport.message(localMsgId);
+      if (msg) return toStatus(transport, msg, mediaStore.descriptionForMessage(msg.id));
+    }
+    const embedId = `orig-${uuid}`;
+    for (const boostMsgId of store.boostsByMid(uuid)) {
+      const boostMsg = await transport.message(boostMsgId);
+      if (!boostMsg) continue;
+      const status = await toStatus(transport, boostMsg);
+      // The boost renders its verified embed as `.reblog` with id `orig-<uuid>`
+      // (an unverified/placeholder boost leaves `.reblog` null → skip it).
+      if (status.reblog && status.reblog.id === embedId) return status.reblog;
+    }
+    return null;
+  };
+
+  /**
    * The ref TOKEN a reply/react/boost should target for a given message (wire
    * convention v1). Preference order:
    *  1. The target's own logical-post UUID (`⚑` marker) — a uuid ref. Every v1
@@ -669,7 +725,10 @@ export const createApp = (
 
   app.post('/api/v1/statuses/:id/reblog', requireTransport, async (c) => {
     const transport = c.get('transport');
-    const target = await transport.message(Number(c.req.param('id')));
+    // Actions need a LOCAL message to act on; a non-numeric id (e.g. `orig-*`,
+    // which has no local action target) is a clean 404, never a 500.
+    const parsed = parseStatusId(c.req.param('id'));
+    const target = parsed?.kind === 'msg' ? await transport.message(parsed.msgId) : null;
     if (!target) return c.json({ error: 'Record not found' }, 404);
     // Target the boosted post's uuid ref (or canonical/mid) so the boost
     // resolves on any node, even when acting on a DM copy.
@@ -721,7 +780,8 @@ export const createApp = (
 
   app.post('/api/v1/statuses/:id/unreblog', requireTransport, async (c) => {
     const transport = c.get('transport');
-    const target = await transport.message(Number(c.req.param('id')));
+    const parsed = parseStatusId(c.req.param('id'));
+    const target = parsed?.kind === 'msg' ? await transport.message(parsed.msgId) : null;
     if (!target) return c.json({ error: 'Record not found' }, 404);
     // Look up our own boost of this target under its POST KEY (uuid ref or
     // canonical mid) — the same key `reblog` registered `ownBoosts` under.
@@ -753,7 +813,8 @@ export const createApp = (
     action: 'react' | 'unreact',
   ) => {
     const transport = c.get('transport');
-    const target = await transport.message(Number(c.req.param('id')));
+    const parsed = parseStatusId(c.req.param('id'));
+    const target = parsed?.kind === 'msg' ? await transport.message(parsed.msgId) : null;
     if (!target) return c.json({ error: 'Record not found' }, 404);
     // Target the post's uuid ref (or canonical/mid) so a third party who only
     // has the feed copy sees our reaction, even when acting on a DM copy.
@@ -796,18 +857,34 @@ export const createApp = (
 
   app.get('/api/v1/statuses/:id/context', requireTransport, async (c) => {
     const transport = c.get('transport');
-    const target = await transport.message(Number(c.req.param('id')));
-    if (!target) return c.json({ error: 'Record not found' }, 404);
-    await ingest(transport, target);
+    const parsed = parseStatusId(c.req.param('id'));
+    if (parsed === null) return c.json({ error: 'Record not found' }, 404);
+
+    // The BFS root post key + the (msg) target we walk ancestors from. For an
+    // `orig-<uuid>` id we don't hold the original: ancestors are empty (there's
+    // no local reply chain to climb), and the descendant BFS roots at the uuid
+    // post key so DM reply copies we DO hold still render. For a numeric id we
+    // must actually hold the message; otherwise 404 (never 500).
+    let target: T.Message | null = null;
+    let rootKey: string | null;
+    if (parsed.kind === 'orig') {
+      rootKey = parsed.uuid;
+    } else {
+      target = await transport.message(parsed.msgId);
+      if (!target) return c.json({ error: 'Record not found' }, 404);
+      await ingest(transport, target);
+      rootKey = store.midForMsgId(target.id);
+    }
 
     // Ancestors: walk the reply-marker chain upward via the store, resolving
-    // each parent by its ref POST KEY (uuid or canonical mid).
+    // each parent by its ref POST KEY (uuid or canonical mid). Empty for an
+    // orig id (no local `target` to start the climb from).
     const ancestorMsgs: T.Message[] = [];
     let current: T.Message | null = target;
     for (let depth = 0; depth < MAX_CONTEXT_ANCESTORS && current; depth++) {
-      const parsed = parseWire(current.text);
-      if (!parsed.reply) break;
-      const parentMsgId = store.resolveKey(parsed.reply.keyString);
+      const parsedCurrent = parseWire(current.text);
+      if (!parsedCurrent.reply) break;
+      const parentMsgId = store.resolveKey(parsedCurrent.reply.keyString);
       if (parentMsgId === null) break;
       const parentMsg = await transport.message(parentMsgId);
       if (!parentMsg) break;
@@ -821,8 +898,8 @@ export const createApp = (
     // child's POST KEY; resolve it to a msgId (feed copy preferred, DM copy
     // otherwise — so a non-follower's DM-only reply still renders), skip
     // unresolvable children, and recurse on the child's own post key. The BFS
-    // root is the target's OWN post key (its uuid, or its canonical mid).
-    const rootKey = store.midForMsgId(target.id);
+    // root is the target's OWN post key (its uuid, or its canonical mid), or the
+    // orig uuid post key for an `orig-<uuid>` id.
     const descendantMsgs: T.Message[] = [];
     const queue: string[] = rootKey ? [rootKey] : [];
     const seen = new Set<number>();
@@ -857,7 +934,15 @@ export const createApp = (
 
   app.get('/api/v1/statuses/:id', requireTransport, async (c) => {
     const transport = c.get('transport');
-    const msg = await transport.message(Number(c.req.param('id')));
+    const parsed = parseStatusId(c.req.param('id'));
+    if (parsed === null) return c.json({ error: 'Record not found' }, 404);
+    if (parsed.kind === 'orig') {
+      // A verified boost embed's nested status: the local original if we hold
+      // it, else the verified embed rendered from a held boost. Never 500.
+      const status = await resolveOrigStatus(transport, parsed.uuid);
+      return status ? c.json(status) : c.json({ error: 'Record not found' }, 404);
+    }
+    const msg = await transport.message(parsed.msgId);
     if (!msg) return c.json({ error: 'Record not found' }, 404);
     return c.json(await toStatus(transport, msg, mediaStore.descriptionForMessage(msg.id)));
   });

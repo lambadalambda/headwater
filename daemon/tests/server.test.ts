@@ -968,6 +968,166 @@ describe('single status', () => {
   });
 });
 
+describe('GET /api/v1/statuses/orig-<uuid> (verified boost embed thread view)', () => {
+  // A verified boost of CAROL's signed post, held by SELF but the ORIGINAL
+  // post itself is NOT held locally — exactly the "clicked a verified embed"
+  // topology. `boostsByMid[<uuid>]` maps the orig uuid to the held boost msgId.
+  const ORIG_UUID = 'cccc1111-2222-4333-8444-555555555555';
+  const CAROL = makeContact({ id: 22, address: 'carol@nine.testrun.org', displayName: 'Carol Sparkle' });
+
+  /**
+   * Build an app whose store holds a boost message (id 60) embedding CAROL's
+   * SIGNED original as `orig` (uuid ORIG_UUID) — but NOT the original post.
+   * `contactIdByAddr`/`contact` are extended so CAROL resolves to a real
+   * contact (contact-first attribution rides for free through the mapper).
+   */
+  const makeEmbedApp = async () => {
+    const { openAttestor } = await import('../src/attest.js');
+    const { buildPostObject, buildBoostObject, serializeEnvelope } = await import('../src/envelope.js');
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+
+    const dir = mkdtempSync(join(tmpdir(), 'orig-status-'));
+    // Carol signs her own post with her own key (external attestor).
+    const carolA = openAttestor(join(dir, 'carol.json'));
+    const postEnv = buildPostObject('carol attested post', ORIG_UUID);
+    const orig = { ...postEnv, ...carolA.sign(postEnv, CAROL.address) };
+    // Bob's boost of Carol's post, embedding her signed envelope verbatim.
+    const boostEnv = buildBoostObject('boost-uuid-60', { u: ORIG_UUID, addr: CAROL.address }, orig);
+
+    const { transport, messages } = makeFakeTransport();
+    // Extend the fake transport so CAROL resolves to a real contact.
+    const baseContact = transport.contact;
+    const baseIdByAddr = transport.contactIdByAddr;
+    transport.contact = async (id) => (id === 22 ? CAROL : baseContact(id));
+    transport.contactIdByAddr = async (addr) =>
+      addr.toLowerCase() === CAROL.address.toLowerCase() ? 22 : baseIdByAddr(addr);
+
+    messages.push(
+      makeMessage({ id: 60, text: serializeEnvelope(boostEnv), fromId: 11, sender: BOB, timestamp: 1751800400 }),
+    );
+
+    const store = createStore(ephemeralStorePath());
+    // Ingest the boost as a FEED message so boostsByMid[ORIG_UUID] registers.
+    store.ingestMessage(messages.find((m) => m.id === 60)!, 'mid-60@example.org', true);
+
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store });
+    return { app, store };
+  };
+
+  it('returns the verified embed status with contact-first attribution', async () => {
+    const { app } = await makeEmbedApp();
+    const res = await app.request(`/api/v1/statuses/orig-${ORIG_UUID}`);
+    expect(res.status).toBe(200);
+    const status = await res.json() as any;
+    expect(status.id).toBe(`orig-${ORIG_UUID}`);
+    expect(status.content).toBe('<p>carol attested post</p>');
+    // Contact-first attribution: Carol's real DC contact, not the addr shell.
+    expect(status.account.display_name).toBe('Carol Sparkle');
+    expect(status.account.id).toBe('22');
+    // The focal status is the ORIGINAL, not a boost wrapper.
+    expect(status.reblog).toBeNull();
+  });
+
+  it('returns the real local status when the original is held locally', async () => {
+    // Reblog BOB's plain post #12; SELF then holds #12, so orig-<its uuid>
+    // resolves to the real local message rather than an embed.
+    const { transport } = makeFakeTransport();
+    const store = createStore(ephemeralStorePath());
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store });
+
+    // Give #12 a uuid by reposting as a signed v2 post from SELF.
+    const postRes = await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'my own post' }),
+    });
+    const post = await postRes.json() as any;
+    const { parseEnvelope } = await import('../src/envelope.js');
+    // Recover the uuid the daemon minted for it.
+    const posted = transport;
+    const msg = await posted.message(Number(post.id));
+    const uuid = parseEnvelope(msg!.text)!.uuid!;
+
+    const res = await app.request(`/api/v1/statuses/orig-${uuid}`);
+    expect(res.status).toBe(200);
+    const status = await res.json() as any;
+    // Real local status: numeric id, our own content.
+    expect(status.id).toBe(post.id);
+    expect(status.content).toBe('<p>my own post</p>');
+  });
+
+  it('404s (never 500) for an orig-<uuid> with no verifiable candidate', async () => {
+    const res = await makeApp().request('/api/v1/statuses/orig-deadbeef-0000-4000-8000-000000000000');
+    expect(res.status).toBe(404);
+  });
+
+  it('404s (never 500) for a wholly non-numeric, non-orig id', async () => {
+    const res = await makeApp().request('/api/v1/statuses/not-a-real-id');
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/v1/statuses/orig-<uuid>/context', () => {
+  const ORIG_UUID = 'dddd1111-2222-4333-8444-555555555555';
+
+  it('returns empty ancestors/descendants when we hold no reply children', async () => {
+    const res = await makeApp().request(`/api/v1/statuses/orig-${ORIG_UUID}/context`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ancestors: [], descendants: [] });
+  });
+
+  it('lists resolvable reply children for the orig post key as descendants', async () => {
+    const store = createStore(ephemeralStorePath());
+    const { transport, messages } = makeFakeTransport();
+
+    // A reply we DO hold, targeting the orig post key by uuid (we never got
+    // the original, but we hold a DM reply copy referencing it).
+    const ref = refFromToken({ kind: 'uuid', uuid: ORIG_UUID }, 'carol@nine.testrun.org');
+    const replyText = buildReplyText('reply to the orig', ref, mintPostUuid());
+    const replyMsg = makeMessage({ id: 70, text: replyText, fromId: 11, sender: BOB, timestamp: 1751800500 });
+    messages.push(replyMsg);
+    store.ingestMessage(replyMsg, 'mid-70@example.org', true);
+
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store });
+    const res = await app.request(`/api/v1/statuses/orig-${ORIG_UUID}/context`);
+    expect(res.status).toBe(200);
+    const context = await res.json() as any;
+    expect(context.ancestors).toEqual([]);
+    expect(context.descendants.map((s: any) => s.id)).toEqual(['70']);
+  });
+
+  it('404s (never 500) for a non-numeric, non-orig context id', async () => {
+    const res = await makeApp().request('/api/v1/statuses/garbage/context');
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('action routes harden non-numeric ids to 404 (never 500)', () => {
+  const ORIG = 'orig-eeee1111-2222-4333-8444-555555555555';
+  it('reblog', async () => {
+    expect((await makeApp().request(`/api/v1/statuses/${ORIG}/reblog`, { method: 'POST' })).status).toBe(404);
+  });
+  it('unreblog', async () => {
+    expect((await makeApp().request(`/api/v1/statuses/${ORIG}/unreblog`, { method: 'POST' })).status).toBe(404);
+  });
+  it('favourite', async () => {
+    expect((await makeApp().request(`/api/v1/statuses/${ORIG}/favourite`, { method: 'POST' })).status).toBe(404);
+  });
+  it('unfavourite', async () => {
+    expect((await makeApp().request(`/api/v1/statuses/${ORIG}/unfavourite`, { method: 'POST' })).status).toBe(404);
+  });
+  it('emoji reaction PUT', async () => {
+    expect(
+      (await makeApp().request(`/api/v1/pleroma/statuses/${ORIG}/reactions/%F0%9F%8E%89`, { method: 'PUT' })).status,
+    ).toBe(404);
+  });
+  it('garbage id on reblog', async () => {
+    expect((await makeApp().request('/api/v1/statuses/xyz/reblog', { method: 'POST' })).status).toBe(404);
+  });
+});
+
 describe('deltanet follow endpoints', () => {
   it('exposes the feed invite', async () => {
     const invite = await (await makeApp().request('/api/deltanet/invite')).json() as any;
