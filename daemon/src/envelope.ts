@@ -67,6 +67,19 @@ export type Envelope = {
   /** The target of a reply/boost/react/unreact. */
   ref?: EnvelopeRef;
   /**
+   * On a reply: a ref to the THREAD ROOT (the topmost post the reply descends
+   * from). BOTH its key string AND its `addr` are signed inside the canonical
+   * payload (see ./attest.ts, dn3): unlike `ref.addr` (display-only), the root
+   * addr is a ROUTING target — it decides who gets the root DM copy — so a
+   * relayer must not be able to swap it. Uuid refs only; `parseEnvelope` DROPS a
+   * malformed root (missing/empty/non-string `u`, non-string `addr`) to absent
+   * rather than carrying junk. Only meaningful on `type:'reply'`; best-effort —
+   * omitted when the root is unknowable (a legacy chain, no uuid), never
+   * fabricated. A holder of a mid-thread reply can name its thread + owner
+   * without the full ancestor chain.
+   */
+  root?: EnvelopeRef;
+  /**
    * Attachment metadata on a post/reply: `description` is persistent + federated
    * alt text; `sha256` is the author-signed content hash of the attached file
    * (post-attestations) so a re-attached copy verifies against the signature.
@@ -140,18 +153,25 @@ export const buildPostObject = (
   ...mediaFields(media),
 });
 
-/** A reply envelope OBJECT (unsigned): minted uuid + human text + parent ref (+ optional media). */
+/**
+ * A reply envelope OBJECT (unsigned): minted uuid + human text + parent ref
+ * (+ optional thread-root ref + optional media). `root` is the topmost post the
+ * thread descends from (best-effort, omitted when unknowable), signed alongside
+ * `ref` in the dn3 canonical payload so a mid-thread holder can name the thread.
+ */
 export const buildReplyObject = (
   text: string,
   uuid: string,
   ref: EnvelopeRef,
   media?: MediaEnvelopeFields,
+  root?: EnvelopeRef,
 ): Envelope => ({
   dn: DN_VERSION,
   type: 'reply',
   uuid,
   text,
   ref,
+  ...(root ? { root } : {}),
   ...mediaFields(media),
 });
 
@@ -176,13 +196,17 @@ export const buildPostEnvelope = (
   media?: { description?: string | null },
 ): string => serialize(buildPostObject(text, uuid, media));
 
-/** A reply envelope: minted uuid + human text + the parent ref (+ optional media alt text). */
+/**
+ * A reply envelope: minted uuid + human text + the parent ref (+ optional
+ * thread-root ref + optional media alt text).
+ */
 export const buildReplyEnvelope = (
   text: string,
   uuid: string,
   ref: EnvelopeRef,
   media?: { description?: string | null },
-): string => serialize(buildReplyObject(text, uuid, ref, media));
+  root?: EnvelopeRef,
+): string => serialize(buildReplyObject(text, uuid, ref, media, root));
 
 /**
  * A boost envelope: minted uuid + the boosted post's ref (ref-only, unsigned).
@@ -231,7 +255,30 @@ export const parseEnvelope = (text: string): Envelope | null => {
   if (obj['dn'] !== DN_VERSION) return null;
   const type = obj['type'];
   if (!isEnvelopeType(type)) return null;
+  // Tolerant-drop for `root` (same philosophy as a malformed ref degrading):
+  // a root that isn't a well-formed uuid ref is treated as ABSENT rather than
+  // carried as junk. This matters for verification: the dn2 verify-fallback is
+  // gated on root ABSENCE, and an absent root frames identically (`0:`) to an
+  // EMPTY key string — so a grafted `{u:'',addr:evil}` must never survive the
+  // parse seam. Dropping (not rejecting) keeps foreign messages rendering.
+  if (obj['root'] !== undefined && !isWellFormedRootRef(obj['root'])) delete obj['root'];
   return obj as Envelope;
+};
+
+/**
+ * A well-formed thread-root ref: a `{u, addr?}` object whose `u` is a NON-EMPTY
+ * string (roots are uuid refs in practice) and whose `addr`, when present, is a
+ * string (the signed rootAddr frame must stay a total string projection).
+ * Shared by `parseEnvelope`'s tolerant-drop AND `verify()`'s shape gate
+ * (./attest.ts): NESTED envelopes (a boost `orig`, future bundle items) never
+ * pass through parseEnvelope, so the verifier applies the same predicate itself
+ * — one definition, two seams, no drift.
+ */
+export const isWellFormedRootRef = (v: unknown): boolean => {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  const ref = v as Record<string, unknown>;
+  if (typeof ref['u'] !== 'string' || ref['u'].length === 0) return false;
+  return ref['addr'] === undefined || typeof ref['addr'] === 'string';
 };
 
 const ENVELOPE_TYPES: ReadonlySet<string> = new Set<EnvelopeType>([

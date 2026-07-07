@@ -67,6 +67,60 @@ describe('reply envelope round-trip', () => {
     expect(env?.ref).toEqual(ref);
     expect(envelopeRefKeyString(env!.ref!)).toBe(MID);
   });
+
+  it('carries an optional thread-root ref (round-trips verbatim)', () => {
+    const ref: EnvelopeRef = { u: PARENT_UUID, addr: ADDR };
+    const root: EnvelopeRef = { u: 'root-uuid-9999', addr: 'alice@nine.testrun.org' };
+    const env = parseEnvelope(buildReplyEnvelope('deep', UUID, ref, undefined, root));
+    expect(env?.ref).toEqual(ref);
+    expect(env?.root).toEqual(root);
+  });
+
+  it('omits root when none is supplied', () => {
+    const env = parseEnvelope(buildReplyEnvelope('re', UUID, { u: PARENT_UUID, addr: ADDR }));
+    expect(env?.root).toBeUndefined();
+  });
+
+  it('drops a malformed root shape to ABSENT (tolerant-drop; junk never reaches verification)', () => {
+    // A root that isn't a valid uuid ref degrades to no-root at the parse seam,
+    // so a grafted/garbage root can't even reach the verifier (whose dn2
+    // fallback is gated on root ABSENCE). The envelope itself still parses.
+    const cases = [
+      '{"garbage":true}', // no u at all
+      '{"u":123}', // non-string u
+      '{"u":null}', // null u
+      '"root-as-string"', // not an object
+      '[1,2]', // array
+      'null',
+    ];
+    for (const root of cases) {
+      const env = parseEnvelope(
+        `{"dn":2,"type":"reply","uuid":"${UUID}","text":"x","ref":{"u":"p"},"root":${root}}`,
+      );
+      expect(env?.type, `root=${root} still parses as a reply`).toBe('reply');
+      expect(env?.root, `root=${root} degrades to absent`).toBeUndefined();
+    }
+  });
+
+  it('drops a grafted empty-uuid root ({u:"",addr:...}) — the empty key string graft', () => {
+    // The graft: an absent root and a root whose key string is EMPTY would
+    // frame identically (`0:`) in the canonical payload, so `{u:'',addr:evil}`
+    // could ride a signed root-less envelope. The parser drops empty-u roots so
+    // the graft never reaches verification (and rootAddr is signed regardless).
+    const env = parseEnvelope(
+      `{"dn":2,"type":"reply","uuid":"${UUID}","text":"x","ref":{"u":"p"},"root":{"u":"","addr":"evil@relay.example"}}`,
+    );
+    expect(env?.type).toBe('reply');
+    expect(env?.root).toBeUndefined();
+  });
+
+  it('drops a root whose addr is present but not a string (keeps canonicalPayload total)', () => {
+    const env = parseEnvelope(
+      `{"dn":2,"type":"reply","uuid":"${UUID}","text":"x","ref":{"u":"p"},"root":{"u":"root-u","addr":42}}`,
+    );
+    expect(env?.type).toBe('reply');
+    expect(env?.root).toBeUndefined();
+  });
 });
 
 describe('boost envelope round-trip', () => {

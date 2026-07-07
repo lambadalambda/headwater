@@ -33,15 +33,44 @@ import {
 import { createReadStream, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Envelope, EnvelopeRef } from './envelope.js';
-import { envelopeRefKeyString } from './envelope.js';
+import { envelopeRefKeyString, isWellFormedRootRef } from './envelope.js';
 
 /**
  * Canonical-payload format version. Prefixed onto every signed payload so the
  * field order/layout can change later without a new signature silently
  * verifying against an old canonicalization (or vice versa). Bump ONLY when the
  * payload layout below changes.
+ *
+ * dn3 adds the thread-root frames after `refToken`: the root TOKEN and the root
+ * ADDR (see `CanonicalFields`). The addr is signed because — unlike `ref.addr`,
+ * a display-only attribution fallback — `root.addr` is a ROUTING target: it
+ * decides who receives the root DM copy and whom a thread subscriber contacts,
+ * so a relayed envelope (boost embed, backfill bundle) must not be able to swap
+ * it. `sign()` emits dn3 exclusively. `verify()` keeps a dn2 fallback for
+ * signatures minted before this bump (deployed outside nodes federate dn2 with
+ * us) — see the fallback rationale on `verify`.
  */
-export const CANONICAL_PAYLOAD_VERSION = 'dn2';
+export const CANONICAL_PAYLOAD_VERSION = 'dn3';
+
+/**
+ * The previous canonical-payload version (root-less layout). Retained ONLY so
+ * `verify()` can fall back to it for dn2-era signatures; never emitted.
+ */
+const CANONICAL_PAYLOAD_VERSION_DN2 = 'dn2';
+
+/**
+ * A canonical-payload LAYOUT: the version string that prefixes the signed bytes
+ * and whether the thread-root token frame is included. The version lives INSIDE
+ * the signed bytes, so the two layouts can never cross-verify — a dn3 signature
+ * can't be replayed as dn2 or vice versa.
+ */
+type CanonicalLayout = { version: string; withRoot: boolean };
+
+/** The current (dn3) layout: root token frame present, after refToken. */
+const LAYOUT_DN3: CanonicalLayout = { version: CANONICAL_PAYLOAD_VERSION, withRoot: true };
+
+/** The legacy (dn2) layout: no root token frame. verify-only fallback. */
+const LAYOUT_DN2: CanonicalLayout = { version: CANONICAL_PAYLOAD_VERSION_DN2, withRoot: false };
 
 /**
  * The fields the attestation signs. Reconstructed from an envelope's own fields
@@ -61,6 +90,24 @@ export type CanonicalFields = {
   text: string;
   /** The reply/boost target ref as its opaque key string (uuid or bare mid); empty if none. */
   refToken: string;
+  /**
+   * The thread-root ref as its opaque key string (uuid or bare mid); empty when
+   * absent (non-reply, or a reply whose root is unknowable). Signed directly
+   * after `refToken` in the dn3 layout. Its presence vs absence is a distinct
+   * payload, so a dn2 envelope can never grow a forged root. (The parse seam
+   * additionally drops roots with an empty/missing `u`, closing the graft where
+   * an empty key string would frame identically to an absent root.)
+   */
+  rootToken: string;
+  /**
+   * The thread-root ref's author ADDRESS; empty when absent. Signed as its OWN
+   * frame directly after `rootToken` because — unlike `ref.addr`, which is
+   * display-only attribution — the root addr is a ROUTING target: it decides who
+   * receives the root DM copy today and whom a subscriber contacts in
+   * thread-subscribe. Left unsigned, a relayed envelope (boost embed, backfill
+   * bundle) could swap it to an attacker's address while still verifying.
+   */
+  rootAddr: string;
   /** Lowercase-hex sha256 of the attached media file; empty if no media. */
   mediaSha256: string;
 };
@@ -74,32 +121,47 @@ export type CanonicalFields = {
 const lengthPrefixed = (part: string): string => `${Buffer.byteLength(part, 'utf8')}:${part}`;
 
 /**
- * Build the canonical byte payload from explicit fields: a fixed-order,
- * per-field LENGTH-PREFIXED, version-prefixed string. Empty strings stand in
- * for absent parts (framed as `0:`) so the field count is constant. Pure and
- * total — no rejected-content class: any field content, NUL bytes included,
- * frames unambiguously.
+ * Build the canonical byte payload from explicit fields under a given LAYOUT: a
+ * fixed-order, per-field LENGTH-PREFIXED, version-prefixed string. Empty strings
+ * stand in for absent parts (framed as `0:`) so the field count is constant.
+ * Pure and total — no rejected-content class: any field content, NUL bytes
+ * included, frames unambiguously.
  *
- *   lp(dn2) lp(type) lp(uuid) lp(addr) lp(ts) lp(text) lp(refToken) lp(mediaSha256)
+ * dn3: lp(dn3) lp(type) lp(uuid) lp(addr) lp(ts) lp(text) lp(refToken) lp(rootToken) lp(rootAddr) lp(mediaSha256)
+ * dn2: lp(dn2) lp(type) lp(uuid) lp(addr) lp(ts) lp(text) lp(refToken)                            lp(mediaSha256)
  *
- * where lp(x) = `${utf8ByteLength(x)}:${x}`, concatenated with no separator.
- * A bare separator-joined format was rejected: `text`/`refToken` are
- * attacker-controlled and may contain the separator byte, making the payload
- * ambiguous across field boundaries (one signature verifying two envelopes).
+ * where lp(x) = `${utf8ByteLength(x)}:${x}`, concatenated with no separator. The
+ * ONE framing implementation is parameterized by layout so dn2 (verify-only
+ * fallback) and dn3 never drift. `rootAddr` is its OWN frame (never concatenated
+ * into rootToken) — separate self-delimiting frames are the whole point of the
+ * length-prefix design; a joined `token+addr` would reintroduce the re-split
+ * ambiguity the framing exists to kill. A bare separator-joined format was
+ * rejected: `text`/`refToken`/`rootToken`/`rootAddr` are attacker-controlled and
+ * may contain the separator byte, making the payload ambiguous across field
+ * boundaries (one signature verifying two envelopes).
  */
-export const canonicalPayload = (fields: CanonicalFields): Buffer => {
+const canonicalPayloadFor = (fields: CanonicalFields, layout: CanonicalLayout): Buffer => {
   const parts = [
-    CANONICAL_PAYLOAD_VERSION,
+    layout.version,
     fields.type,
     fields.uuid,
     fields.addr,
     String(fields.ts),
     fields.text,
     fields.refToken,
+    // The root token + addr frames exist only in dn3. Their presence is what
+    // prevents a dn2 envelope from ever growing a forged root (dn2 has no frame
+    // for either), and signing the addr keeps the root ROUTING target — who
+    // receives the root DM copy — out of a relayer's hands.
+    ...(layout.withRoot ? [fields.rootToken, fields.rootAddr] : []),
     fields.mediaSha256,
   ];
   return Buffer.from(parts.map(lengthPrefixed).join(''), 'utf8');
 };
+
+/** The canonical (dn3) byte payload for the given fields. Pure and total. */
+export const canonicalPayload = (fields: CanonicalFields): Buffer =>
+  canonicalPayloadFor(fields, LAYOUT_DN3);
 
 /**
  * Derive the canonical fields from an envelope + the signer's address. The
@@ -113,6 +175,8 @@ export const fieldsFromEnvelope = (env: Envelope, addr: string): CanonicalFields
   ts: env.ts ?? 0,
   text: env.text ?? '',
   refToken: env.ref ? refKeyOf(env.ref) : '',
+  rootToken: env.root ? refKeyOf(env.root) : '',
+  rootAddr: env.root?.addr ?? '',
   mediaSha256: env.media?.sha256 ?? '',
 });
 
@@ -181,27 +245,57 @@ export type Attestor = {
  * the author addr in its ref, or the caller supplies it). Returns false for any
  * missing/short/invalid signature or pubkey — never throws. Pure over its
  * inputs (no key files). This is what the boost-embed rendering ladder calls.
+ *
+ * dn2 FALLBACK (downgrade-safe by construction): we try the current dn3 layout
+ * first; if that fails AND the envelope carries NO `root`, we retry the OLD dn2
+ * layout (version string 'dn2', no root token/addr frames) so signatures minted
+ * before the dn3 bump — deployed outside nodes federate them with us — still
+ * verify. This can never widen forgery because the version string is INSIDE the
+ * signed bytes: a dn3 signature can't be replayed as dn2 or vice versa (the
+ * version frame differs), and a dn2 envelope can never grow a forged `root` —
+ * the dn3 layout signs the root token AND the root addr (the DM-copy ROUTING
+ * target), and the dn2 fallback is gated on root ABSENCE, so adding any root
+ * forces dn3-only verification against bytes the dn2 signer never covered. An
+ * omitted root is thus always valid; a present root is dn3-only.
+ *
+ * MALFORMED-ROOT GATE: a present `root` that is not a well-formed uuid ref
+ * (shared `isWellFormedRootRef` predicate) is rejected outright, BEFORE any
+ * payload work. Signers never emit malformed roots (builders take typed refs;
+ * `parseEnvelope` tolerant-drops junk), so this rejects only GRAFTS. It exists
+ * because parser sanitization can't reach NESTED envelopes (a boost `orig`,
+ * future backfill bundle items) — and the trivial graft `{u:''}`/`{u:'',addr:''}`
+ * frames as rootToken '' + rootAddr '' (`0:0:`), byte-identical to an absent
+ * root, so without this gate a root-less dn3 signature would still verify with
+ * junk `.root` attached to a "verified" envelope.
  */
 export const verify = (env: Envelope, addr: string): boolean => {
   if (!env.sig || !env.pubkey || !env.uuid || env.ts === undefined) return false;
+  if (env.root !== undefined && !isWellFormedRootRef(env.root)) return false;
   let publicKey: KeyObject;
   try {
     publicKey = publicKeyFromBase64(env.pubkey);
   } catch {
     return false;
   }
-  const payload = canonicalPayload(fieldsFromEnvelope(env, addr));
   let sig: Buffer;
   try {
     sig = Buffer.from(env.sig, 'base64');
   } catch {
     return false;
   }
-  try {
-    return edVerify(null, payload, publicKey, sig);
-  } catch {
-    return false;
-  }
+  const fields = fieldsFromEnvelope(env, addr);
+  const verifyUnder = (layout: CanonicalLayout): boolean => {
+    try {
+      return edVerify(null, canonicalPayloadFor(fields, layout), publicKey, sig);
+    } catch {
+      return false;
+    }
+  };
+  if (verifyUnder(LAYOUT_DN3)) return true;
+  // Fallback ONLY for root-less envelopes: a dn2 signer could not have covered a
+  // root, so any envelope carrying `root` is dn3-only (no forged-root downgrade).
+  if (env.root === undefined && verifyUnder(LAYOUT_DN2)) return true;
+  return false;
 };
 
 /**

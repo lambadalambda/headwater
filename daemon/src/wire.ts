@@ -40,6 +40,13 @@ export type ParsedWire = {
   uuid?: string;
   /** The reply parent ref, if this is a reply. */
   reply?: MsgRef;
+  /**
+   * The thread-root ref surfaced from a v2 reply envelope's signed `root`
+   * (design: wire-thread-root-ref). Normalized like `reply`. Present only on a
+   * v2 reply that carried one; legacy markers never produce it. Lets thread
+   * resolution / future backfill name the thread + owner from a single message.
+   */
+  root?: MsgRef;
   /** The boosted post ref, if this is a boost. */
   boost?: MsgRef;
   /** Federated attachment alt text (v2 only), if present. */
@@ -68,6 +75,7 @@ const wireFromEnvelope = (env: Envelope): ParsedWire => {
       body: env.text ?? '',
       ...(env.uuid !== undefined ? { uuid: env.uuid } : {}),
       ...(env.ref ? { reply: msgRefFromEnvelope(env.ref) } : {}),
+      ...(env.root ? { root: msgRefFromEnvelope(env.root) } : {}),
       ...(env.media?.description != null ? { mediaDescription: env.media.description } : {}),
     };
   }

@@ -44,6 +44,27 @@ describe('parseWire: v2 envelopes', () => {
     expect(p.body).toBe('re');
     expect(p.reply?.keyString).toBe(PARENT_UUID);
     expect(p.reply?.addr).toBe(ADDR);
+    expect(p.root).toBeUndefined();
+  });
+
+  it('surfaces a v2 reply thread-root ref (normalized like reply)', () => {
+    const ROOT_UUID = 'cccccccc-dddd-4eee-8fff-000000000000';
+    const ROOT_ADDR = 'alice@nine.testrun.org';
+    const p = parseWire(
+      buildReplyEnvelope('deep', UUID, { u: PARENT_UUID, addr: ADDR }, undefined, {
+        u: ROOT_UUID,
+        addr: ROOT_ADDR,
+      }),
+    );
+    expect(p.reply?.keyString).toBe(PARENT_UUID);
+    expect(p.root?.keyString).toBe(ROOT_UUID);
+    expect(p.root?.addr).toBe(ROOT_ADDR);
+  });
+
+  it('never surfaces root from a legacy reply marker', () => {
+    const ref = refFromToken({ kind: 'uuid', uuid: PARENT_UUID }, ADDR);
+    const p = parseWire(buildReplyText('legacy re', ref, UUID));
+    expect(p.root).toBeUndefined();
   });
 
   it('parses a v2 boost to empty body + boost ref (no embedded content)', () => {
