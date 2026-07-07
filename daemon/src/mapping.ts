@@ -12,6 +12,7 @@ import {
   contactToAccount,
   messageToStatus,
   type BoostEmbed,
+  type MastodonAccount,
   type MastodonStatus,
   type StatusResolver,
 } from './mastodon/entities.js';
@@ -146,6 +147,15 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
     // hashes the boost's attached media + reads store pins) and handed to the
     // synchronous render.
     const boostEmbed = await boostEmbedFor(transport, msg);
+    // Attribution for a verified embed: resolve the ORIGINAL author's real DC
+    // contact (the recipient may have met the author even when they don't hold
+    // the post) and enrich the account, exactly like the notification path
+    // below. Resolved FRESH here rather than in `embedCache` on purpose: the
+    // cache holds only the verification VERDICT (a `?`-shell rendered because
+    // no contact existed yet must never be pinned forever — the contact can
+    // appear later). Contact-first, addr-shell fallback.
+    const embedAccount =
+      boostEmbed?.kind === 'verified' ? await resolveEmbedAccount(transport, boostEmbed.addr) : undefined;
     return messageToStatus(
       msg,
       baseUrl,
@@ -153,7 +163,23 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
       resolver,
       (msgId) => resolvedById.get(msgId) ?? null,
       boostEmbed,
+      embedAccount,
     );
+  };
+
+  /**
+   * Resolve a verified embed's author `addr` to a real contact-backed account
+   * (`contactToAccount`) when we hold a DC contact for them, else `undefined`
+   * so the render falls back to the addr shell. Mirrors `mapNotification`'s
+   * contact-first/shell-fallback pattern (below).
+   */
+  const resolveEmbedAccount = async (
+    transport: Transport,
+    addr: string,
+  ): Promise<MastodonAccount | undefined> => {
+    const contactId = await transport.contactIdByAddr(addr).catch(() => null);
+    const contact = contactId !== null ? await transport.contact(contactId) : null;
+    return contact ? contactToAccount(contact, baseUrl) : undefined;
   };
 
   return { resolver, ownAddr, toStatus };

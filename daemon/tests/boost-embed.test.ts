@@ -69,7 +69,23 @@ const fakeTransport = (self = CAROL): Transport =>
     self: async () => ({ address: self, id: 1, displayName: 'carol' }) as any,
     message: async () => null,
     blobPath: async (msgId: number) => blobs.get(msgId) ?? null,
+    contactIdByAddr: async () => null,
     contact: async () => null,
+  }) as unknown as Transport;
+
+/**
+ * A fake transport that DOES hold a DC contact row for the embed author
+ * (`addr`): `contactIdByAddr` resolves it and `contact` returns the real
+ * profile, modelling "the recipient has met the author" (issue: verified embed
+ * should attribute via the real contact, not the addr shell).
+ */
+const fakeTransportWithContact = (addr: string, contact: T.Contact, self = CAROL): Transport =>
+  ({
+    self: async () => ({ address: self, id: 1, displayName: 'carol' }) as any,
+    message: async () => null,
+    blobPath: async (msgId: number) => blobs.get(msgId) ?? null,
+    contactIdByAddr: async (a: string) => (a === addr ? contact.id : null),
+    contact: async (id: number) => (id === contact.id ? contact : null),
   }) as unknown as Transport;
 
 const blobs = new Map<number, string>();
@@ -93,6 +109,36 @@ describe('boost embed rendering ladder', () => {
     expect((status.pleroma as any).deltanet).toBeUndefined();
     // created_at from the author-declared orig.ts.
     expect(status.reblog!.created_at).toBe(new Date(orig.ts!).toISOString());
+  });
+
+  it('verified embed with a KNOWN contact: attributes via the real contact (name/avatar/id), nested identity unchanged', async () => {
+    const orig = alicePost('hello from alice');
+    const msg = boostMsg(orig, { id: 60 });
+    // The recipient (carol) holds a real DC contact row for the author (alice):
+    // she has met her before, so name/avatar should come from that contact.
+    const aliceContact = makeContact({
+      id: 77,
+      address: ALICE,
+      displayName: 'Alice Sparkle',
+      status: 'author bio',
+    });
+    const mapper = createStatusMapper(store, BASE);
+    const status = await mapper.toStatus(fakeTransportWithContact(ALICE, aliceContact), msg);
+
+    expect(status.reblog).not.toBeNull();
+    expect(status.reblog!.content).toBe('<p>hello from alice</p>');
+    // Account object enriches from the real contact: display name, contact id,
+    // and the contact-keyed avatar route (NOT the id-`0` `?`-avatar shell).
+    expect(status.reblog!.account.id).toBe('77');
+    expect(status.reblog!.account.display_name).toBe('Alice Sparkle');
+    expect(status.reblog!.account.avatar).toContain('/deltanet/avatar/77');
+    expect(status.reblog!.account.acct).toBe(ALICE);
+    // Nested status identity is UNCHANGED: orig-<uuid> id, orig.ts created_at,
+    // zero counts (we still don't hold the post, only the author's profile).
+    expect(status.reblog!.id).toBe(`orig-${ORIG_UUID}`);
+    expect(status.reblog!.created_at).toBe(new Date(orig.ts!).toISOString());
+    expect(status.reblog!.replies_count).toBe(0);
+    expect(status.reblog!.reblogs_count).toBe(0);
   });
 
   it('verified embed with media: attaches the boost message file, alt text from orig', async () => {

@@ -272,8 +272,14 @@ export type BoostEmbed =
 
 /**
  * Render a VERIFIED embedded original as a real Mastodon status attributed to
- * its author's address (addr-based account shell — the `addrToAccount`
- * precedent, extended to carry the envelope's display name if it declared one).
+ * its author. Attribution: the async mapping layer resolves the author's real
+ * DC contact first (the recipient may have MET the author — a boost of carol by
+ * bob still lets you use carol's contact profile if you hold one) and passes it
+ * as `account`; only when no contact resolves do we fall back to the addr-based
+ * account shell (`addrToAccount`, id `0`, `?`-avatar). This function stays pure
+ * and transport-unaware — it merely uses the pre-resolved `account` override if
+ * given. The nested status IDENTITY never changes (see below); only the
+ * `account` object enriches — we still don't hold the post, only the profile.
  *
  * Identity: no local msgId exists for content the recipient never received
  * directly, and 0002 forbids a synthetic-but-attributable id that could be
@@ -292,6 +298,13 @@ export const verifiedEmbedToStatus = (
   addr: string,
   baseUrl: string,
   boostMsg: T.Message,
+  /**
+   * Pre-resolved author account (the recipient's real DC contact, via
+   * `contactToAccount`). Supplied by the async mapping layer when it holds a
+   * contact for `addr`; absent → we fall back to the addr shell. Only this
+   * object enriches; the status identity below is unaffected.
+   */
+  account?: MastodonAccount,
 ): MastodonStatus => {
   const id = `orig-${orig.uuid ?? 'unknown'}`;
   const createdAt = new Date(orig.ts ?? 0).toISOString();
@@ -301,7 +314,7 @@ export const verifiedEmbedToStatus = (
     url: `${baseUrl}/deltanet/orig/${orig.uuid ?? ''}`,
     content: textToHtml(orig.text ?? ''),
     created_at: createdAt,
-    account: addrToAccount(addr, baseUrl),
+    account: account ?? addrToAccount(addr, baseUrl),
     in_reply_to_id: null,
     in_reply_to_account_id: null,
     favourites_count: 0,
@@ -398,6 +411,14 @@ export const messageToStatus = (
    * plain `'boost'` placeholder apply, exactly as before attestations.
    */
   boostEmbed?: BoostEmbed,
+  /**
+   * Pre-resolved author account for a VERIFIED embed (the recipient's real DC
+   * contact, if held). Kept SEPARATE from `boostEmbed` on purpose: `boostEmbed`
+   * is the memoized verification VERDICT, whereas contact resolution must stay
+   * as fresh as any other contact render (a contact can appear after we first
+   * verified). Absent → the addr shell inside `verifiedEmbedToStatus`.
+   */
+  embedAccount?: MastodonAccount,
 ): MastodonStatus => {
   const parsed = parseWire(msg.text);
   // `parsed.body` is the human text with all protocol structure removed (v2:
@@ -446,8 +467,9 @@ export const messageToStatus = (
       // (a) own local copy.
       reblog = messageToStatus(boostedMsg, baseUrl, null, resolver, resolveMessage);
     } else if (boostEmbed?.kind === 'verified') {
-      // (b) verified embedded original.
-      reblog = verifiedEmbedToStatus(boostEmbed.orig, boostEmbed.addr, baseUrl, msg);
+      // (b) verified embedded original — attributed via the recipient's real
+      // contact (`embedAccount`) when held, else the addr shell.
+      reblog = verifiedEmbedToStatus(boostEmbed.orig, boostEmbed.addr, baseUrl, msg, embedAccount);
     } else {
       // (c) placeholder — distinguish a failed-verification embed from an
       // absent/legacy one so the UI can flag tampering.
