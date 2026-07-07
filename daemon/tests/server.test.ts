@@ -2255,3 +2255,83 @@ describe('thread channels are excluded from following()/home timeline', () => {
     expect(home.some((s) => s.content.includes('republished thread reply'))).toBe(false);
   });
 });
+
+describe('embed-only interactions (orig-<uuid> action targets)', () => {
+  const HELD_UUID = 'dddddddd-1111-4222-8333-444444444444';
+  const AUTHOR = 'stranger@relay.example';
+
+  const setupHeld = async (opts: { invite?: string; tamper?: boolean } = {}) => {
+    const h = makeFakeTransport();
+    const store = createStore(ephemeralStorePath());
+    const { buildPostObject } = await import('../src/envelope.js');
+    const { openAttestor } = await import('../src/attest.js');
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const attestor = openAttestor(join(mkdtempSync(join(tmpdir(), 'held-key-')), 'k.json'));
+    const env = {
+      ...buildPostObject('a stranger post', HELD_UUID),
+      ...(opts.invite ? { invite: opts.invite } : {}),
+    };
+    const signed = { ...env, ...attestor.sign(env, AUTHOR) };
+    const stored = opts.tamper ? { ...signed, text: 'tampered' } : signed;
+    store.addHeldEnvelope(stored, BOB.address, 11, AUTHOR, 1);
+    const app = createApp(makeConfiguredCtx(h.transport), { baseUrl: BASE, store });
+    return { ...h, store, app };
+  };
+  const flush = () => new Promise((r) => setTimeout(r, 20));
+
+  it('favourite on a held post: local uuid tally + introduced author DM', async () => {
+    const h = await setupHeld({ invite: 'OPENPGP4FPR:STRANGER-INVITE' });
+    const res = await h.app.request(`/api/v1/statuses/orig-${HELD_UUID}/favourite`, { method: 'POST' });
+    expect(res.status).toBe(200);
+    const status = (await res.json()) as any;
+    expect(status.favourited).toBe(true);
+    expect(status.favourites_count).toBe(1);
+    await flush();
+    expect(h.introductions).toEqual([{ invite: 'OPENPGP4FPR:STRANGER-INVITE', expectedAddr: AUTHOR }]);
+    const dm = h.dms.find((d) => JSON.parse(d.text).type === 'react');
+    expect(dm, 'react control DM delivered to the introduced author').toBeDefined();
+    expect(JSON.parse(dm!.text).ref).toEqual({ u: HELD_UUID, addr: AUTHOR });
+  });
+
+  it('reply to a held post: uuid ref + root + author DM copy', async () => {
+    const h = await setupHeld({ invite: 'OPENPGP4FPR:STRANGER-INVITE' });
+    const res = await h.app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'replying to a stranger', in_reply_to_id: `orig-${HELD_UUID}` }),
+    });
+    expect(res.status).toBe(200);
+    const env = JSON.parse(h.posts.at(-1)!.text);
+    expect(env.type).toBe('reply');
+    expect(env.ref).toEqual({ u: HELD_UUID, addr: AUTHOR });
+    // The held parent is a non-reply post -> it IS the thread root.
+    expect(env.root).toEqual({ u: HELD_UUID, addr: AUTHOR });
+    await flush();
+    expect(h.introductions).toHaveLength(1);
+    expect(h.dms.some((d) => d.text === h.posts.at(-1)!.text), 'byte-identical DM copy to the author').toBe(true);
+  });
+
+  it('reblog of a held post re-embeds the SAME signed envelope verbatim; unreblog retracts', async () => {
+    const h = await setupHeld();
+    const res = await h.app.request(`/api/v1/statuses/orig-${HELD_UUID}/reblog`, { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).reblogged).toBe(true);
+    const boost = JSON.parse(h.posts.at(-1)!.text);
+    expect(boost.type).toBe('boost');
+    expect(boost.orig).toEqual(h.store.heldEnvelope(HELD_UUID)!.env); // verbatim
+    const unres = await h.app.request(`/api/v1/statuses/orig-${HELD_UUID}/unreblog`, { method: 'POST' });
+    expect(unres.status).toBe(200);
+    expect(((await unres.json()) as any).reblogged).toBe(false);
+  });
+
+  it('never acts on an unverifiable held envelope (404, nothing sent)', async () => {
+    const h = await setupHeld({ tamper: true, invite: 'OPENPGP4FPR:X' });
+    const res = await h.app.request(`/api/v1/statuses/orig-${HELD_UUID}/favourite`, { method: 'POST' });
+    expect(res.status).toBe(404);
+    await flush();
+    expect(h.introductions).toEqual([]);
+    expect(h.dms).toEqual([]);
+  });
+});

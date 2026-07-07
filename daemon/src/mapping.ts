@@ -180,7 +180,7 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
     // appear later). Contact-first, addr-shell fallback.
     const embedAccount =
       boostEmbed?.kind === 'verified' ? await resolveEmbedAccount(transport, boostEmbed.addr) : undefined;
-    return messageToStatus(
+    const mapped = messageToStatus(
       msg,
       baseUrl,
       description,
@@ -189,6 +189,12 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
       boostEmbed,
       embedAccount,
     );
+    // A verified embed's nested orig-<uuid> reblog: overlay uuid-keyed tallies
+    // (embed-only interactions) so favourites/reactions on it render everywhere.
+    if (boostEmbed?.kind === 'verified' && mapped.reblog && String(mapped.reblog.id).startsWith('orig-')) {
+      mapped.reblog = withUuidTallies(mapped.reblog as MastodonStatus, String(mapped.reblog.id).slice('orig-'.length));
+    }
+    return mapped;
   };
 
   /**
@@ -204,6 +210,29 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
     const contactId = await transport.contactIdByAddr(addr).catch(() => null);
     const contact = contactId !== null ? await transport.contact(contactId) : null;
     return contact ? contactToAccount(contact, baseUrl) : undefined;
+  };
+
+  /**
+   * Overlay reaction tallies onto an orig-<uuid> status (held envelope /
+   * verified embed): these posts have no local msgId for messageToStatus's
+   * tally path, but embed-only interactions tally reactions under the uuid
+   * post key — read the store by uuid so favourites/reactions on them render.
+   */
+  const withUuidTallies = (status: MastodonStatus, uuid: string): MastodonStatus => {
+    const tallies = store.reactionTallies(uuid);
+    const own = ownAddrCache;
+    const fav = tallies.find((t) => t.emoji === '\u2764');
+    return {
+      ...status,
+      favourites_count: fav?.count ?? 0,
+      favourited: own !== null && (fav?.reactors.includes(own) ?? false),
+      pleroma: {
+        ...(status as { pleroma?: Record<string, unknown> }).pleroma,
+        emoji_reactions: tallies
+          .filter((t) => t.emoji !== '\u2764')
+          .map((t) => ({ name: t.emoji, count: t.count, me: own !== null && t.reactors.includes(own) })),
+      },
+    } as MastodonStatus;
   };
 
   const heldStatus = async (
@@ -223,7 +252,10 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
     // though they never held the post), addr-shell fallback — same as the embed.
     const account = await resolveEmbedAccount(transport, held.authorAddr);
     const threadSubscribed = store.isSubscribedToThread(uuid);
-    return heldEnvelopeToStatus(held.env, held.authorAddr, baseUrl, inReplyToId, account, threadSubscribed);
+    return withUuidTallies(
+      heldEnvelopeToStatus(held.env, held.authorAddr, baseUrl, inReplyToId, account, threadSubscribed),
+      uuid,
+    );
   };
 
   return { resolver, ownAddr, toStatus, heldStatus };

@@ -311,6 +311,37 @@ export const createApp = (
    *      nested reblog (its own id is `orig-<uuid>`).
    *   3. No verifiable candidate → `null` (the caller 404s; never 500).
    */
+  /**
+   * Resolve an orig-<uuid> id to an ACTIONABLE target — the VERIFIED signed
+   * envelope + its author addr — for embed-only interactions (favourite/
+   * reaction/reply/boost on a post we never held as a local message). Sources,
+   * in order: a held envelope (render-verified via the mapper, which also
+   * drops tampered entries), else a held boost whose verified embed carries
+   * the uuid. Unverified/absent -> null: interactions never act on content we
+   * could not verify (0002).
+   */
+  const resolveOrigAction = async (
+    transport: Transport,
+    uuid: string,
+  ): Promise<{ env: Envelope; authorAddr: string } | null> => {
+    const held = store.heldEnvelope(uuid);
+    if (held) {
+      const status = await mapper.heldStatus(transport, uuid, null);
+      return status ? { env: held.env, authorAddr: held.authorAddr } : null;
+    }
+    const embedId = `orig-${uuid}`;
+    for (const boostMsgId of store.boostsByMid(uuid)) {
+      const boostMsg = await transport.message(boostMsgId);
+      if (!boostMsg) continue;
+      const status = await toStatus(transport, boostMsg);
+      if (!status.reblog || status.reblog.id !== embedId) continue; // verified gate
+      const bEnv = parseEnvelope(boostMsg.text);
+      const addr = bEnv?.ref ? envelopeRefAddr(bEnv.ref) : undefined;
+      if (bEnv?.orig && addr) return { env: bEnv.orig, authorAddr: addr };
+    }
+    return null;
+  };
+
   const resolveOrigStatus = async (
     transport: Transport,
     uuid: string,
@@ -898,6 +929,51 @@ export const createApp = (
 
     const inReplyToId = body['in_reply_to_id'] != null ? String(body['in_reply_to_id']) : undefined;
     if (inReplyToId) {
+      const parsedParent = parseStatusId(inReplyToId);
+      if (parsedParent?.kind === 'orig') {
+        // Embed-only interaction: reply to a VERIFIED post we hold only as a
+        // held envelope / boost embed. The uuid ref threads on any node holding
+        // any copy; the parent DM copy goes to the AUTHOR (introduced in-band
+        // when never met) in the background; the root rides signed as usual
+        // (the held parent's own root, or the parent itself when it is one).
+        const orig = await resolveOrigAction(transport, parsedParent.uuid);
+        if (!orig) return c.json({ error: 'Record not found' }, 404);
+        const envRef: EnvelopeRef = { u: parsedParent.uuid, addr: orig.authorAddr };
+        const root =
+          orig.env.root ??
+          (orig.env.type !== 'reply' ? { u: parsedParent.uuid, addr: orig.authorAddr } : undefined);
+        const uuid = mintUuid();
+        const mediaFields = media
+          ? { description: media.description, sha256: await sha256File(media.path) }
+          : undefined;
+        const replyText = signEnvelope(
+          buildReplyObject(text, uuid, envRef, mediaFields, root),
+          await mapper.ownAddr(transport),
+          await ownContactInvite(transport),
+        );
+        const msg = await transport.post(replyText, media ? { file: media.path } : undefined);
+        if (media) mediaStore.tagMessage(msg.id, media.description);
+        await ingest(transport, msg);
+        // Parent-author DM copy + root copy, both key-contact-first with
+        // in-band introduction, background + best-effort.
+        const myAddr = (await mapper.ownAddr(transport)).toLowerCase();
+        void (async () => {
+          const parentId = await keyContactOrIntroduce(transport, orig.authorAddr, orig.env.invite ?? null);
+          if (parentId !== null && parentId !== DC_CONTACT_ID_SELF) {
+            await transport.sendControlDm(parentId, replyText);
+          }
+          const rootAddr = root ? envelopeRefAddr(root) : undefined;
+          if (rootAddr && rootAddr.toLowerCase() !== orig.authorAddr.toLowerCase() && rootAddr.toLowerCase() !== myAddr) {
+            const rootUuid = root && 'u' in root ? root.u : null;
+            const invite = rootUuid ? await rootPostInvite(transport, rootUuid) : null;
+            const rootId = await keyContactOrIntroduce(transport, rootAddr, invite);
+            if (rootId !== null && rootId !== DC_CONTACT_ID_SELF) {
+              await transport.sendControlDm(rootId, replyText);
+            }
+          }
+        })().catch((err) => console.error('orig reply copies failed (non-fatal):', err));
+        return c.json(await toStatus(transport, msg, media?.description ?? null));
+      }
       const target = await transport.message(Number(inReplyToId));
       if (!target) return c.json({ error: 'Record not found' }, 404);
       // The reply target's ref TOKEN: its logical-post uuid if it carries one,
@@ -1028,9 +1104,33 @@ export const createApp = (
 
   app.post('/api/v1/statuses/:id/reblog', requireTransport, async (c) => {
     const transport = c.get('transport');
-    // Actions need a LOCAL message to act on; a non-numeric id (e.g. `orig-*`,
-    // which has no local action target) is a clean 404, never a 500.
     const parsed = parseStatusId(c.req.param('id'));
+    if (parsed?.kind === 'orig') {
+      // Embed-only interaction: boost a VERIFIED post we hold only as a held
+      // envelope / boost embed. We re-embed the SAME author-signed envelope
+      // VERBATIM — attestations make second-hand boosts sound (no trust chain
+      // needed). Declared media we cannot re-attach (media is not bundled) ->
+      // ref-only, the same rule as an unattestable local target.
+      const orig = await resolveOrigAction(transport, parsed.uuid);
+      if (!orig) return c.json({ error: 'Record not found' }, 404);
+      const envRef: EnvelopeRef = { u: parsed.uuid, addr: orig.authorAddr };
+      const embed = orig.env.media?.sha256 ? undefined : orig.env;
+      const boostText = signEnvelope(
+        buildBoostObject(mintUuid(), envRef, embed),
+        await mapper.ownAddr(transport),
+        await ownContactInvite(transport),
+      );
+      const msg = await transport.post(boostText);
+      await ingest(transport, msg);
+      const status = await resolveOrigStatus(transport, parsed.uuid);
+      if (!status) return c.json({ error: 'Record not found' }, 404);
+      return c.json({
+        id: String(msg.id),
+        reblog: status,
+        reblogged: true,
+        content: '',
+      });
+    }
     const target = parsed?.kind === 'msg' ? await transport.message(parsed.msgId) : null;
     if (!target) return c.json({ error: 'Record not found' }, 404);
     // Target the boosted post's uuid ref (or canonical/mid) so the boost
@@ -1085,6 +1185,17 @@ export const createApp = (
   app.post('/api/v1/statuses/:id/unreblog', requireTransport, async (c) => {
     const transport = c.get('transport');
     const parsed = parseStatusId(c.req.param('id'));
+    if (parsed?.kind === 'orig') {
+      // Embed-only unboost: our own boost of the uuid post key, deleted for
+      // all recipients (same as the numeric path).
+      const ownBoostMsgId = store.ownBoostMsgId(parsed.uuid);
+      if (ownBoostMsgId !== null) {
+        await transport.deleteMessage(ownBoostMsgId);
+      }
+      const status = await resolveOrigStatus(transport, parsed.uuid);
+      if (!status) return c.json({ error: 'Record not found' }, 404);
+      return c.json({ ...status, reblogged: false });
+    }
     const target = parsed?.kind === 'msg' ? await transport.message(parsed.msgId) : null;
     if (!target) return c.json({ error: 'Record not found' }, 404);
     // Look up our own boost of this target under its POST KEY (uuid ref or
@@ -1118,6 +1229,28 @@ export const createApp = (
   ) => {
     const transport = c.get('transport');
     const parsed = parseStatusId(c.req.param('id'));
+    if (parsed?.kind === 'orig') {
+      // Embed-only interaction: react to a VERIFIED post we hold only as a
+      // held envelope / boost embed. Tally locally under the uuid post key;
+      // deliver the control DM to the AUTHOR (tallies are authoritative
+      // author-side) in the BACKGROUND, introducing in-band via the envelope's
+      // own invite when we never met them — the response never waits on a
+      // securejoin.
+      const orig = await resolveOrigAction(transport, parsed.uuid);
+      if (!orig) return c.json({ error: 'Record not found' }, 404);
+      const myAddr = await mapper.ownAddr(transport);
+      if (action === 'react') store.applyReaction(parsed.uuid, myAddr, emoji);
+      else store.retractReaction(parsed.uuid, myAddr, emoji);
+      const envRef: EnvelopeRef = { u: parsed.uuid, addr: orig.authorAddr };
+      const text =
+        action === 'react' ? buildReactEnvelope(emoji, envRef) : buildUnreactEnvelope(emoji, envRef);
+      void (async () => {
+        const id = await keyContactOrIntroduce(transport, orig.authorAddr, orig.env.invite ?? null);
+        if (id !== null && id !== DC_CONTACT_ID_SELF) await transport.sendControlDm(id, text);
+      })().catch((err) => console.error('orig reaction DM failed (non-fatal):', err));
+      const status = await resolveOrigStatus(transport, parsed.uuid);
+      return status ? c.json(status) : c.json({ error: 'Record not found' }, 404);
+    }
     const target = parsed?.kind === 'msg' ? await transport.message(parsed.msgId) : null;
     if (!target) return c.json({ error: 'Record not found' }, 404);
     // Target the post's uuid ref (or canonical/mid) so a third party who only

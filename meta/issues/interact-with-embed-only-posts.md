@@ -44,3 +44,29 @@ meaningfully react to it.
 - No synthesized statuses anywhere in the flow (0002).
 - Unit + integration coverage (A/B/C topology extended with C
   interacting with A's post through B's boost).
+
+## Current Status
+
+DONE (2026-07-07, main-loop implementation — delegation suspended).
+Favourite, emoji reactions, reply, boost, and unboost now work on
+`orig-<uuid>` statuses (held envelopes + verified boost embeds):
+
+- `resolveOrigAction` yields the VERIFIED signed envelope + author addr
+  (held first, else a verified boost embed); unverifiable → 404, nothing
+  ever sent (0002).
+- Reactions tally locally under the uuid post key and render on all
+  orig-status paths (mapping overlay); the control DM goes to the author
+  (authoritative tallies) in the background, introduced in-band via the
+  envelope's own invite when never met.
+- Replies use the uuid ref, inherit the held parent's signed root (or
+  the parent IS the root), and DM-copy the author + root author with the
+  same introduce-on-need, background and best-effort.
+- Boosts re-embed the SAME author-signed envelope verbatim (second-hand
+  boosts are sound under attestations); declared-media posts boost
+  ref-only (media is not bundled — same rule as unattestable targets).
+
+Tests: 1047 unit (4 new incl. the tamper-refusal case). No dedicated
+integration test (budget call): the introduce-and-DM path is
+integration-proven by in-band-introduction.test.ts, and the full arc was
+live-verified — lain favourited a post held only as a backfilled
+envelope; the author's node tallied it and raised the notification.

@@ -32,3 +32,4 @@
 - [x] [Attachment posts sometimes render/ingest as naked JSON](issues/attachment-transient-text.md)
 - [x] [Context ancestors stop at the uuid→mid era boundary](issues/mixed-era-ancestor-climb.md)
 - [x] [In-band introduction: content carries the author's contact invite](issues/in-band-introduction.md)
+- [x] [Interactions with embed-only posts (favourite/reply/boost via uuid refs)](issues/interact-with-embed-only-posts.md)

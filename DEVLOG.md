@@ -1,5 +1,17 @@
 # deltanet devlog
 
+## 2026-07-07 — embed-only interactions: act on posts you never received
+
+Issue `meta/issues/interact-with-embed-only-posts.md`, the last "can't interact
+with someone" gap. orig-<uuid> statuses (held envelopes, verified boost embeds)
+are now actionable: favourite/reactions tally under the uuid post key locally
+and DM the author (authoritative side) with introduce-on-need in the background;
+replies thread by uuid ref and inherit the signed root; boosts re-embed the
+author-signed envelope VERBATIM — attestations make second-hand boosts sound
+with no trust chain. All actions gate on VERIFICATION (tampered/unverifiable →
+404, nothing sent). Live-verified across nodes: a favourite on a backfilled
+held envelope reached the author as a real tallied favourite + notification.
+
 ## 2026-07-07 — in-band introduction: content carries the author's contact invite
 
 Issue `meta/issues/in-band-introduction.md`. Closes the substrate's last
