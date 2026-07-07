@@ -349,6 +349,73 @@ export const verifiedEmbedToStatus = (
 };
 
 /**
+ * Render a HELD foreign envelope (thread auto-backfill) as a thread-participating
+ * Mastodon status. Unlike `verifiedEmbedToStatus` (a boost's nested reblog, which
+ * is a leaf with no reply linkage), a held reply MUST carry `in_reply_to_id` so
+ * the thread view links it to its parent — that linkage is the whole point of
+ * backfill (carol sees alice's held posts as REAL threaded statuses). Identity is
+ * the same synthetic-free `orig-<uuid>` (non-actionable — interactions are a
+ * separate issue), created_at from the author-declared `orig.ts`.
+ *
+ * `inReplyToId` is the caller-resolved status id of this envelope's reply parent
+ * (a local numeric msgId string, or another `orig-<uuid>`), or null. Media is NOT
+ * bundled (see the issue): a held post renders with its alt text and NO
+ * attachment — the signed `media.sha256` stays in the envelope for a later
+ * verified fetch. Attribution: the pre-resolved contact `account` (contact-first)
+ * when held, else the addr shell — identical to the verified-embed ladder. Pure.
+ */
+export const heldEnvelopeToStatus = (
+  env: Envelope,
+  authorAddr: string,
+  baseUrl: string,
+  inReplyToId: string | null,
+  account?: MastodonAccount,
+): MastodonStatus => {
+  const parsed = parseWire(env.text ?? '');
+  const bodyText = env.type === 'boost' ? '' : (env.text ?? parsed.body);
+  return {
+    id: `orig-${env.uuid ?? 'unknown'}`,
+    uri: `${baseUrl}/deltanet/orig/${env.uuid ?? ''}`,
+    url: `${baseUrl}/deltanet/orig/${env.uuid ?? ''}`,
+    content: textToHtml(bodyText),
+    created_at: new Date(env.ts ?? 0).toISOString(),
+    account: account ?? addrToAccount(authorAddr, baseUrl),
+    in_reply_to_id: inReplyToId,
+    in_reply_to_account_id: null,
+    favourites_count: 0,
+    reblogs_count: 0,
+    replies_count: 0,
+    favourited: false,
+    reblogged: false,
+    bookmarked: false,
+    muted: false,
+    pinned: false,
+    // Media not bundled: alt text is preserved (federated `media.description`),
+    // but no attachment is rendered until a later per-item verified fetch.
+    media_attachments: [],
+    sensitive: false,
+    spoiler_text: '',
+    visibility: 'public' as const,
+    language: null,
+    reblog: null,
+    application: { name: 'deltanet' },
+    emojis: [],
+    mentions: [],
+    tags: [],
+    card: null,
+    poll: null,
+    pleroma: {
+      local: false,
+      conversation_id: null,
+      emoji_reactions: [],
+      quote: null,
+      quote_id: null,
+      quote_visible: false,
+    },
+  };
+};
+
+/**
  * What `messageToStatus` needs to resolve deltanet wire-convention markers
  * into real Mastodon links/counts. Built in server.ts from the per-account
  * `Store`; defaults to no-op so old call sites (and tests that don't care
@@ -366,6 +433,14 @@ export type StatusResolver = {
   reactionTallies?(mid: string): { emoji: string; count: number; reactors: string[] }[];
   /** Our own account's address, to compute `favourited`/`me` flags; default null (never "me"). */
   ownAddr?(): string | null;
+  /**
+   * Thread auto-backfill: if a reply's parent post key resolves to a HELD
+   * envelope (not a local message), the `orig-<uuid>` status id it renders under —
+   * so a LOCAL reply to a backfilled parent still links into the thread via
+   * `in_reply_to_id`. Default null (no held content). Consulted only when the
+   * local `resolveMid` misses.
+   */
+  heldOrigId?(keyString: string): string | null;
 };
 
 export const noopResolver: StatusResolver = {
@@ -376,6 +451,7 @@ export const noopResolver: StatusResolver = {
   midForMsgId: () => null,
   reactionTallies: () => [],
   ownAddr: () => null,
+  heldOrigId: () => null,
 };
 
 const FAVOURITE_EMOJI = '❤';
@@ -435,7 +511,14 @@ export const messageToStatus = (
   // reply intent (it made replies render as replying to unrelated posts). An
   // unresolvable ref yields null, consistently with an empty context.
   const replyToMsgId = parsed.reply ? resolver.resolveMid(parsed.reply.keyString) : null;
-  const inReplyToId = replyToMsgId !== null ? String(replyToMsgId) : null;
+  // A local reply parent wins; else a HELD (backfilled) parent's `orig-<uuid>` id
+  // so the reply still threads into a backfilled ancestor. Null when neither.
+  const inReplyToId =
+    replyToMsgId !== null
+      ? String(replyToMsgId)
+      : parsed.reply
+        ? (resolver.heldOrigId?.(parsed.reply.keyString) ?? null)
+        : null;
 
   // Parent lookup for `in_reply_to_account_id`/`mentions` (at most one extra
   // `resolveMessage` call per status). Self-replies are *not* excluded: we

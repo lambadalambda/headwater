@@ -10,6 +10,7 @@ import type { T } from '@deltachat/jsonrpc-client';
 import {
   addrToAccount,
   contactToAccount,
+  heldEnvelopeToStatus,
   messageToStatus,
   type BoostEmbed,
   type MastodonAccount,
@@ -18,6 +19,7 @@ import {
 } from './mastodon/entities.js';
 import { parseWire } from './wire.js';
 import { verify, sha256File } from './attest.js';
+import { verifyHeld } from './heldenvelopes.js';
 import type { Envelope } from './envelope.js';
 import type { Notification, Store } from './store.js';
 import type { Transport } from './transport/types.js';
@@ -30,6 +32,22 @@ export type StatusMapper = {
   ownAddr(transport: Transport): Promise<string>;
   /** Map a message to a status, resolving reply/boost markers via the store, embedding boosted messages by re-fetching them from the transport. */
   toStatus(transport: Transport, msg: T.Message, description?: string | null): Promise<MastodonStatus>;
+  /**
+   * Map a HELD foreign envelope (thread auto-backfill) by its uuid to a verified,
+   * thread-participating status (`orig-<uuid>` id), or null if it cannot be
+   * verified at render (bad sig / pin conflict) — in which case the caller renders
+   * nothing AND the held entry is dropped from the store (tampered/stale content
+   * is not kept). `inReplyToId` is the caller-resolved status id of the held
+   * envelope's reply parent, threaded through so the thread view links it. Runs
+   * the EXACT `verify()` + pin-consistency ladder (never reimplemented); media is
+   * not bundled so it renders with alt text only. Verification is per-render (pins
+   * can change), NOT trusted-at-ingest.
+   */
+  heldStatus(
+    transport: Transport,
+    uuid: string,
+    inReplyToId: string | null,
+  ): Promise<MastodonStatus | null>;
 };
 
 /**
@@ -54,6 +72,10 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
     midForMsgId: (msgId) => store.midForMsgId(msgId),
     reactionTallies: (mid) => store.reactionTallies(mid),
     ownAddr: () => ownAddrCache,
+    // Thread auto-backfill: a reply whose parent we hold only as a HELD envelope
+    // (backfilled) links via the parent's `orig-<uuid>` id. Only for uuid keys.
+    heldOrigId: (keyString) =>
+      !keyString.includes('@') && store.heldEnvelope(keyString) ? `orig-${keyString}` : null,
   };
 
   const ownAddr = async (transport: Transport): Promise<string> => {
@@ -182,7 +204,26 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
     return contact ? contactToAccount(contact, baseUrl) : undefined;
   };
 
-  return { resolver, ownAddr, toStatus };
+  const heldStatus = async (
+    transport: Transport,
+    uuid: string,
+    inReplyToId: string | null,
+  ): Promise<MastodonStatus | null> => {
+    const held = store.heldEnvelope(uuid);
+    if (!held) return null;
+    // Verify at RENDER (pins can change): the EXACT `verify()` + pin-consistency
+    // ladder. A hard failure drops the entry — tampered/stale content is not kept.
+    if (!verifyHeld(held.env, held.authorAddr, (addr) => store.pinnedKey(addr))) {
+      store.dropHeldEnvelope(uuid);
+      return null;
+    }
+    // Contact-first attribution (the recipient may have met the author even
+    // though they never held the post), addr-shell fallback — same as the embed.
+    const account = await resolveEmbedAccount(transport, held.authorAddr);
+    return heldEnvelopeToStatus(held.env, held.authorAddr, baseUrl, inReplyToId, account);
+  };
+
+  return { resolver, ownAddr, toStatus, heldStatus };
 };
 
 /** Map a stored `Notification` to the same JSON shape `GET /api/v1/notifications` returns. */

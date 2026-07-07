@@ -178,6 +178,21 @@ export const createApp = (
   const { toStatus } = mapper;
 
   /**
+   * The status id of a held envelope's reply PARENT, for thread linkage
+   * (`in_reply_to_id`): the parent's local numeric msgId if we hold it, else an
+   * `orig-<parentUuid>` id if the parent is itself held, else null. Uuid refs
+   * only (legacy mid refs don't backfill). Pure over the store.
+   */
+  const heldReplyParentId = (env: Envelope): string | null => {
+    const ref = env.ref;
+    if (!ref || !('u' in ref) || !ref.u) return null;
+    const parentUuid = ref.u;
+    const localMsgId = store.resolveKey(parentUuid);
+    if (localMsgId !== null) return String(localMsgId);
+    return store.heldEnvelope(parentUuid) ? `orig-${parentUuid}` : null;
+  };
+
+  /**
    * Ingest a message into the store, tolerating a transport that can't
    * resolve its mid. Every message reaching this helper was loaded via
    * `timeline`/`timelineFrom`/`message` (feed chats or ids resolved from
@@ -242,6 +257,17 @@ export const createApp = (
     if (localMsgId !== null) {
       const msg = await transport.message(localMsgId);
       if (msg) return toStatus(transport, msg, mediaStore.descriptionForMessage(msg.id));
+    }
+    // Held envelope (thread auto-backfill): a verified foreign post/reply we
+    // backfilled from a peer. `heldStatus` runs the same verify+pin ladder and
+    // yields the `orig-<uuid>` status; its reply parent is resolved to a status
+    // id here (a local msgId or another orig-<uuid>) so the thread links. A
+    // tampered/unverifiable held envelope returns null (and self-drops) → fall
+    // through to the boost walk.
+    const held = store.heldEnvelope(uuid);
+    if (held) {
+      const heldStatus = await mapper.heldStatus(transport, uuid, heldReplyParentId(held.env));
+      if (heldStatus) return heldStatus;
     }
     const embedId = `orig-${uuid}`;
     for (const boostMsgId of store.boostsByMid(uuid)) {
@@ -947,43 +973,92 @@ export const createApp = (
       rootKey = store.midForMsgId(target.id);
     }
 
-    // Ancestors: walk the reply-marker chain upward via the store, resolving
-    // each parent by its ref POST KEY (uuid or canonical mid). Empty for an
-    // orig id (no local `target` to start the climb from).
-    const ancestorMsgs: T.Message[] = [];
-    let current: T.Message | null = target;
-    for (let depth = 0; depth < MAX_CONTEXT_ANCESTORS && current; depth++) {
-      const parsedCurrent = parseWire(current.text);
-      if (!parsedCurrent.reply) break;
-      const parentMsgId = store.resolveKey(parsedCurrent.reply.keyString);
-      if (parentMsgId === null) break;
-      const parentMsg = await transport.message(parentMsgId);
-      if (!parentMsg) break;
-      await ingest(transport, parentMsg);
-      ancestorMsgs.unshift(parentMsg);
-      current = parentMsg;
+    // A context entry sortable across BOTH local messages and held envelopes
+    // (thread auto-backfill): the pre-rendered status + a sort timestamp (ms).
+    type Entry = { status: MastodonStatus; sortTs: number };
+
+    // Ancestors: walk the reply chain upward. Each parent is EITHER a locally-held
+    // message OR a HELD foreign envelope (backfilled) — the walk crosses freely
+    // between them, which is how carol's thread of bob's reply surfaces alice's
+    // held posts as real, verified, attributed ancestors. Stops at the first
+    // unresolvable link (neither local nor held) or a non-reply root.
+    const ancestors: MastodonStatus[] = [];
+    // The reply parent uuid of the target we start from (numeric path uses the
+    // message's own parsed reply; orig path starts from the held envelope's ref).
+    let climbUuid: string | null = null;
+    let climbFrom: T.Message | null = target;
+    if (target) {
+      const p = parseWire(target.text);
+      climbUuid = p.reply && p.reply.key.kind === 'uuid' ? p.reply.keyString : null;
+      // A mid-ref parent still uses the legacy local-only climb below.
+      if (!climbUuid && p.reply) {
+        const pid = store.resolveKey(p.reply.keyString);
+        if (pid !== null) climbFrom = await transport.message(pid);
+      }
+    } else if (parsed.kind === 'orig') {
+      const held = store.heldEnvelope(parsed.uuid);
+      const ref = held?.env.ref;
+      climbUuid = ref && 'u' in ref && ref.u ? ref.u : null;
+    }
+    // Unified upward climb by uuid, crossing local<->held. For a legacy mid-only
+    // chain (no uuid), fall back to the original local-message climb.
+    if (climbUuid !== null) {
+      let uuid: string | null = climbUuid;
+      for (let depth = 0; depth < MAX_CONTEXT_ANCESTORS && uuid; depth++) {
+        const localId = store.resolveKey(uuid);
+        if (localId !== null) {
+          const msg = await transport.message(localId);
+          if (!msg) break;
+          await ingest(transport, msg);
+          ancestors.unshift(await toStatus(transport, msg));
+          const p = parseWire(msg.text);
+          uuid = p.reply && p.reply.key.kind === 'uuid' ? p.reply.keyString : null;
+          if (!uuid && p.reply) break; // legacy mid parent above the uuid chain
+          continue;
+        }
+        const held = store.heldEnvelope(uuid);
+        if (!held) break;
+        const status = await mapper.heldStatus(transport, uuid, heldReplyParentId(held.env));
+        if (!status) break; // unverifiable held ancestor: render nothing, stop
+        ancestors.unshift(status);
+        const ref = held.env.ref;
+        uuid = ref && 'u' in ref && ref.u ? ref.u : null;
+      }
+    } else {
+      // Legacy local-only climb (mid-ref chain, no uuid to cross into held).
+      let cur: T.Message | null = climbFrom;
+      // `cur` already points at the first parent for the mid-ref case; for the
+      // uuid-less non-reply case it's the target itself, whose loop below no-ops.
+      if (cur && cur !== target) {
+        for (let depth = 0; depth < MAX_CONTEXT_ANCESTORS && cur; depth++) {
+          await ingest(transport, cur);
+          ancestors.unshift(await toStatus(transport, cur));
+          const p = parseWire(cur.text);
+          if (!p.reply) break;
+          const pid = store.resolveKey(p.reply.keyString);
+          if (pid === null) break;
+          cur = await transport.message(pid);
+        }
+      }
     }
 
-    // Descendants: transitively walk the reply-children index, breadth-first,
-    // capped, then sorted chronologically (oldest first). The index stores each
-    // child's POST KEY; resolve it to a msgId (feed copy preferred, DM copy
-    // otherwise — so a non-follower's DM-only reply still renders), skip
-    // unresolvable children, and recurse on the child's own post key. The BFS
-    // root is the target's OWN post key (its uuid, or its canonical mid), or the
-    // orig uuid post key for an `orig-<uuid>` id.
-    const descendantMsgs: T.Message[] = [];
+    // Descendants: BFS over BOTH the local reply-children index AND the held
+    // reply graph (held envelopes whose `ref` points at the current uuid). A
+    // local child renders via `toStatus`; a held child renders via the verified
+    // `heldStatus` — so carol's thread shows alice's held replies as real
+    // statuses. Capped, deduped, sorted chronologically (oldest first).
+    const descendants: Entry[] = [];
     const queue: string[] = rootKey ? [rootKey] : [];
     const seen = new Set<number>();
-    const seenMids = new Set<string>();
-    while (queue.length > 0 && descendantMsgs.length < MAX_CONTEXT_DESCENDANTS) {
-      const mid = queue.shift()!;
-      for (const childMid of store.replyChildMids(mid)) {
-        if (seenMids.has(childMid) || descendantMsgs.length >= MAX_CONTEXT_DESCENDANTS) continue;
-        seenMids.add(childMid);
+    const seenKeys = new Set<string>();
+    while (queue.length > 0 && descendants.length < MAX_CONTEXT_DESCENDANTS) {
+      const key = queue.shift()!;
+      // Local children (post keys; may be uuid or mid).
+      for (const childMid of store.replyChildMids(key)) {
+        if (seenKeys.has(childMid) || descendants.length >= MAX_CONTEXT_DESCENDANTS) continue;
+        seenKeys.add(childMid);
         const childMsgId = store.resolveKey(childMid);
         if (childMsgId === null || seen.has(childMsgId)) {
-          // Unresolvable child (referenced but never received) still gets its
-          // subtree explored — recurse on its post key regardless.
           queue.push(childMid);
           continue;
         }
@@ -991,16 +1066,29 @@ export const createApp = (
         const childMsg = await transport.message(childMsgId);
         if (childMsg) {
           await ingest(transport, childMsg);
-          descendantMsgs.push(childMsg);
+          descendants.push({ status: await toStatus(transport, childMsg), sortTs: childMsg.timestamp * 1000 });
         }
         queue.push(childMid);
       }
+      // Held children (backfilled foreign replies to this uuid).
+      for (const childUuid of store.heldChildrenOf(key)) {
+        if (seenKeys.has(childUuid) || descendants.length >= MAX_CONTEXT_DESCENDANTS) continue;
+        // A held child whose real copy is now local was already handled above via
+        // the local index; skip to avoid a double entry.
+        if (store.resolveKey(childUuid) !== null) continue;
+        seenKeys.add(childUuid);
+        const held = store.heldEnvelope(childUuid);
+        const status = held
+          ? await mapper.heldStatus(transport, childUuid, heldReplyParentId(held.env))
+          : null;
+        if (status) descendants.push({ status, sortTs: held!.env.ts ?? 0 });
+        // Explore the held child's subtree regardless (its own held/local replies).
+        queue.push(childUuid);
+      }
     }
-    descendantMsgs.sort((a, b) => a.timestamp - b.timestamp || a.id - b.id);
+    descendants.sort((a, b) => a.sortTs - b.sortTs);
 
-    const ancestors = await Promise.all(ancestorMsgs.map((msg) => toStatus(transport, msg)));
-    const descendants = await Promise.all(descendantMsgs.map((msg) => toStatus(transport, msg)));
-    return c.json({ ancestors, descendants });
+    return c.json({ ancestors, descendants: descendants.map((e) => e.status) });
   });
 
   app.get('/api/v1/statuses/:id', requireTransport, async (c) => {
