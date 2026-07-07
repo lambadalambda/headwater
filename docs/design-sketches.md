@@ -124,6 +124,14 @@ TOFU-with-pinning + automated DM challenge ("did you write u:X?") — the
 same machinery as reaction-receipt verification (sketch 2); attestations
 generalize receipts from "I reacted" to "I said".
 
+Boosts are the same case: today a boost carries a 500-char quotedText
+copy (synthesized for non-followers of the author — fabricatable,
+truncated, no media). In v2 a boost embeds the original COMPLETE signed
+envelope; recipients verify offline, boosters choose whether, never what.
+The attestation must also cover attachment CONTENT-HASHES so republishers
+can re-attach media bytes that recipients verify against the author-signed
+hash — verifiable images across boost/thread hops.
+
 Residual: proves keyholder authorship, not identity-behind-key — a host
 can invent fake strangers, not impersonate known/queryable contacts
 (sybil floor, not solvable here). Wire v2 envelope should reserve
