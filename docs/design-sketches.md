@@ -76,3 +76,25 @@ core binary (fork maintenance — avoid). Long-term structural answer is
 webxdc update-replay (full history for late joiners). Note: any expanded
 backfill is real re-transmission on the owner's node (bandwidth, 60/min
 budget), not a free outbox read like AP.
+
+## 5. Structured payloads: JSON as extension channel, not body
+
+Posts stay human-readable text (the vanilla-Delta-Chat interop property is
+load-bearing: followers don't need deltanet, and every post degrades to a
+legible message). But line-grammar markers don't scale to polls, CWs, alt
+text, receipts, thread directives — so add ONE versioned JSON envelope
+alongside the text rather than converting bodies:
+
+- Carrier v1: a final `⚙ {"v":1,...}` marker line (tolerant parse like the
+  other markers; keeps posts editable and quote/forward-safe).
+- Carrier considered and deferred: `MessageData.html`
+  (multipart/alternative — invisible to vanilla users, but HTML messages
+  cannot be edited via Chat-Edit, and "show full message" chrome).
+- Carrier endgame: a protected header (`Chat-Deltanet:`-style), pending
+  upstream RPC support for custom headers — idiomatic per chatmail spec.
+
+Schema discipline regardless of carrier: version field, unknown fields
+must-ignore, keys never repurposed — so moving carriers is a transport
+swap, not a redesign. Existing verbs (`↳re`, `♻`, `⚑`, reactions) stay as
+compact human-visible markers; the envelope is for structure that doesn't
+fit a line.
