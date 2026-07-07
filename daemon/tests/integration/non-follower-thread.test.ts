@@ -2,12 +2,11 @@ import { rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { T } from '@deltachat/jsonrpc-client';
-import { registerAccount } from '../../src/signup.js';
 import {
-  openTransport,
   type DeltaChatTransport,
   type IngestPhase,
 } from '../../src/transport/deltachat.js';
+import { openRelayTransport, register } from './relay.js';
 import type { Transport } from '../../src/transport/types.js';
 import { createStore, type Store } from '../../src/store.js';
 import { createApp, type AppContext } from '../../src/server.js';
@@ -15,7 +14,8 @@ import { deriveOnIngest } from '../../src/ingest.js';
 
 /**
  * Acceptance topology from ../meta/issues/non-follower-thread-rendering.md, over
- * real chatmail (nine.testrun.org):
+ * real chatmail (local podman relay by default,
+ * nine.testrun.org with DELTANET_TEST_RELAY=testrun):
  *
  *   B follows A; A does NOT follow B. A posts; B replies; A reacts ❤ to B's
  *   reply AND replies to it — but A only ever holds the DM copy of B's reply
@@ -98,19 +98,18 @@ describe('non-follower thread rendering + own-reaction re-index over chatmail', 
     rmSync(A_DATA, { recursive: true, force: true });
     rmSync(B_DATA, { recursive: true, force: true });
 
-    const relay = 'https://nine.testrun.org';
-    const [aCreds, bCreds] = await Promise.all([registerAccount(relay), registerAccount(relay)]);
+    const [aCreds, bCreds] = await Promise.all([register(), register()]);
 
     let aStore = createStore(A_STORE);
     const bStore = createStore(B_STORE);
 
     const refs: { a: Transport | null; b: Transport | null } = { a: null, b: null };
-    const a = await openTransport(
+    const a = await openRelayTransport(
       A_DATA,
       { addr: aCreds.addr, password: aCreds.password, displayName: 'int-nf-a' },
       { onMessage: wireIngest(aStore, () => refs.a) },
     );
-    const b = await openTransport(
+    const b = await openRelayTransport(
       B_DATA,
       { addr: bCreds.addr, password: bCreds.password, displayName: 'int-nf-b' },
       { onMessage: wireIngest(bStore, () => refs.b) },
@@ -216,7 +215,7 @@ describe('non-follower thread rendering + own-reaction re-index over chatmail', 
 
     aStore = createStore(A_STORE);
     const refs2: { a: Transport | null } = { a: null };
-    const a2 = await openTransport(
+    const a2 = await openRelayTransport(
       A_DATA,
       { addr: aCreds.addr, password: aCreds.password, displayName: 'int-nf-a' },
       { onMessage: wireIngest(aStore, () => refs2.a) },

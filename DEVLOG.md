@@ -1400,3 +1400,81 @@ to no-ops.
   integration tests updated to detect the DM copy by its `⚑` marker.
 
 `pnpm test` (573) + `pnpm check` + `pnpm test:integration` (7) all green.
+
+## 2026-07-07 — podman-based ephemeral chatmail relay for integration tests
+
+Integration tests created throwaway accounts on the *production*
+`nine.testrun.org` relay — rude at scale and non-reproducible (relies on the
+public network + that relay staying up). Now the suite provisions its own
+ephemeral chatmail relay in a podman container per run, offline after the
+image build.
+
+### The in-container deploy (build-time vs first-boot split)
+
+Studied the upstream `chatmail/docker` image and reproduced its split (the
+relay's `cmdeploy` is explicitly container-aware — `basedeploy.has_systemd` /
+`is_in_container` exist precisely so image builds work):
+
+- **Build time** (`daemon/testenv/Containerfile`): Debian 12 + systemd base
+  (vendored jrei/systemd-debian recipe), clone `chatmail/relay` at a pinned
+  ref, create the `cmdeploy` venv (editable install), then run **only the
+  `install` stage** (`CMDEPLOY_STAGES=install pyinfra @local run.py`) against
+  a dummy `build.local` domain. The install stage is non-systemd (apt
+  packages + chatmaild venv), so it runs fine during the build with no PID-1.
+- **First boot**: systemd comes up as PID 1 (`podman run --systemd=always`);
+  a oneshot `chatmail-init.service` runs `cmdeploy init` +
+  `cmdeploy run --ssh-host @local --skip-dns-check`, i.e. the
+  `configure,activate` stages: self-signed cert, service configs, and starts
+  postfix/dovecot/nginx/unbound/filtermail/etc. `/new` is the real chatmail
+  CGI (`newemail.py`) behind nginx, so signup exercises the real path and
+  sends pass real filtermail encryption enforcement.
+
+Domain is `_chatmail.example` — the leading `_` makes `config.py` pick
+`tls_cert_mode: self` and skips DNS/MX/DKIM. No external network needed.
+
+### Port / env contract
+
+`testenv/relay.sh {build,up,down}` publishes to `127.0.0.1` only:
+HTTPS/`/new` `8443`→443, IMAPS `9993`→993, SMTPS `9465`→465. `up`
+force-removes any old container, runs fresh with tmpfs-backed mail state (so
+every run is a clean slate), waits until `POST /new` returns creds **and** an
+IMAPS TLS handshake succeeds, then prints `export DELTANET_TEST_RELAY_*`
+lines. `resolveTestRelayConfig` (unit-tested) reads those; default = local
+relay with explicit transport params + cert acceptance,
+`DELTANET_TEST_RELAY=testrun` = the old `nine.testrun.org` autoconfig path
+(no podman). Vitest globalSetup shells to `relay.sh up` / teardown to `down`
+(`vitest.integration.config.ts`, `fileParallelism:false`).
+
+### Transport: explicit-server path
+
+`openTransport` gained an optional `transportParams`
+`{imapHost,imapPort,smtpHost,smtpPort,acceptInvalidCerts}`. When set it
+`setConfig(displayname)` then `rpc.addTransport(EnteredLoginParam{...})`
+(IMAP/SMTP `ssl`, `certificateChecks: acceptInvalidCertificates`) instead of
+`batchSetConfig + configure()` autoconfig. Pure builder
+`buildEnteredLoginParam` is unit-tested.
+
+### The one real fight: TLS 1.3 over podman's forwarder
+
+Delta Chat core (rustls) could not complete a **TLS 1.3** handshake to the
+relay through podman's port-forwarding path (the macOS podman machine's
+gvproxy): dovecot logged `SSL_accept() failed: unsupported protocol` and
+postfix STARTTLS reported `bad protocol version` — while `curl` (OpenSSL) on
+the *same* socket succeeded every time. Chatmail ships a TLS-1.3-only floor
+(dovecot `ssl_min_protocol=TLSv1.3`; postfix `smtps`/`submission` per-service
+`smtpd_tls_mandatory_protocols=>=TLSv1.3` overrides in `master.cf`, which a
+global `postconf -e` does *not* touch). `chatmail-init.sh` lowers just the
+*floor* to `TLSv1.2` after `cmdeploy run`; core then negotiates 1.2 through
+the forwarder. Real clients on a real relay still negotiate 1.3. This is the
+only deviation from a stock chatmail deploy, and it's confined to the
+throwaway test relay.
+
+### Verification
+
+- `pnpm -C daemon test` — 580 unit (was 573; +7: `relay-config.test.ts`),
+  green, unaffected.
+- `pnpm -C daemon check` — clean.
+- `pnpm -C daemon test:integration` against the local podman relay — 7/7 pass
+  (~146s), twice in a row including from a cold `podman rm`-ed state.
+
+Image ~1.1 GB. First build a few minutes; subsequent boots ~20-30s to healthy.

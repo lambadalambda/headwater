@@ -87,6 +87,40 @@ Notes:
   undelivered messages (store-and-forward), and the daemon's local index
   rebuilds from its Delta Chat database on startup.
 
+## Testing against a local relay
+
+By default `pnpm -C daemon test:integration` provisions its own **ephemeral
+chatmail relay in a podman container** and runs the whole suite against it —
+no accounts are created on the public `nine.testrun.org`, and the run needs
+no external network once the image is built.
+
+Requirements: **podman** (rootless is fine). The relay image is a real
+[chatmail/relay](https://github.com/chatmail/relay) built via its own
+`cmdeploy` on a Debian 12 + systemd base (see `daemon/testenv/`).
+
+- **First build takes a while** (several minutes: it clones the relay, apt-
+  installs postfix/dovecot/nginx/unbound and builds the chatmaild venv). The
+  image is cached afterward, so subsequent runs just boot a container
+  (~20-30s to healthy). Build it ahead of time with
+  `daemon/testenv/relay.sh build` if you like; `test:integration` builds it
+  on demand if missing.
+- **Reset semantics:** every run starts a *fresh* container with tmpfs-backed
+  mail state (`relay.sh up` force-removes any previous instance), so there is
+  no state carried between runs — the suite is reproducible from a cold
+  `podman rm`-ed state. Ports are published to `127.0.0.1` only (HTTPS/`/new`
+  on `8443`, IMAPS on `9993`, SMTPS on `9465` by default).
+- The vitest globalSetup/teardown (`daemon/tests/integration/global-setup.ts`)
+  drives `relay.sh up`/`down` automatically; you don't run the container
+  yourself.
+- To run against the **real** `nine.testrun.org` relay instead (the old
+  behavior — needs network, creates throwaway accounts there), set
+  `DELTANET_TEST_RELAY=testrun`. Then podman is not used at all.
+
+The test relay uses a self-signed cert and an `_chatmail.example` domain; the
+daemon's transport connects with explicit IMAP/SMTP host+port and
+accept-invalid-certificates login params (see
+`daemon/src/transport/deltachat.ts`), so no DNS or valid TLS chain is needed.
+
 ## Repo layout
 
 - `daemon/` — TypeScript daemon: Mastodon client API in front,

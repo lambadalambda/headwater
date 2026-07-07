@@ -4,12 +4,11 @@ import { tmpdir } from 'node:os';
 import { mkdtempSync } from 'node:fs';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { T } from '@deltachat/jsonrpc-client';
-import { registerAccount } from '../../src/signup.js';
 import {
-  openTransport,
   type DeltaChatTransport,
   type IngestPhase,
 } from '../../src/transport/deltachat.js';
+import { openRelayTransport, register } from './relay.js';
 import type { Transport } from '../../src/transport/types.js';
 import { createStore, type Store } from '../../src/store.js';
 import {
@@ -19,7 +18,8 @@ import {
 } from '../../src/ingest.js';
 
 /**
- * Real follow-back over nine.testrun.org, driven the way `main.ts` wires
+ * Real follow-back over chatmail (local podman relay by default,
+ * nine.testrun.org with DELTANET_TEST_RELAY=testrun), driven the way `main.ts` wires
  * ingestion — no test shortcuts: the invite-request travels over the real
  * network, B's auto-grant comes from B's own ingest handling, and A joins
  * B's feed off the grant B DMs back.
@@ -70,23 +70,19 @@ describe('follow-back via invite-request over chatmail', () => {
     rmSync('data/int-followback-alice', { recursive: true, force: true });
     rmSync('data/int-followback-bob', { recursive: true, force: true });
 
-    const relay = 'https://nine.testrun.org';
-    const [aliceCreds, bobCreds] = await Promise.all([
-      registerAccount(relay),
-      registerAccount(relay),
-    ]);
+    const [aliceCreds, bobCreds] = await Promise.all([register(), register()]);
 
     const aliceStore = scratchStore();
     const bobStore = scratchStore();
     let alice: DeltaChatTransport | null = null;
     let bob: DeltaChatTransport | null = null;
 
-    alice = await openTransport(
+    alice = await openRelayTransport(
       'data/int-followback-alice',
       { addr: aliceCreds.addr, password: aliceCreds.password, displayName: 'int-fb-alice' },
       { onMessage: wireIngest(aliceStore, () => alice) },
     );
-    bob = await openTransport(
+    bob = await openRelayTransport(
       'data/int-followback-bob',
       { addr: bobCreds.addr, password: bobCreds.password, displayName: 'int-fb-bob' },
       { onMessage: wireIngest(bobStore, () => bob) },

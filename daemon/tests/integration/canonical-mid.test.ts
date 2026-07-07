@@ -3,12 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { T } from '@deltachat/jsonrpc-client';
-import { registerAccount } from '../../src/signup.js';
 import {
-  openTransport,
   type DeltaChatTransport,
   type IngestPhase,
 } from '../../src/transport/deltachat.js';
+import { openRelayTransport, register } from './relay.js';
 import type { Transport } from '../../src/transport/types.js';
 import { createStore, type Store } from '../../src/store.js';
 import { createApp, type AppContext } from '../../src/server.js';
@@ -16,7 +15,8 @@ import { deriveOnIngest } from '../../src/ingest.js';
 
 /**
  * QA scenario from ../meta/issues/canonical-mid-unification.md acceptance
- * criteria, over real chatmail (nine.testrun.org):
+ * criteria, over real chatmail (local podman relay by default,
+ * nine.testrun.org with DELTANET_TEST_RELAY=testrun):
  *
  *   B follows A (A does NOT follow back). A posts; B replies; A reacts ❤ and
  *   replies to B's reply — but A only ever holds the DM copy of B's reply (A
@@ -66,19 +66,18 @@ describe('canonical-mid unification over chatmail', () => {
     rmSync('data/int-canon-a', { recursive: true, force: true });
     rmSync('data/int-canon-b', { recursive: true, force: true });
 
-    const relay = 'https://nine.testrun.org';
-    const [aCreds, bCreds] = await Promise.all([registerAccount(relay), registerAccount(relay)]);
+    const [aCreds, bCreds] = await Promise.all([register(), register()]);
 
     const aStore = scratchStore();
     const bStore = scratchStore();
 
     const refs: { a: Transport | null; b: Transport | null } = { a: null, b: null };
-    const a = await openTransport(
+    const a = await openRelayTransport(
       'data/int-canon-a',
       { addr: aCreds.addr, password: aCreds.password, displayName: 'int-canon-a' },
       { onMessage: wireIngest(aStore, () => refs.a) },
     );
-    const b = await openTransport(
+    const b = await openRelayTransport(
       'data/int-canon-b',
       { addr: bCreds.addr, password: bCreds.password, displayName: 'int-canon-b' },
       { onMessage: wireIngest(bStore, () => refs.b) },

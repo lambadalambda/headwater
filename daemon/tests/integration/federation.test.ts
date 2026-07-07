@@ -1,11 +1,12 @@
 import { rmSync } from 'node:fs';
 import { afterAll, describe, expect, it } from 'vitest';
-import { registerAccount } from '../../src/signup.js';
-import { openTransport, type DeltaChatTransport } from '../../src/transport/deltachat.js';
+import { type DeltaChatTransport } from '../../src/transport/deltachat.js';
+import { openRelayTransport, register } from './relay.js';
 
 /**
- * Real federation over nine.testrun.org: alice publishes a feed,
- * bob follows it via the invite link, alice posts, bob sees the post.
+ * Real federation over chatmail (a local ephemeral podman relay by default,
+ * or nine.testrun.org with DELTANET_TEST_RELAY=testrun): alice publishes a
+ * feed, bob follows it via the invite link, alice posts, bob sees the post.
  * Slow by nature (real SMTP/IMAP + securejoin handshake).
  */
 describe('federation over chatmail', () => {
@@ -30,18 +31,14 @@ describe('federation over chatmail', () => {
     rmSync('data/int-basic-alice', { recursive: true, force: true });
     rmSync('data/int-basic-bob', { recursive: true, force: true });
 
-    const relay = 'https://nine.testrun.org';
-    const [aliceCreds, bobCreds] = await Promise.all([
-      registerAccount(relay),
-      registerAccount(relay),
-    ]);
+    const [aliceCreds, bobCreds] = await Promise.all([register(), register()]);
 
-    const alice = await openTransport('data/int-basic-alice', {
+    const alice = await openRelayTransport('data/int-basic-alice', {
       addr: aliceCreds.addr,
       password: aliceCreds.password,
       displayName: 'int-basic-alice',
     });
-    const bob = await openTransport('data/int-basic-bob', {
+    const bob = await openRelayTransport('data/int-basic-bob', {
       addr: bobCreds.addr,
       password: bobCreds.password,
       displayName: 'int-basic-bob',
@@ -95,18 +92,14 @@ describe('federation over chatmail', () => {
     rmSync('data/int-alice', { recursive: true, force: true });
     rmSync('data/int-bob', { recursive: true, force: true });
 
-    const relay = 'https://nine.testrun.org';
-    const [aliceCreds, bobCreds] = await Promise.all([
-      registerAccount(relay),
-      registerAccount(relay),
-    ]);
+    const [aliceCreds, bobCreds] = await Promise.all([register(), register()]);
 
-    const alice = await openTransport('data/int-alice', {
+    const alice = await openRelayTransport('data/int-alice', {
       addr: aliceCreds.addr,
       password: aliceCreds.password,
       displayName: 'int-alice',
     });
-    const bob = await openTransport('data/int-bob', {
+    const bob = await openRelayTransport('data/int-bob', {
       addr: bobCreds.addr,
       password: bobCreds.password,
       displayName: 'int-bob',

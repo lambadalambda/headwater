@@ -9,7 +9,7 @@
     "start": "tsx src/main.ts",
     "test": "vitest run --exclude 'tests/integration/**'",
     "test:watch": "vitest --exclude 'tests/integration/**'",
-    "test:integration": "vitest run tests/integration --testTimeout 240000",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "check": "tsc --noEmit",
     "setup-account": "tsx scripts/setup-account.ts"
   },

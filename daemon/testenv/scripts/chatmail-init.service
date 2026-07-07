@@ -1,0 +1,14 @@
+[Unit]
+Description=DeltaNet test relay first-boot setup (cmdeploy configure+activate)
+After=multi-user.target
+ConditionPathExists=/chatmail-init.sh
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /chatmail-init.sh
+RemainAfterExit=true
+WorkingDirectory=/opt/chatmail
+PassEnvironment=<envs_list>
+
+[Install]
+WantedBy=multi-user.target

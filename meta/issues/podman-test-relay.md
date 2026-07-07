@@ -37,3 +37,26 @@ provisions fresh per run.
   filtermail encryption enforcement.
 - testrun.org path still works behind the opt-in env var.
 - README documents the setup (podman requirement, first-run build time).
+
+## Current Status (2026-07-07)
+
+IMPLEMENTED. `pnpm test:integration` now provisions a fresh ephemeral chatmail
+relay (real `chatmail/relay` via `cmdeploy`, Debian 12 + systemd, podman
+`--systemd=always`) per run and passes 7/7 against it offline, twice in a row
+including from a cold `podman rm`-ed state; `pnpm test` (580) + `pnpm check`
+green. The testrun.org path remains available behind
+`DELTANET_TEST_RELAY=testrun`.
+
+Files: `daemon/testenv/{Containerfile,relay.sh,scripts/*}`,
+`daemon/src/testenv/relay-config.ts`, transport explicit-server path in
+`daemon/src/transport/deltachat.ts` (`buildEnteredLoginParam`,
+`openTransport` `transportParams`), `daemon/tests/integration/{relay.ts,
+global-setup.ts}` + all four suites parameterized, `vitest.integration.config.ts`,
+`daemon/tests/relay-config.test.ts`. README "Testing against a local relay";
+DEVLOG 2026-07-07.
+
+One deviation from stock chatmail, documented in DEVLOG: the test relay lowers
+dovecot/postfix TLS *floor* from 1.3 to 1.2, because DC core (rustls) can't
+complete a TLS 1.3 handshake through podman's port-forwarder on the macOS
+podman machine (curl on the same socket works). Confined to the throwaway
+relay; real clients still negotiate 1.3.

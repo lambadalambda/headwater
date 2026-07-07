@@ -84,6 +84,48 @@ export type ChatmailCredentials = {
   displayName: string;
 };
 
+/**
+ * Explicit IMAP/SMTP coordinates for configuring an account against a known
+ * server, bypassing DNS/`.well-known` autoconfig. Used by the integration
+ * suite to point at a local self-signed podman relay; production/normal use
+ * leaves this undefined and lets core autoconfigure from the address.
+ */
+export type ExplicitTransportParams = {
+  imapHost: string;
+  imapPort: number;
+  smtpHost: string;
+  smtpPort: number;
+  /** Accept self-signed / hostname-mismatched TLS certs. */
+  acceptInvalidCerts: boolean;
+};
+
+/**
+ * Pure builder: map credentials + explicit server coordinates into the
+ * `EnteredLoginParam` shape `rpc.addTransport` expects. Extracted so the
+ * autoconfig-vs-explicit-server decision is unit-testable without a running
+ * core. Both IMAP and SMTP use `ssl` (implicit TLS: IMAPS 993 / SMTPS 465),
+ * matching a chatmail relay's submission/IMAPS listeners.
+ */
+export const buildEnteredLoginParam = (
+  creds: ChatmailCredentials,
+  params: ExplicitTransportParams,
+): T.EnteredLoginParam => ({
+  addr: creds.addr,
+  password: creds.password,
+  imapServer: params.imapHost,
+  imapPort: params.imapPort,
+  imapFolder: null,
+  imapSecurity: 'ssl',
+  imapUser: null,
+  smtpServer: params.smtpHost,
+  smtpPort: params.smtpPort,
+  smtpSecurity: 'ssl',
+  smtpUser: null,
+  smtpPassword: null,
+  certificateChecks: params.acceptInvalidCerts ? 'acceptInvalidCertificates' : 'automatic',
+  oauth2: false,
+});
+
 export type DeltaChatTransport = Transport & {
   close(): void;
   accountId: number;
@@ -163,6 +205,13 @@ export const openTransport = async (
   dataDir: string,
   creds: ChatmailCredentials,
   options: OpenTransportOptions = {},
+  /**
+   * When set, configure the account against these explicit IMAP/SMTP servers
+   * (via `rpc.addTransport` with an `EnteredLoginParam`) instead of running
+   * DNS/`.well-known` autoconfig. Used by the integration suite to target a
+   * local self-signed podman relay; unset in normal operation.
+   */
+  transportParams?: ExplicitTransportParams,
 ): Promise<DeltaChatTransport> => {
   const dc = startDeltaChat(dataDir, { muteStdErr: true });
   const rpc = dc.rpc;
@@ -171,12 +220,21 @@ export const openTransport = async (
   const accountId = accountIds[0] ?? (await rpc.addAccount());
 
   if (!(await rpc.isConfigured(accountId))) {
-    await rpc.batchSetConfig(accountId, {
-      addr: creds.addr,
-      mail_pw: creds.password,
-      displayname: creds.displayName,
-    });
-    await rpc.configure(accountId);
+    // Display name is a UI-only config value carried on the account regardless
+    // of how the transport is configured; set it up front either way.
+    await rpc.setConfig(accountId, 'displayname', creds.displayName);
+    if (transportParams) {
+      // Explicit-server path: no autoconfig, accept the relay's self-signed
+      // cert. `addTransport` both stores the login params and configures the
+      // account, so no separate `configure()` call is needed.
+      await rpc.addTransport(accountId, buildEnteredLoginParam(creds, transportParams));
+    } else {
+      await rpc.batchSetConfig(accountId, {
+        addr: creds.addr,
+        mail_pw: creds.password,
+      });
+      await rpc.configure(accountId);
+    }
   }
   await rpc.startIo(accountId);
 
