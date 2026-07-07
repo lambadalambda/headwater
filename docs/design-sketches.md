@@ -8,6 +8,9 @@ substitute for the fediverse's global fetchability.
 
 ## 1. Visibility tiers via multiple channels (not multiple accounts)
 
+> Issued: meta/issues/visibility-channels.md (2026-07-07). Directory node
+> part remains a sketch.
+
 One account can own many broadcast channels; invites are per-channel and
 multi-use (with withdraw/revive support in core). So:
 
