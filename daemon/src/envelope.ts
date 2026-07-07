@@ -124,7 +124,7 @@ export type Envelope = {
    * never breaks an old node. The thread token is `u:<uuid>` (mirrors the wire
    * ref-token grammar) rather than a bare uuid, so the scope space can grow.
    */
-  scope?: { thread?: string };
+  scope?: { thread?: string; locked?: boolean };
   /** Author-declared ms epoch timestamp, signed on every content envelope (sketch #6). */
   ts?: number;
   /** base64 SPKI-DER ed25519 public key of the author (sketch #6). */
@@ -278,6 +278,16 @@ export const buildUnreactEnvelope = (emoji: string, ref: EnvelopeRef): string =>
 /** An invite-request control-DM envelope (follow-back). */
 export const buildInviteRequestEnvelope = (): string =>
   serialize({ dn: DN_VERSION, type: 'invite-request' });
+
+/**
+ * A LOCKED-scoped invite-request (visibility channels 1B): "please grant me
+ * access to your followers-only channel". The receiving owner QUEUES it for
+ * approval instead of auto-granting. Downgrade note (same as thread scopes):
+ * an old node ignores the unknown `scope` field and would auto-grant its
+ * PUBLIC feed — a safe failure (public access is what auto-grant always gave).
+ */
+export const buildLockedInviteRequestEnvelope = (): string =>
+  serialize({ dn: DN_VERSION, type: 'invite-request', scope: { locked: true } });
 
 /** An invite-grant control-DM envelope carrying the feed invite link. */
 export const buildInviteGrantEnvelope = (link: string): string =>

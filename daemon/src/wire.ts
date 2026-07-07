@@ -156,6 +156,12 @@ export const parseWireReaction = (text: string): ParsedReaction | null => {
 };
 
 /** True iff this message is an invite-request control message, v2-first then legacy. */
+/** Is this a LOCKED-scoped invite-request (visibility channels 1B)? */
+export const parseWireLockedInviteRequest = (text: string): boolean => {
+  const env = parseEnvelope(text);
+  return env?.type === 'invite-request' && env.scope?.locked === true;
+};
+
 export const parseWireInviteRequest = (text: string): boolean => {
   const env = parseEnvelope(text);
   if (env) return env.type === 'invite-request';

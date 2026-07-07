@@ -14,6 +14,7 @@ import {
   parseWire,
   parseWireInviteGrant,
   parseWireInviteRequest,
+  parseWireLockedInviteRequest,
   parseWireReaction,
   parseWireThreadInviteGrant,
   parseWireThreadInviteRequest,
@@ -213,7 +214,12 @@ export type FollowbackAction =
   /** Reply to `toContactId` with our feed invite (open grant policy v1). */
   | { kind: 'grant-invite'; toContactId: number }
   /** Join `link` (a solicited grant from `fromAddr`) then clear the pending marker. */
-  | { kind: 'accept-grant'; link: string; fromAddr: string };
+  | { kind: 'accept-grant'; link: string; fromAddr: string }
+  /**
+   * Queue a LOCKED-channel access request for owner approval (visibility
+   * channels 1B) — store-only: pending entry + follow_request notification.
+   */
+  | { kind: 'queue-locked-request'; fromContactId: number; fromAddr: string };
 
 /**
  * Pure: derive the follow-back action(s) implied by a message's marker,
@@ -249,6 +255,13 @@ export const deriveFollowbackActions = (
   if (parseWireThreadInviteRequest(text) !== null) return [];
   if (parseWireThreadInviteGrant(text) !== null) return [];
 
+  // A LOCKED-scoped request (visibility channels 1B) is QUEUED for approval,
+  // never auto-granted — checked before the unscoped match below, which would
+  // otherwise treat it as a plain (auto-grant) request.
+  if (parseWireLockedInviteRequest(text)) {
+    return [{ kind: 'queue-locked-request', fromContactId: msg.fromId, fromAddr: msg.sender.address }];
+  }
+
   if (parseWireInviteRequest(text)) {
     return [{ kind: 'grant-invite', toContactId: msg.fromId }];
   }
@@ -282,6 +295,20 @@ export const executeFollowbackAction = async (
   if (action.kind === 'grant-invite') {
     const invite = await transport.feedInvite();
     await transport.sendControlDm(action.toContactId, buildInviteGrantEnvelope(invite));
+    return;
+  }
+
+  if (action.kind === 'queue-locked-request') {
+    // Store-only: queue for approval + surface a follow_request notification
+    // (the frontend's notifications page renders accept/decline for these).
+    // Both idempotent, so a duplicate request DM never duplicates state.
+    store.addLockedFollowRequest(action.fromAddr, action.fromContactId, Date.now());
+    store.addNotification({
+      type: 'follow_request',
+      accountAddr: action.fromAddr,
+      accountContactId: action.fromContactId,
+      dedupeMid: `locked-request:${action.fromAddr.toLowerCase()}`,
+    });
     return;
   }
 

@@ -9,6 +9,7 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import type { UpgradeWebSocket, WSEvents } from 'hono/ws';
 import type { T } from '@deltachat/jsonrpc-client';
 import {
+  addrToAccount,
   avatarPlaceholderSvg,
   contactToAccount,
   headerSvg,
@@ -21,7 +22,9 @@ import { createMediaStore, isSupportedImageMime } from './media.js';
 import { parseCanonicalMid, type RefToken } from './protocol.js';
 import {
   buildBoostObject,
+  buildInviteGrantEnvelope,
   buildInviteRequestEnvelope,
+  buildLockedInviteRequestEnvelope,
   buildPostObject,
   buildReactEnvelope,
   buildReplyObject,
@@ -1773,6 +1776,65 @@ export const createApp = (
   });
 
   // --- deltanet-specific: feed invite + follow ----------------------------
+
+  // Locked follow requests (visibility channels 1B): the queue the ingest
+  // path fills from locked-scoped invite-request DMs. Approval = DM-ing the
+  // LOCKED channel invite as an invite-grant, which the requester's existing
+  // follow-back machinery joins (they recorded a pending marker when asking).
+
+  app.get('/api/v1/follow_requests', requireTransport, async (c) => {
+    const transport = c.get('transport');
+    const accounts = await Promise.all(
+      store.lockedFollowRequests().map(async ({ contactId, addr }) => {
+        const contact = await transport.contact(contactId);
+        return contact ? contactToAccount(contact, baseUrl) : addrToAccount(addr, baseUrl);
+      }),
+    );
+    return c.json(accounts);
+  });
+
+  /** The pending locked request for a contact-id route param, or null. */
+  const pendingLockedRequestFor = (idParam: string | undefined) => {
+    const contactId = Number(idParam ?? NaN);
+    if (!Number.isInteger(contactId)) return null;
+    return store.lockedFollowRequests().find((r) => r.contactId === contactId) ?? null;
+  };
+
+  app.post('/api/v1/follow_requests/:id/authorize', requireTransport, async (c) => {
+    const transport = c.get('transport');
+    const pending = pendingLockedRequestFor(c.req.param('id'));
+    if (!pending) return c.json({ error: 'Record not found' }, 404);
+    const invite = await transport.feedInvite('locked');
+    await transport.sendControlDm(pending.contactId, buildInviteGrantEnvelope(invite));
+    store.clearLockedFollowRequest(pending.addr);
+    return c.json({ ...relationshipFor(false, pending.contactId), followed_by: true });
+  });
+
+  app.post('/api/v1/follow_requests/:id/reject', requireTransport, async (c) => {
+    const pending = pendingLockedRequestFor(c.req.param('id'));
+    if (!pending) return c.json({ error: 'Record not found' }, 404);
+    store.clearLockedFollowRequest(pending.addr);
+    return c.json(relationshipFor(false, pending.contactId));
+  });
+
+  // Requester side: ask a contact for access to their LOCKED channel. Records
+  // the pending marker so their eventual invite-grant DM auto-joins (the
+  // existing follow-back accept path — unsolicited grants still never join).
+  app.post('/api/deltanet/contacts/:id/request-locked', requireTransport, async (c) => {
+    const transport = c.get('transport');
+    const contactId = Number(c.req.param('id'));
+    if (!Number.isInteger(contactId) || contactId <= 0) {
+      return c.json({ error: 'Record not found' }, 404);
+    }
+    if (contactId === 1) {
+      return c.json({ error: "Validation failed: can't request access to your own channel" }, 422);
+    }
+    const contact = await transport.contact(contactId);
+    if (!contact) return c.json({ error: 'Record not found' }, 404);
+    store.addPendingFollowRequest(contact.address, Date.now());
+    await transport.sendControlDm(contactId, buildLockedInviteRequestEnvelope());
+    return c.json({ requested: true });
+  });
 
   // Petnames (see ../meta/issues/petnames.md): set/clear MY local, key-bound
   // name override for a contact. Core's `displayName` prefers it everywhere,

@@ -7,7 +7,7 @@ import {
   buildInviteGrantText,
   buildInviteRequestText,
 } from '../src/protocol.js';
-import { buildInviteGrantEnvelope, buildInviteRequestEnvelope } from '../src/envelope.js';
+import { buildInviteGrantEnvelope, buildInviteRequestEnvelope, buildLockedInviteRequestEnvelope } from '../src/envelope.js';
 import {
   deriveFollowbackActions,
   executeFollowbackAction,
@@ -246,5 +246,60 @@ describe('deriveFollowbackActions: thread-scoped requests are NOT feed follow-ba
   it('an UNSCOPED invite-request still derives the feed grant-invite action (regression)', () => {
     const msg = makeMessage({ id: 22, fromId: 11, text: buildInviteRequestEnvelope(), sender: { address: ALICE } as any });
     expect(deriveFollowbackActions(store, msg, false)).toEqual([{ kind: 'grant-invite', toContactId: 11 }]);
+  });
+});
+
+describe('locked follow requests (visibility channels 1B)', () => {
+  const BOB_ADDR = 'zbie604yz@nine.testrun.org';
+  const lockedRequestMsg = () =>
+    makeMessage({
+      id: 5,
+      fromId: 11,
+      text: buildLockedInviteRequestEnvelope(),
+      sender: { address: BOB_ADDR } as any,
+    });
+
+  it('a locked-scoped invite-request DM queues instead of auto-granting', () => {
+    const actions = deriveFollowbackActions(store, lockedRequestMsg(), false);
+    expect(actions).toEqual([
+      { kind: 'queue-locked-request', fromContactId: 11, fromAddr: BOB_ADDR },
+    ]);
+  });
+
+  it('a locked-scoped request on a FEED message derives nothing (DM-only)', () => {
+    expect(deriveFollowbackActions(store, lockedRequestMsg(), true)).toEqual([]);
+  });
+
+  it('executing queue-locked-request records the pending entry + a follow_request notification', async () => {
+    const transport = {} as Transport; // store-only action, transport untouched
+    await executeFollowbackAction(store, transport, {
+      kind: 'queue-locked-request',
+      fromContactId: 11,
+      fromAddr: BOB_ADDR,
+    });
+    expect(store.lockedFollowRequests()).toEqual([
+      { addr: BOB_ADDR, contactId: 11, requestedAt: expect.any(Number) },
+    ]);
+    const notifications = store.listNotifications({ limit: 5 });
+    expect(notifications[0]).toMatchObject({ type: 'follow_request', accountAddr: BOB_ADDR });
+
+    // Idempotent: a duplicate request neither duplicates the queue nor re-notifies.
+    await executeFollowbackAction(store, transport, {
+      kind: 'queue-locked-request',
+      fromContactId: 11,
+      fromAddr: BOB_ADDR,
+    });
+    expect(store.lockedFollowRequests()).toHaveLength(1);
+    expect(store.listNotifications({ limit: 5 })).toHaveLength(1);
+  });
+
+  it('clearing removes the pending entry', async () => {
+    await executeFollowbackAction(store, {} as Transport, {
+      kind: 'queue-locked-request',
+      fromContactId: 11,
+      fromAddr: BOB_ADDR,
+    });
+    store.clearLockedFollowRequest(BOB_ADDR);
+    expect(store.lockedFollowRequests()).toEqual([]);
   });
 });

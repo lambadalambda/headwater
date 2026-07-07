@@ -83,6 +83,7 @@ export const HELD_ENVELOPE_CAP = 5000;
 
 export type NotificationType =
   | 'follow'
+  | 'follow_request'
   | 'mention'
   | 'reblog'
   | 'favourite'
@@ -308,6 +309,12 @@ type StoreData = {
    */
   lockedPostUuids: Record<string, boolean>;
   /**
+   * Pending LOCKED-channel access requests awaiting owner approval
+   * (visibility channels 1B): addr -> requester. Non-derivable network state
+   * (queueing happens on LIVE request DMs only) — survives migrate.
+   */
+  lockedFollowRequests: Record<string, { contactId: number; requestedAt: number }>;
+  /**
    * SUBSCRIBER side (thread-subscribe): outstanding thread invite-requests we've
    * sent and are awaiting a grant for, keyed by thread ROOT uuid -> requested-at
    * ms. A scoped invite-grant is only auto-joined when its rootUuid has an entry
@@ -345,6 +352,7 @@ const emptyData = (): StoreData => ({
   pendingThreadRequests: {},
   republishedUuids: {},
   lockedPostUuids: {},
+  lockedFollowRequests: {},
 });
 
 /**
@@ -389,6 +397,7 @@ const migrate = (old: StoreData): StoreData => ({
   pendingThreadRequests: old.pendingThreadRequests ?? {},
   republishedUuids: old.republishedUuids ?? {},
   lockedPostUuids: old.lockedPostUuids ?? {},
+  lockedFollowRequests: old.lockedFollowRequests ?? {},
 });
 
 export type ReactionTally = { emoji: string; count: number; reactors: string[] };
@@ -538,6 +547,12 @@ export type Store = {
   removeHostedThread(rootUuid: string): void;
   /** Was own post `uuid` sent to the LOCKED channel? (visibility channels) */
   isLockedPost(uuid: string): boolean;
+  /** Queue a LOCKED-channel access request (idempotent per addr). */
+  addLockedFollowRequest(addr: string, contactId: number, requestedAt: number): void;
+  /** All pending LOCKED-channel access requests, oldest first. */
+  lockedFollowRequests(): { addr: string; contactId: number; requestedAt: number }[];
+  /** Remove a pending LOCKED-channel request (approved or rejected). No-op if absent. */
+  clearLockedFollowRequest(addr: string): void;
   /** Record that own post `uuid` went to the LOCKED channel. Idempotent. */
   markLockedPost(uuid: string): void;
 
@@ -1116,6 +1131,24 @@ export const createStore = (
       save();
     },
     isLockedPost: (uuid) => load().lockedPostUuids[uuid] === true,
+    addLockedFollowRequest: (addr, contactId, requestedAt) => {
+      const d = load();
+      const key = addr.toLowerCase();
+      if (d.lockedFollowRequests[key] !== undefined) return;
+      d.lockedFollowRequests[key] = { contactId, requestedAt };
+      save();
+    },
+    lockedFollowRequests: () =>
+      Object.entries(load().lockedFollowRequests)
+        .map(([addr, entry]) => ({ addr, ...entry }))
+        .sort((a, b) => a.requestedAt - b.requestedAt),
+    clearLockedFollowRequest: (addr) => {
+      const d = load();
+      const key = addr.toLowerCase();
+      if (d.lockedFollowRequests[key] === undefined) return;
+      delete d.lockedFollowRequests[key];
+      save();
+    },
     markLockedPost: (uuid) => {
       const d = load();
       if (d.lockedPostUuids[uuid] === true) return;

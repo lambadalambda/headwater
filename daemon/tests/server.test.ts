@@ -2951,3 +2951,86 @@ describe('visibility channels: own-boost leak guard', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe('visibility channels 1B: follow_requests endpoints', () => {
+  const seedRequest = async (store: ReturnType<typeof createStore>) => {
+    store.addLockedFollowRequest(BOB.address, 11, 1751900000000);
+  };
+
+  it('lists pending locked requests as accounts', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'deltanet-fr-'));
+    const store = createStore(join(dir, 'store.json'));
+    await seedRequest(store);
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store, dataDir: dir });
+    const res = await app.request('/api/v1/follow_requests');
+    expect(res.status).toBe(200);
+    const accounts = (await res.json()) as any[];
+    expect(accounts.map((a) => a.id)).toEqual(['11']);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('authorize DMs the LOCKED invite as a grant and clears the queue', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'deltanet-fr-auth-'));
+    const store = createStore(join(dir, 'store.json'));
+    await seedRequest(store);
+    const { transport, dms } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store, dataDir: dir });
+    const res = await app.request('/api/v1/follow_requests/11/authorize', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).followed_by).toBe(true);
+    expect(dms).toHaveLength(1);
+    expect(dms[0]!.contactId).toBe(11);
+    const grant = parseEnvelope(dms[0]!.text);
+    expect(grant?.type).toBe('invite-grant');
+    expect(grant?.link).toBe('OPENPGP4FPR:FAKEINVITE-LOCKED');
+    expect(store.lockedFollowRequests()).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('reject clears the queue without granting', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'deltanet-fr-rej-'));
+    const store = createStore(join(dir, 'store.json'));
+    await seedRequest(store);
+    const { transport, dms } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store, dataDir: dir });
+    const res = await app.request('/api/v1/follow_requests/11/reject', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(dms).toHaveLength(0);
+    expect(store.lockedFollowRequests()).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('authorize/reject 404 an id with no pending request', async () => {
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+    expect((await app.request('/api/v1/follow_requests/11/authorize', { method: 'POST' })).status).toBe(404);
+    expect((await app.request('/api/v1/follow_requests/99/reject', { method: 'POST' })).status).toBe(404);
+  });
+});
+
+describe('visibility channels 1B: requesting locked access', () => {
+  it('sends a locked-scoped invite-request DM and records the pending marker', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'deltanet-reqlock-'));
+    const store = createStore(join(dir, 'store.json'));
+    const { transport, dms } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store, dataDir: dir });
+    const res = await app.request('/api/deltanet/contacts/11/request-locked', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).requested).toBe(true);
+    expect(dms).toHaveLength(1);
+    const env = parseEnvelope(dms[0]!.text);
+    expect(env?.type).toBe('invite-request');
+    expect(env?.scope?.locked).toBe(true);
+    // The pending marker makes the eventual grant auto-join (existing machinery).
+    expect(store.hasPendingFollowRequest(BOB.address)).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('404s an unknown contact and 422s SELF', async () => {
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+    expect((await app.request('/api/deltanet/contacts/77/request-locked', { method: 'POST' })).status).toBe(404);
+    expect((await app.request('/api/deltanet/contacts/1/request-locked', { method: 'POST' })).status).toBe(422);
+  });
+});
