@@ -1,5 +1,83 @@
 # deltanet devlog
 
+## 2026-07-07 — signed thread-root ref on replies + root DM copy
+
+Issue `meta/issues/wire-thread-root-ref.md` (prereq for thread auto-backfill +
+subscribe, sketch #3 revised). A reply now carries a signed `root` ref (the
+thread's topmost post) so any holder of a mid-thread message can name the thread
++ owner, and reply DM copies now also reach the ROOT author (not just the
+parent) so the root accumulates the full thread by construction.
+
+### Changes
+
+- **`daemon/src/envelope.ts`**: `Envelope` gains optional `root?: EnvelopeRef`
+  (same shape as `ref`). `buildReplyObject`/`buildReplyEnvelope` carry it (set
+  only on replies, only when known). `parseEnvelope` TOLERANT-DROPS a malformed
+  root (missing/empty/non-string `u`, non-string `addr`) to absent — junk roots
+  never reach verification, and the empty-key-string graft (an absent root and
+  an empty `u` would frame identically as `0:`) can't ride a signed root-less
+  envelope.
+- **`daemon/src/attest.ts`**: `CANONICAL_PAYLOAD_VERSION` → `dn3`.
+  `CanonicalFields` gains `rootToken` (the root ref's key string) AND `rootAddr`
+  (the root ref's author address), each its OWN frame, each empty when absent,
+  directly after `refToken`:
+  `lp(dn3) … lp(refToken) lp(rootToken) lp(rootAddr) lp(mediaSha256)`.
+  The addr is SIGNED because — unlike `ref.addr`, a display-only attribution
+  fallback — `root.addr` is a ROUTING target: it decides who receives the root
+  DM copy today and whom a subscriber contacts in thread-subscribe; unsigned, a
+  relayed envelope (boost embed now, backfill bundles next) could swap it to an
+  attacker's address while still verifying. Separate frames (never concatenated
+  into rootToken): self-delimiting frames are the point of the length-prefix
+  design. ONE framing impl parameterized by a `{version, withRoot}` layout so
+  dn2/dn3 never drift. `sign()` emits dn3 only. **`verify()` gains a dn2
+  fallback**: try dn3 first; if it fails AND `env.root === undefined`, retry the
+  OLD dn2 layout (version string `dn2`, no root frames). Downgrade-safe because
+  the version string is inside the signed bytes — a dn3 sig can't verify as dn2
+  or vice versa, and a dn2 envelope can never grow a forged root (dn3 signs the
+  root token + addr; the dn2 fallback is gated on root ABSENCE). An omitted root
+  is always valid; a present root is dn3-only. `verify()` additionally rejects a
+  present root failing the shared `isWellFormedRootRef` predicate (exported from
+  envelope.ts) BEFORE any payload work: parser sanitization can't reach NESTED
+  envelopes (a boost `orig`, future bundle items), and the trivial graft
+  `{u:''}`/`{u:'',addr:''}` frames as `0:0:` — byte-identical to an absent root —
+  so a root-less dn3 sig would otherwise verify with junk `.root` attached.
+  Signers never emit malformed roots, so the gate rejects only grafts. verify
+  stays never-throwing, canonicalPayload pure/total.
+- **`daemon/src/server.ts`** (reply branch): `deriveRootRef(transport, parent)`
+  — best-effort, never fabricated: (a) reuse the parent reply's own `root`
+  verbatim; (b) else a non-reply parent WITH a uuid IS the root; (c) else walk
+  locally-held ancestors (same resolveKey/parseWire climb the context endpoint
+  uses, bounded) and apply (a)/(b) to the topmost held message; unknowable →
+  omit. The derived root is set BEFORE signing. After the parent-author DM copy,
+  a **root DM copy** goes to the root author when known, distinct from the parent
+  author and not SELF, via a new transport method (below). BEST-EFFORT: failure
+  logs + is swallowed; the reply, feed post, and parent copy never fail.
+- **`daemon/src/transport/{types,deltachat}.ts`**: new `ensureContactIdByAddr`
+  (core `createContact`, idempotent) so the root copy can address a never-met
+  root author; `contactIdByAddr` stays lookup-only.
+- **`daemon/src/wire.ts`**: `ParsedWire` gains `root?: MsgRef`, surfaced from a
+  v2 reply envelope's `root` (normalized like `reply`); legacy markers never
+  produce it. Consumed by the backfill issue later.
+
+### FINDING — cold root DM does not deliver on the local relay
+
+The integration test (`tests/integration/thread-root-ref.test.ts`, topology
+A←B←C where C has NEVER met A) proves C's reply carries `root` = A's post
+(uuid + addr) on the wire — the load-bearing property. But the **cold root DM
+copy to A fails at the DC core level**: `e2e encryption unavailable`. The only
+key-exchange path in the substrate is securejoin (invite links carry the PGP
+key); A's Autocrypt key never gossips to C (A is not a member of B's feed), and
+`createContact` alone gives core no key to encrypt to. The issue's premise that
+"chatmail serves keys for first-contact encryption" does not hold on this relay
+— there is no cold-first-contact send path in the codebase today (the follow
+flow is securejoin; the invite-request follow-back only DMs already-known
+contacts). Per the issue's explicit instruction, I did NOT weaken the topology
+(no pre-introducing C→A) to force delivery: the copy is best-effort, the failure
+is logged + swallowed, and the reply/feed/parent copy all succeed. The
+integration test documents this and hard-asserts the wire root ref; the cold-DM
+assertions run only if a relay DOES serve the cold key. Unblocking the DM
+copy needs a substrate key-fetch/gossip path (candidate for the backfill issue).
+
 ## 2026-07-07 — orig-<uuid> thread view (clicking a verified boost embed)
 
 Fix (`meta/issues/orig-status-thread-view.md`): clicking a verified boost
