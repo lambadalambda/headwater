@@ -71,6 +71,16 @@ const DC_CONTACT_ID_SELF = 1;
  */
 export const STORE_SCHEMA_VERSION = 8;
 
+/**
+ * Upper bound on stored held envelopes (thread auto-backfill). Held content is
+ * NOT request-gated — a met contact can push unsolicited envelope-bundles, and
+ * thread-so-far / channel bundles arrive proactively — so without a cap the
+ * store grows unbounded from hostile or merely chatty peers. On overflow the
+ * OLDEST (by receivedAt) is evicted; a thread re-opened later simply
+ * re-backfills what was dropped. Generous so real threads are never pinched.
+ */
+export const HELD_ENVELOPE_CAP = 5000;
+
 export type NotificationType =
   | 'follow'
   | 'mention'
@@ -565,7 +575,11 @@ const dedupeKey = (input: NotificationInput): string | null => {
  * here is small (indices over message ids/mids), so this stays simple
  * rather than debounced.
  */
-export const createStore = (filePath: string): Store => {
+export const createStore = (
+  filePath: string,
+  opts?: { heldEnvelopeCap?: number },
+): Store => {
+  const heldCap = opts?.heldEnvelopeCap ?? HELD_ENVELOPE_CAP;
   let data: StoreData | null = null;
 
   const load = (): StoreData => {
@@ -1003,6 +1017,23 @@ export const createStore = (filePath: string): Store => {
       // Store verbatim. Deliberately NO pinKey call: bundle content is relayed,
       // never a direct delivery, so it must never seed a TOFU pin.
       d.heldEnvelopes[uuid] = { env, from, fromContactId, authorAddr, receivedAt };
+      // BOUND the held store: a met contact can send unsolicited envelope-bundles
+      // of signed junk, and thread-so-far / channel bundles arrive proactively —
+      // so held growth is not request-gated. Evict the OLDEST by receivedAt when
+      // over the cap (FIFO; a re-viewed thread re-backfills anything evicted).
+      const keys = Object.keys(d.heldEnvelopes);
+      if (keys.length > heldCap) {
+        let oldestKey = keys[0]!;
+        let oldestAt = d.heldEnvelopes[oldestKey]!.receivedAt;
+        for (const k of keys) {
+          const at = d.heldEnvelopes[k]!.receivedAt;
+          if (at < oldestAt) {
+            oldestAt = at;
+            oldestKey = k;
+          }
+        }
+        if (oldestKey !== uuid) delete d.heldEnvelopes[oldestKey];
+      }
       save();
       return true;
     },

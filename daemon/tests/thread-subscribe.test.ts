@@ -259,6 +259,25 @@ describe('HOST: republishReplyToThread', () => {
     await republishReplyToThread(store, transport, replyMsg(REPLY2), false);
     expect(channelPosts).toHaveLength(0);
   });
+
+  it('does not republish a reply whose signature does not verify against the sender', async () => {
+    // Defense in depth: the host must re-verify before broadcasting to
+    // subscribers, so a signature/sender mismatch is never amplified into the
+    // channel (nor does it burn the republish-dedupe slot for that uuid).
+    const store = hostedStore();
+    const { transport, channelPosts } = fakeTransport();
+    // Signed by BOB but arriving with a sender address of ALICE → verify fails.
+    const mismatched = makeMessage({
+      id: 63,
+      fromId: 22,
+      sender: makeContact({ id: 22, address: ALICE }),
+      text: serializeEnvelope(sign(buildReplyObject('deep', REPLY2, { u: REPLY1, addr: BOB }, undefined, rootRef()), BOB)),
+    });
+    expect(await republishReplyToThread(store, transport, mismatched, true)).toBe(false);
+    expect(channelPosts).toHaveLength(0);
+    // The uuid was NOT marked republished, so a later genuine copy still can.
+    expect(store.wasRepublished(REPLY2)).toBe(false);
+  });
 });
 
 describe('SUBSCRIBER: handleThreadInviteGrant', () => {

@@ -974,7 +974,10 @@ export const createApp = (
         })().catch((err) => console.error('orig reply copies failed (non-fatal):', err));
         return c.json(await toStatus(transport, msg, media?.description ?? null));
       }
-      const target = await transport.message(Number(inReplyToId));
+      // A non-numeric, non-orig id (e.g. junk) is a clean 404, never a
+      // Number(NaN) -> transport.message(NaN) crash.
+      if (parsedParent?.kind !== 'msg') return c.json({ error: 'Record not found' }, 404);
+      const target = await transport.message(parsedParent.msgId);
       if (!target) return c.json({ error: 'Record not found' }, 404);
       // The reply target's ref TOKEN: its logical-post uuid if it carries one,
       // else a canonical/mid ref. A uuid ref resolves on any node holding any
@@ -1538,7 +1541,11 @@ export const createApp = (
     if (contactId === DC_CONTACT_ID_SELF) {
       const { readFile } = await import('node:fs/promises');
       const data = await readFile(headerPath).catch(() => null);
-      if (data) return new Response(new Uint8Array(data));
+      if (data) {
+        return new Response(new Uint8Array(data), {
+          headers: { 'Content-Type': contentTypeForPath(headerPath) },
+        });
+      }
     }
     return gradientHeader(c);
   });

@@ -40,6 +40,7 @@ import {
   parseEnvelope,
 } from './envelope.js';
 import { parseWireThreadInviteRequest, parseWireThreadInviteGrant } from './wire.js';
+import { verify } from './attest.js';
 import { buildServeBundles, processBundle } from './backfill-ingest.js';
 import { collectThreadUuids } from './thread-collect.js';
 import type { Store } from './store.js';
@@ -148,6 +149,13 @@ export const republishReplyToThread = async (
   // Only republish a SIGNED reply (verbatim, attestable). An unsigned/legacy
   // reply has nothing to attest — omit (never fabricate).
   if (!env.sig || !env.pubkey) return false;
+  // Re-VERIFY before broadcasting to subscribers (defense in depth): the outer
+  // message is core-PGP-verified from its sender, so the reply author IS the
+  // sender — a signature that doesn't verify against the sender addr is
+  // tampered/forged content we must not amplify into the channel. Check BEFORE
+  // marking republished so a bad copy never burns the dedupe slot for a later
+  // genuine one.
+  if (!verify(env, msg.sender.address)) return false;
   // Dedupe: never republish the same uuid twice.
   if (store.wasRepublished(env.uuid)) return false;
   store.markRepublished(env.uuid);

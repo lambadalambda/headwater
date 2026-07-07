@@ -71,6 +71,25 @@ describe('held-envelope store', () => {
     expect(store.pinnedKey(ALICE)).toBeNull();
   });
 
+  it('caps held envelopes, evicting the oldest (bounds hostile bundle injection)', () => {
+    const cap = 5;
+    const store = createStore(filePath, { heldEnvelopeCap: cap });
+    // Fill to the cap, oldest first (receivedAt = insertion order).
+    for (let i = 0; i < cap; i++) {
+      const u = `held-${i.toString().padStart(6, '0')}-0000-4000-8000-000000000000`;
+      store.addHeldEnvelope(signedPost(u), BOB, 22, ALICE, i);
+    }
+    expect(store.heldEnvelopeUuids()).toHaveLength(cap);
+    const oldest = `held-${'0'.padStart(6, '0')}-0000-4000-8000-000000000000`;
+    expect(store.heldEnvelope(oldest)).not.toBeNull();
+    // One more over the cap evicts the oldest, not the newcomer.
+    const extra = 'held-extra1-0000-4000-8000-000000000000';
+    store.addHeldEnvelope(signedPost(extra), BOB, 22, ALICE, cap);
+    expect(store.heldEnvelopeUuids()).toHaveLength(cap);
+    expect(store.heldEnvelope(oldest), 'oldest evicted').toBeNull();
+    expect(store.heldEnvelope(extra), 'newcomer kept').not.toBeNull();
+  });
+
   it('computes held children of a parent uuid from stored refs', () => {
     const store = createStore(filePath);
     const reply: Envelope = {

@@ -693,6 +693,17 @@ describe('media uploads', () => {
 });
 
 describe('POST /api/v1/statuses with in_reply_to_id', () => {
+  it('rejects a non-numeric, non-orig reply target with 404 (never a 500)', async () => {
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+    const res = await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'reply to junk', in_reply_to_id: 'not-an-id' }),
+    });
+    expect(res.status).toBe(404);
+  });
+
   it('posts a reply to own feed as a v2 envelope (no quotedText) and DMs the author byte-identically', async () => {
     const { transport, posts, dms } = makeFakeTransport();
     const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
