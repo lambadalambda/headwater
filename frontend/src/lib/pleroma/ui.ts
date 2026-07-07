@@ -92,6 +92,8 @@ export type PleromaStatusView = TimelinePost & {
 	reactions: PleromaReactionView[];
 	bookmarked: boolean;
 	rebloggedBy?: PleromaAccountView;
+	/** deltanet thread-subscribe: true iff this status is a thread root the user subscribes to. */
+	threadSubscribed: boolean;
 	pleroma: {
 		conversationId?: number;
 		local?: boolean;
@@ -837,6 +839,7 @@ export const adaptPleromaStatus = (status: PleromaStatus, options: AdaptPleromaS
 		reactions: adaptStatusReactions(source),
 		bookmarked: source.bookmarked === true,
 		rebloggedBy: booster,
+		threadSubscribed: source.pleroma.deltanet?.thread_subscribed === true,
 		pleroma: {
 			conversationId: source.pleroma.conversation_id,
 			local: source.pleroma.local,

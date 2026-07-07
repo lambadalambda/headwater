@@ -392,6 +392,22 @@ export const createPleromaClient = (config: ClientConfig) => {
 				auth: 'required'
 			}),
 
+		// Thread subscription (deltanet thread-subscribe): keep updated on a thread
+		// regardless of who participates. `:id` is the thread ROOT status id.
+		subscribeThread: (id: string) =>
+			http.request<PleromaStatus>({
+				method: 'POST',
+				path: `/api/v1/pleroma/statuses/${encodePathSegment(id)}/subscribe`,
+				auth: 'required'
+			}),
+
+		unsubscribeThread: (id: string) =>
+			http.request<PleromaStatus>({
+				method: 'DELETE',
+				path: `/api/v1/pleroma/statuses/${encodePathSegment(id)}/subscribe`,
+				auth: 'required'
+			}),
+
 		bookmarkStatus: (id: string) =>
 			http.request<PleromaStatus>({
 				method: 'POST',

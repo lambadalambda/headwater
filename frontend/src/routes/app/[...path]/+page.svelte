@@ -111,6 +111,8 @@
 		source?: string;
 		views?: string | null;
 		nestedReplies?: ThreadViewPost[];
+		/** deltanet thread-subscribe: true iff this (root) status is subscribed. */
+		threadSubscribed?: boolean;
 	};
 	type HomeTimelineSuccess = PaginatedTimelineSuccess<PleromaStatusView, PleromaRequestErrorView> & {
 		newerPosts: PleromaStatusView[];
@@ -630,7 +632,8 @@
 		...postForRebuild(post),
 		fullTime: threadFullTime(post.createdAt),
 		source: post.applicationName ?? 'Pleroma',
-		views: null
+		views: null,
+		threadSubscribed: post.threadSubscribed
 	});
 	const profilePostForRebuild = (post: PleromaStatusView): ProfilePost => postForRebuild(post);
 	const profileMediaItem = (attachment: PleromaStatusView['mediaAttachments'][number]): ProfileMediaItem | null => {
@@ -1238,7 +1241,51 @@
 			}
 		})();
 	};
+	// deltanet thread-subscribe: subscribe/unsubscribe to the thread rooted at the
+	// focused (root) status. Optimistically flips `threadSubscribed` on the focused
+	// post; on the unreachable-author 422 it reverts + shows a clean toast.
+	const mutateThreadSubscription = (targetId: string, subscribe: boolean) => {
+		const session = currentSession;
+		if (!session || !targetId) return;
+		const requestSessionKey = sessionKey(session);
+		const applySubscribed = (value: boolean) => {
+			if (threadState.status !== 'success') return;
+			if (!matchesStatusActionTarget(threadState.focused, targetId)) return;
+			threadState = { ...threadState, focused: { ...threadState.focused, threadSubscribed: value } };
+		};
+		applySubscribed(subscribe); // optimistic
+		void (async () => {
+			try {
+				const client = createPleromaClient({ instanceUrl: session.instanceUrl, accessToken: session.accessToken, fetch: window.fetch.bind(window) });
+				const status = subscribe ? await client.subscribeThread(targetId) : await client.unsubscribeThread(targetId);
+				if (!isCurrentSessionRequest(requestSessionKey)) return;
+				applySubscribed(adaptPleromaStatus(status).threadSubscribed);
+				flashPostControl(subscribe ? 'Subscribed to thread' : 'Unsubscribed from thread');
+			} catch (error) {
+				if (!isCurrentSessionRequest(requestSessionKey)) return;
+				applySubscribed(!subscribe); // revert
+				const normalized = normalizePleromaRequestError(error);
+				if (normalized.reauthRequired) {
+					signOutPleroma(localStorage);
+					redirectToLanding();
+					return;
+				}
+				// The daemon returns 422 (code:'unreachable_author') when there's no
+				// key path to the thread author yet — surface it distinctly.
+				flashPostControl(
+					normalized.status === 422
+						? "Can't reach the thread author yet"
+						: `${subscribe ? 'Subscribe' : 'Unsubscribe'} failed: ${normalized.title}`
+				);
+			}
+		})();
+	};
 	const handleManageAction = (post: RebuildPost, key: string, originRoute: StatusActionOrigin): boolean => {
+		if (key === 'subscribe' || key === 'unsubscribe') {
+			const targetId = statusActionTargetId(post);
+			if (targetId) mutateThreadSubscription(targetId, key === 'subscribe');
+			return true;
+		}
 		if (key === 'bookmark') {
 			const targetId = statusActionTargetId(post);
 			if (targetId) mutateBookmark(targetId, post.bookmarked === true, originRoute);
@@ -1843,7 +1890,7 @@
 			if (post) handleReactionAction(post, key, 'thread');
 			return;
 		}
-		if (key === 'bookmark' || key === 'copy-link' || key === 'delete' || key === 'mute' || key === 'block') {
+		if (key === 'bookmark' || key === 'copy-link' || key === 'delete' || key === 'mute' || key === 'block' || key === 'subscribe' || key === 'unsubscribe') {
 			const post = findThreadPost(postId);
 			if (post) handleManageAction(post, key, 'thread');
 			return;

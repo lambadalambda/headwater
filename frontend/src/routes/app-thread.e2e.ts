@@ -1196,3 +1196,64 @@ test('real thread route links reply chips and body mentions to full federated ha
 	const bodyMention = focused.locator('.focused-body a', { hasText: '@lain' });
 	await expect(bodyMention).toHaveAttribute('href', '/app/profiles/lain%40lain.com');
 });
+
+test('thread root: subscribe to thread flips the menu to Unsubscribe', async ({ page }) => {
+	await authenticate(page);
+	// Focused root NOT yet subscribed.
+	const root = statusWithText('status-1', 'quiet CSS can still carry the voice.', {
+		pleroma: {
+			...pleromaFixtures.status.pleroma,
+			content: { 'text/plain': 'quiet CSS can still carry the voice.' },
+			conversation_id: 99,
+			spoiler_text: { 'text/plain': '' },
+			deltanet: { thread_subscribed: false }
+		}
+	});
+	await mockThread(page, root, []);
+	// The subscribe endpoint returns the root now flagged subscribed.
+	await page.route('https://pleroma.example/api/v1/pleroma/statuses/status-1/subscribe', async (route) => {
+		expect(route.request().method()).toBe('POST');
+		await fulfillJson(route, {
+			...root,
+			pleroma: { ...root.pleroma, deltanet: { thread_subscribed: true } }
+		});
+	});
+	await setViewport(page, 'desktop');
+	await page.goto('/app/thread/status-1');
+
+	const focused = page.getByTestId('focused-post');
+	await focused.getByRole('button', { name: 'More post actions' }).click();
+	await focused.getByTestId('thread-subscribe').click();
+	await expect(page.getByText('Subscribed to thread')).toBeVisible();
+	// Reopen the menu — it now offers Unsubscribe.
+	await focused.getByRole('button', { name: 'More post actions' }).click();
+	await expect(focused.getByTestId('thread-unsubscribe')).toBeVisible();
+});
+
+test('thread root: unreachable author shows a clean error toast', async ({ page }) => {
+	await authenticate(page);
+	const root = statusWithText('status-1', 'quiet CSS can still carry the voice.', {
+		pleroma: {
+			...pleromaFixtures.status.pleroma,
+			content: { 'text/plain': 'quiet CSS can still carry the voice.' },
+			conversation_id: 99,
+			spoiler_text: { 'text/plain': '' },
+			deltanet: { thread_subscribed: false }
+		}
+	});
+	await mockThread(page, root, []);
+	// The daemon 422s when there is no key path to the thread author yet.
+	await page.route('https://pleroma.example/api/v1/pleroma/statuses/status-1/subscribe', async (route) => {
+		await fulfillJson(route, { error: "can't reach the thread author yet", code: 'unreachable_author' }, 422);
+	});
+	await setViewport(page, 'desktop');
+	await page.goto('/app/thread/status-1');
+
+	const focused = page.getByTestId('focused-post');
+	await focused.getByRole('button', { name: 'More post actions' }).click();
+	await focused.getByTestId('thread-subscribe').click();
+	await expect(page.getByText("Can't reach the thread author yet")).toBeVisible();
+	// The toggle reverted — reopening still shows Subscribe.
+	await focused.getByRole('button', { name: 'More post actions' }).click();
+	await expect(focused.getByTestId('thread-subscribe')).toBeVisible();
+});

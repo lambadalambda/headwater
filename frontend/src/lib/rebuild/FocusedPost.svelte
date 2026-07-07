@@ -31,6 +31,8 @@
 		own?: boolean;
 		authorHandle?: string;
 		statusUrl?: string;
+		/** deltanet thread-subscribe: true iff the viewer is subscribed to this thread root. */
+		threadSubscribed?: boolean;
 		replies: number;
 		boosts: number;
 		favs: number;
@@ -122,6 +124,13 @@
 				<div class="post-action-menu" role="menu" style={menuStyle}>
 					{#if post.statusUrl}
 						<button type="button" role="menuitem" onclick={() => runMenuAction('copy-link')}>Copy link to post</button>
+					{/if}
+					{#if canManage}
+						{#if post.threadSubscribed}
+							<button type="button" role="menuitem" data-testid="thread-unsubscribe" onclick={() => runMenuAction('unsubscribe')}>Unsubscribe from thread</button>
+						{:else}
+							<button type="button" role="menuitem" data-testid="thread-subscribe" onclick={() => runMenuAction('subscribe')}>Subscribe to thread</button>
+						{/if}
 					{/if}
 					{#if canManage && post.own}
 						{#if confirmDelete}

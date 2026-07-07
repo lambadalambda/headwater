@@ -117,6 +117,13 @@ export type PleromaStatus = {
 		quote_visible?: boolean;
 		quotes_count?: number;
 		spoiler_text?: Record<string, string>;
+		/** deltanet-specific markers (boost placeholder, thread subscription). */
+		deltanet?: {
+			placeholder?: 'boost' | 'boost-unverified';
+			ref?: { key: string; addr: string };
+			/** True iff this status is a thread root the user is subscribed to. */
+			thread_subscribed?: boolean;
+		};
 		[key: string]: unknown;
 	};
 	reblog: PleromaStatus | null;
