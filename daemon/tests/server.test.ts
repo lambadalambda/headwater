@@ -5,7 +5,7 @@ import type { T } from '@deltachat/jsonrpc-client';
 import { createApp, type AppContext } from '../src/server.js';
 import type { TimelineQuery, Transport } from '../src/transport/types.js';
 import { createStore, ephemeralStorePath } from '../src/store.js';
-import { buildReplyText, mintPostUuid, refFromToken, type RefToken } from '../src/protocol.js';
+import { buildReactionText, buildReplyText, mintPostUuid, refFromToken, type RefToken } from '../src/protocol.js';
 import { buildInviteRequestEnvelope, parseEnvelope } from '../src/envelope.js';
 import { decodeBackupContainer, encodeBackupContainer } from '../src/backup.js';
 import { openAttestor } from '../src/attest.js';
@@ -156,6 +156,8 @@ const makeFakeTransport = () => {
     blobPath: async () => null,
     stats: async () => ({ followers: 3, following: 2, statuses: 7 }),
     messageMid: async (msgId) => mids.get(msgId) ?? null,
+    searchMessages: async (query) =>
+      messages.filter((m) => m.text.toLowerCase().includes(query.toLowerCase())).map((m) => m.id),
     sendControlDm: async (contactId, text, quotedText) => {
       dms.push({ contactId, text, quotedText });
     },
@@ -2759,5 +2761,103 @@ describe('body mentions on status JSON', () => {
     expect(res.status).toBe(200);
     const status = (await res.json()) as any;
     expect(status.mentions.filter((m: any) => m.acct === BOB.address)).toHaveLength(1);
+  });
+});
+
+// --- search (meta/issues/search.md) -----------------------------------------
+
+describe('GET /api/v2/search', () => {
+  it('401s unconfigured; blank q returns the empty shape', async () => {
+    expect((await createApp(makeUnconfiguredCtx(), { baseUrl: BASE }).request('/api/v2/search?q=x')).status).toBe(401);
+    const res = await makeApp().request('/api/v2/search?q=');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ accounts: [], statuses: [], hashtags: [] });
+  });
+
+  it('finds known users (by petname too) and known posts', async () => {
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+    await app.request('/api/deltanet/contacts/11/petname', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ petname: 'bobcat' }),
+    });
+
+    const byPetname = (await (await app.request('/api/v2/search?q=bobcat')).json()) as any;
+    expect(byPetname.accounts.map((a: any) => a.id)).toEqual(['11']);
+
+    const byText = (await (await app.request('/api/v2/search?q=newest')).json()) as any;
+    expect(byText.statuses.map((s: any) => s.content)).toEqual(['<p>newest, from bob</p>']);
+    expect(byText.hashtags).toEqual([]);
+  });
+
+  it('type narrows to accounts or statuses', async () => {
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+    const accountsOnly = (await (await app.request('/api/v2/search?q=bob&type=accounts')).json()) as any;
+    expect(accountsOnly.statuses).toEqual([]);
+    expect(accountsOnly.accounts.length).toBe(1);
+    const statusesOnly = (await (await app.request('/api/v2/search?q=bob&type=statuses')).json()) as any;
+    expect(statusesOnly.accounts).toEqual([]);
+  });
+
+  it('never surfaces control DMs and dedupes feed/DM copies of one logical post', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'deltanet-search-test-'));
+    const store = createStore(join(dir, 'store.json'));
+    const { transport, messages, mids } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store, dataDir: dir });
+
+    // A reaction control DM whose text matches the query must never surface.
+    const reactionMsg = makeMessage({
+      id: 60,
+      fromId: 11,
+      sender: BOB,
+      text: buildReactionText('👍', midTok('mid-10@example.org')) + ' sizzle',
+    });
+    messages.push(reactionMsg);
+    mids.set(60, 'mid-60@example.org');
+
+    // One logical reply, two copies (same uuid): feed + DM.
+    const uuid = mintPostUuid();
+    const replyText = buildReplyText(`sizzle reply body`, midRef('mid-10@example.org', 'p6yalimhl@nine.testrun.org'), uuid);
+    const feedCopy = makeMessage({ id: 61, fromId: 11, sender: BOB, text: replyText, timestamp: 1751900100 });
+    const dmCopy = makeMessage({ id: 62, fromId: 11, sender: BOB, text: replyText, timestamp: 1751900100 });
+    messages.push(feedCopy, dmCopy);
+    mids.set(61, 'mid-61@example.org');
+    mids.set(62, 'mid-62@example.org');
+    store.ingestMessage(feedCopy, 'mid-61@example.org', true);
+    store.ingestMessage(dmCopy, 'mid-62@example.org', false);
+
+    const result = (await (await app.request('/api/v2/search?q=sizzle')).json()) as any;
+    expect(result.statuses.length, 'one logical post, no control DMs').toBe(1);
+    expect(String(result.statuses[0].id)).toBe('61');
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('surfaces VERIFIED held envelopes matching the query as orig- statuses', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'deltanet-search-held-'));
+    const store = createStore(join(dir, 'store.json'));
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store, dataDir: dir });
+
+    // A properly SIGNED held envelope (verify-at-render must pass).
+    const authorAddr = 'stranger@far.example';
+    const attestor = openAttestor(join(dir, 'stranger-key.json'));
+    const heldUuid = mintPostUuid();
+    const env = { dn: 2, type: 'post' as const, uuid: heldUuid, text: 'held glimmer content' };
+    const signed = { ...env, ...attestor.sign(env, authorAddr) };
+    store.addHeldEnvelope(signed, BOB.address, 11, authorAddr, Date.now());
+
+    // And an unverifiable one (tampered) that must never surface.
+    const badUuid = mintPostUuid();
+    const bad = { dn: 2, type: 'post' as const, uuid: badUuid, text: 'held glimmer forged' };
+    const badSigned = { ...bad, ...attestor.sign(bad, authorAddr), text: 'held glimmer forged!!' };
+    store.addHeldEnvelope(badSigned, BOB.address, 11, authorAddr, Date.now());
+
+    const result = (await (await app.request('/api/v2/search?q=glimmer')).json()) as any;
+    expect(result.statuses.map((s: any) => s.id)).toEqual([`orig-${heldUuid}`]);
+
+    rmSync(dir, { recursive: true, force: true });
   });
 });

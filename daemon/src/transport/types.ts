@@ -145,6 +145,11 @@ export interface Transport {
   blobPath(msgId: number): Promise<string | null>;
   /** Real follower/following/post counts for the self account. */
   stats(): Promise<{ followers: number; following: number; statuses: number }>;
+  /**
+   * Core's full-text message search across ALL chats (search feature). Returns
+   * msg ids; the caller filters to content messages and dedupes copies.
+   */
+  searchMessages(query: string): Promise<number[]>;
   /** The message's global email Message-ID (rfc724Mid), or null if it can't be resolved. */
   messageMid(msgId: number): Promise<string | null>;
   /** Send a 1:1 DM to a contact (creating the chat if needed), e.g. the reply-notify copy. */

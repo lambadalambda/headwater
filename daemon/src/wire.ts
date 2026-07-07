@@ -115,6 +115,24 @@ export const parseWire = (text: string): ParsedWire => {
 };
 
 /**
+ * Is this wire text a CONTENT message (post/reply/boost) worth surfacing in
+ * search results — as opposed to a reaction/invite/backfill CONTROL message?
+ * v2 envelopes classify by type; legacy text is content unless it parses as
+ * a legacy control marker. Empty text is never content. Pure.
+ */
+export const isSearchableContent = (text: string): boolean => {
+  if (!text.trim()) return false;
+  const env = parseEnvelope(text);
+  if (env) return env.type === 'post' || env.type === 'reply' || env.type === 'boost';
+  if (parseWireReaction(text)) return false;
+  if (parseWireInviteRequest(text)) return false;
+  if (parseWireInviteGrant(text) !== null) return false;
+  if (parseWireThreadInviteRequest(text) !== null) return false;
+  if (parseWireThreadInviteGrant(text) !== null) return false;
+  return true;
+};
+
+/**
  * This message's own logical-post UUID, v2-first then the legacy `⚑` marker.
  * Null for messages that never minted a uuid (pre-v1, or a control message).
  */

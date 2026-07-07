@@ -63,6 +63,36 @@ export const rankedContactMatches = (
 };
 
 /**
+ * The USER-SEARCH candidate list (see ../meta/issues/search.md): like
+ * `rankedContactMatches` but WITHOUT the key-contact filter — search is
+ * discovery, not deliverability, so keyless address rows (people we know of
+ * through whatever way) count too. Rows are deduped by address with the
+ * key-contact row winning (core keeps key- and address-rows separately for
+ * the same addr). Never SELF. Pure.
+ */
+export const rankedContactSearch = (
+  contacts: T.Contact[],
+  query: string,
+  limit: number,
+): T.Contact[] => {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const byAddr = new Map<string, T.Contact>();
+  for (const contact of contacts) {
+    if (contact.id === 1) continue;
+    const key = contact.address.toLowerCase();
+    const existing = byAddr.get(key);
+    if (!existing || (contact.isKeyContact && !existing.isKeyContact)) byAddr.set(key, contact);
+  }
+  return [...byAddr.values()]
+    .map((contact) => ({ contact, rank: matchRank(contact, q) }))
+    .filter((entry): entry is { contact: T.Contact; rank: number } => entry.rank !== null)
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, limit)
+    .map((entry) => entry.contact);
+};
+
+/**
  * All addresses mentioned in `body`, lowercased and deduped, in first-seen
  * order. Pure.
  */

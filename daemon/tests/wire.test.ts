@@ -188,3 +188,27 @@ describe('parseWireInviteRequest / parseWireInviteGrant', () => {
     expect(parseWireInviteRequest('hello')).toBe(false);
   });
 });
+
+import { isSearchableContent } from '../src/wire.js';
+import {
+  buildPostEnvelope as buildPostEnv,
+  buildInviteRequestEnvelope as buildInviteReqEnv,
+  buildEnvelopeRequest as buildEnvReq,
+} from '../src/envelope.js';
+import { buildReactionText as buildReactText } from '../src/protocol.js';
+
+describe('isSearchableContent (search post filter)', () => {
+  const UUID9 = '99999999-2222-4333-8444-555555555555';
+
+  it('accepts v2 content envelopes and legacy plain text', () => {
+    expect(isSearchableContent(buildPostEnv('hello world', UUID9))).toBe(true);
+    expect(isSearchableContent('a plain legacy post')).toBe(true);
+  });
+
+  it('rejects control messages (reactions, invites, backfill)', () => {
+    expect(isSearchableContent(buildReactText('👍', { kind: 'mid', mid: 'x@y.org' }))).toBe(false);
+    expect(isSearchableContent(buildInviteReqEnv())).toBe(false);
+    expect(isSearchableContent(buildEnvReq([{ u: UUID9, addr: 'a@b.co' }]))).toBe(false);
+    expect(isSearchableContent('')).toBe(false);
+  });
+});

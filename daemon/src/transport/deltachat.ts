@@ -865,6 +865,8 @@ const buildTransport = (
       return { followers, following, statuses };
     },
 
+    searchMessages: async (query) => rpc.searchMessages(accountId, query, null).catch(() => []),
+
     messageMid: resolveMid,
 
     sendControlDm: async (contactId, text, quotedText) => {

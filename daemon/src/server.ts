@@ -36,9 +36,9 @@ import {
   type Envelope,
   type EnvelopeRef,
 } from './envelope.js';
-import { parseWire, parseWireUuid } from './wire.js';
+import { isSearchableContent, parseWire, parseWireUuid } from './wire.js';
 import { openAttestor, sha256File } from './attest.js';
-import { parseBodyMentions, rankedContactMatches } from './mentions.js';
+import { parseBodyMentions, rankedContactMatches, rankedContactSearch } from './mentions.js';
 import {
   BackupDecodeError,
   backupFilename,
@@ -969,6 +969,70 @@ export const createApp = (
     const followedIds = new Set((await followedFeeds(transport)).map((f) => f.contactId));
     const relationship = relationshipForContact(contact, followedIds);
     return c.json(contactToAccount(contact, baseUrl, relationship));
+  });
+
+  // Search (see ../meta/issues/search.md): users we know about (every contact
+  // row, key or keyless — search is discovery, not deliverability) + posts we
+  // know about (core's full-text search over all chats, filtered to CONTENT
+  // messages and deduped so a reply's feed/DM copies collapse; plus VERIFIED
+  // held envelopes we never received directly). No hashtag system → [].
+  app.get('/api/v2/search', requireTransport, async (c) => {
+    const transport = c.get('transport');
+    const q = (c.req.query('q') ?? '').trim();
+    const type = c.req.query('type');
+    const limit = Math.max(1, Math.min(intParam(c.req.query('limit')) ?? 20, 40));
+    if (!q) return c.json({ accounts: [], statuses: [], hashtags: [] });
+
+    const accounts =
+      type && type !== 'accounts'
+        ? []
+        : rankedContactSearch(await transport.contacts(), q, limit).map((contact) =>
+            contactToAccount(contact, baseUrl),
+          );
+
+    let statuses: MastodonStatus[] = [];
+    if (!type || type === 'statuses') {
+      const seenKeys = new Set<string>();
+      const hits: T.Message[] = [];
+      // Overfetch: some ids are control DMs or duplicate copies.
+      for (const msgId of (await transport.searchMessages(q)).slice(0, limit * 4)) {
+        if (hits.length >= limit) break;
+        const msg = await transport.message(msgId);
+        if (!msg || !isSearchableContent(msg.text)) continue;
+        // Collapse copies of one logical post onto the store-preferred copy
+        // (the feed copy when both exist).
+        const key = parseWireUuid(msg.text);
+        const canonicalId = key !== null ? (store.resolveKey(key) ?? msg.id) : msg.id;
+        const dedupeKey = key ?? `msg:${canonicalId}`;
+        if (seenKeys.has(dedupeKey)) continue;
+        seenKeys.add(dedupeKey);
+        const canonical = canonicalId === msg.id ? msg : await transport.message(canonicalId);
+        hits.push(canonical ?? msg);
+      }
+      statuses = await Promise.all(
+        hits.map((msg) => toStatus(transport, msg, mediaStore.descriptionForMessage(msg.id))),
+      );
+
+      // Held envelopes: verified-only (heldStatus runs the render-time verify
+      // ladder and returns null on failure), text-matched, and only for posts
+      // with NO local copy (a local copy is already covered by core's search).
+      const needle = q.toLowerCase();
+      for (const uuid of store.heldEnvelopeUuids()) {
+        if (statuses.length >= limit) break;
+        if (seenKeys.has(uuid) || store.resolveKey(uuid) !== null) continue;
+        const held = store.heldEnvelope(uuid);
+        if (!held?.env.text || !held.env.text.toLowerCase().includes(needle)) continue;
+        const status = await mapper.heldStatus(transport, uuid, heldReplyParentId(held.env));
+        if (!status) continue;
+        seenKeys.add(uuid);
+        statuses.push(status);
+      }
+
+      statuses.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+      statuses = statuses.slice(0, limit);
+    }
+
+    return c.json({ accounts, statuses, hashtags: [] });
   });
 
   // Mention autocomplete (see ../meta/issues/mention-addressing-autocomplete.md):

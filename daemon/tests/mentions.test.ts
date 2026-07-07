@@ -98,3 +98,34 @@ describe('rankedContactMatches', () => {
     expect(rankedContactMatches([carol], '  ', 10)).toEqual([]);
   });
 });
+
+import { rankedContactSearch } from '../src/mentions.js';
+
+describe('rankedContactSearch (user search)', () => {
+  const carolKey = makeContact({
+    id: 12, address: 'zbie604yz@nine.testrun.org',
+    authName: 'Carol Sparkle', displayName: 'carol', name: 'carol', isKeyContact: true,
+  });
+  const carolAddrRow = makeContact({
+    id: 44, address: 'zbie604yz@nine.testrun.org',
+    authName: 'Carol Sparkle', displayName: 'Carol Sparkle', name: '', isKeyContact: false,
+  });
+  const strangerAddrRow = makeContact({
+    id: 45, address: 'carrington@other.org', authName: '',
+    displayName: 'carrington@other.org', name: '', isKeyContact: false,
+  });
+  const self = makeContact({ id: 1, name: 'carola', authName: '' });
+
+  it('includes keyless address rows (search is discovery, not deliverability)', () => {
+    expect(rankedContactSearch([strangerAddrRow], 'carrington', 10).map((c) => c.id)).toEqual([45]);
+  });
+
+  it('dedupes by address, preferring the key-contact row', () => {
+    const results = rankedContactSearch([carolAddrRow, carolKey], 'carol', 10);
+    expect(results.map((c) => c.id)).toEqual([12]);
+  });
+
+  it('still excludes SELF and respects the limit', () => {
+    expect(rankedContactSearch([self, carolKey, strangerAddrRow], 'car', 1).map((c) => c.id)).toEqual([12]);
+  });
+});

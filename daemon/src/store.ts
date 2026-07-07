@@ -496,7 +496,7 @@ export type Store = {
   heldEnvelope(uuid: string): HeldEnvelope | null;
   /** Drop a held envelope (e.g. when render-time verification fails hard). No-op if absent. */
   dropHeldEnvelope(uuid: string): void;
-  /** Every held-envelope uuid currently stored (for startup queue seeding / thread traversal). */
+  /** Every held-envelope uuid currently stored (startup seeding / thread traversal / search sweeps). */
   heldEnvelopeUuids(): string[];
   /**
    * The uuids of held envelopes that are REPLIES to `parentUuid` (their `ref`
