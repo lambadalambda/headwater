@@ -1,5 +1,38 @@
 # deltanet devlog
 
+## 2026-07-07 — mention autocomplete + addressing
+
+Typing `@` in any composer now autocompletes over people you know — matched
+and ranked by petname first, then their name, then address — and mentioning
+someone ADDRESSES them: the same signed envelope is DM-copied to every
+mentioned key-contact, so the post reaches them even when they don't follow
+the poster, and they derive a `mention` notification. Body mention tokens
+render as names ("@carol"), full address as tooltip.
+
+Design + findings (meta/issues/mention-addressing-autocomplete.md):
+
+- **Wire format: `@local@domain` tokens in the plain body, nothing else.**
+  The body is inside the signed canonical payload, so mentions are signed by
+  construction — no envelope field, no dn4 bump, no downgrade surface. Both
+  ends parse one pure grammar (`parseBodyMentions`); what gets delivered and
+  notified is exactly what renders.
+- **The composer's autocomplete had been silently dead**: it called
+  `GET /api/v1/accounts/search`, which didn't exist — every keystroke 404'd
+  into an empty popup. The endpoint now serves ranked known key-contacts
+  (`rankedContactMatches`, pure) from a full `getContacts` listing.
+- **Delivery = the reply-DM-copy mechanism generalized**: after posting,
+  each mentioned addr resolves via `keyContactIdForAddr` and gets the
+  verbatim wire text; the reply parent/root and SELF are skipped (they
+  already get copies). Notification derivation dedupes by post key, so the
+  feed copy and DM copy collapse, and a reply-to-me that also mentions me
+  stays ONE notification.
+- Two live-relay traps: mention grammar must allow underscores in domain
+  labels (`_chatmail.example`), and body-mention resolution must probe
+  KEY-contacts first — `contactIdByAddr` returns address-contact rows and
+  missed securejoined peers. Also the joiner side of a securejoin finishes
+  after the inviter's 1000 event; tests that post immediately must wait for
+  `SecurejoinJoinerProgress` too.
+
 ## 2026-07-07 — petnames
 
 Anti-impersonation, part 1 (meta/issues/petnames.md): display names are

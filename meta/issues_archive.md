@@ -37,3 +37,4 @@
 - [x] [Flaky e2e: public-timeline stale-response test races the reload](issues/flaky-public-timeline-stale-response-test.md)
 - [x] ["Replying to" pill shows the address local part instead of the chosen name](issues/reply-pill-display-name.md)
 - [x] [Petnames: locally-assigned names, shown as a pill after the chosen name](issues/petnames.md)
+- [x] [Addressing + display-name autocomplete in the composer](issues/mention-addressing-autocomplete.md)

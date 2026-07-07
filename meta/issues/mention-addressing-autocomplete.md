@@ -8,7 +8,32 @@ autocomplete over people you know — by their chosen display names — and
 inserting one should produce a mention that addresses/notifies them and
 renders as the name, not the address.
 
-## Notes / open questions (to be resolved when picked up)
+## Decisions (2026-07-07, picked up)
+
+- **Wire format: mentions are `@local@domain` tokens in the plain body** —
+  no envelope change. The body is inside the signed canonical payload, so
+  mentions are signed by construction (no dn4 bump, no downgrade paths).
+  Both ends parse the same pure token grammar (`parseBodyMentions`).
+- **Delivery: mentioned contacts get the VERBATIM signed envelope as a
+  control DM** — exactly the reply-DM-copy mechanism, generalized. Send
+  side: after posting, resolve each mentioned addr via
+  `keyContactIdForAddr` (autocomplete only offers key-contacts, so this
+  normally succeeds; unreachable addrs are skipped best-effort) and skip
+  the reply parent (it already gets the reply copy). So a mention reaches
+  the person even when they don't follow the poster.
+- **Notification: the existing `mention` type.** Receive side derives it
+  when a fresh content message's body mentions OWN address (skipped when
+  the same message already notified as a reply-to-me; deduped by post key
+  so the feed copy and the DM copy collapse).
+- **Autocomplete: `GET /api/v1/accounts/search`** (which the composer
+  already calls — it 404'd into an empty list until now!) over KNOWN
+  key-contacts via core's `getContacts(query)`, ranked petname match
+  first, then their name, then address.
+- **Rendering: mention tokens display as names** — petname wins, else
+  their name — with the full address as tooltip; raw random local parts
+  never render as labels.
+
+## Notes / open questions (originally filed)
 
 - Candidate pool: contacts we hold (followed feeds + met contacts) via
   the existing search/accounts endpoints; the composer's
