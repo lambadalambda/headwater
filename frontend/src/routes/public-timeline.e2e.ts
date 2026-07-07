@@ -160,6 +160,12 @@ test('public timeline ignores stale responses from a superseded request', async 
 	});
 
 	await page.goto('/public');
+	// The held slot must be consumed by the PRE-reload page's request: on a
+	// slow runner the reload can interrupt this page before it ever fetched,
+	// making the post-reload request the held one — and the list never renders
+	// (flaked on CI exactly this way; see
+	// meta/issues/flaky-public-timeline-stale-response-test.md).
+	await expect.poll(() => requestCount).toBe(1);
 	await page.reload();
 	await expect(page.getByTestId('public-timeline-list')).toContainText('@datagram@retro.social');
 	releaseFirst();
