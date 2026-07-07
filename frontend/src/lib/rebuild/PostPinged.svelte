@@ -1,14 +1,19 @@
 <script lang="ts">
+	import PetnameChip from './PetnameChip.svelte';
 	import { profileHref } from './profile-links';
 
 	type Props = {
 		addressees?: string[];
-		/** Addressee handle (lowercased) -> chosen display name (deltanet mentions). */
+		/** Addressee handle (lowercased) -> their chosen name (deltanet mentions). */
 		addresseeNames?: Record<string, string>;
+		/** Addressee handle (lowercased) -> my local petname (deltanet mentions). */
+		addresseePetnames?: Record<string, string>;
 		focused?: boolean;
 	};
 
-	let { addressees = [], addresseeNames = {}, focused = false }: Props = $props();
+	let { addressees = [], addresseeNames = {}, addresseePetnames = {}, focused = false }: Props = $props();
+
+	const petnameFor = (address: string) => addresseePetnames[address.trim().toLowerCase()];
 	let parent = $derived(addressees[0]);
 	let cc = $derived(addressees.slice(1));
 
@@ -38,6 +43,7 @@
 				</svg>
 				<span class="post-pinged-handle">{chipLabel(parent)}</span>
 			</a>
+			{#if petnameFor(parent)}<PetnameChip petname={petnameFor(parent)!} />{/if}
 			{#if cc.length > 0}
 				<span class="post-pinged-also">· also</span>
 			{/if}

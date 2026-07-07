@@ -5,6 +5,7 @@
 	import ComposerPollPanel from './ComposerPollPanel.svelte';
 	import EmojiPicker from './EmojiPicker.svelte';
 	import Icon from './Icon.svelte';
+	import PetnameChip from './PetnameChip.svelte';
 	import type { PleromaRequestErrorView } from '$lib/pleroma/ui';
 	import type { BannerVariant } from './attachments';
 	import { composerUploadBadge, type ComposerEmoji, type ComposerMentionAccount, type ComposerPollDraft, type ComposerUpload } from './composer';
@@ -13,6 +14,8 @@
 		id?: string;
 		targetHandle: string;
 		targetName?: string;
+		targetAuthName?: string;
+		targetPetname?: string;
 		targetAvClass?: string;
 		targetAvBanner?: BannerVariant;
 		targetAvatarUrl?: string | null;
@@ -46,6 +49,8 @@
 		id,
 		targetHandle,
 		targetName,
+		targetAuthName,
+		targetPetname,
 		targetAvClass,
 		targetAvBanner,
 		targetAvatarUrl,
@@ -85,7 +90,9 @@
 	// The chosen display name leads everywhere a human reads it (chatmail
 	// handles are random registration strings); the handle stays the fallback
 	// and the tooltip.
-	let targetLabel = $derived(targetName || targetHandle);
+	// With a petname set, the pill leads with THEIR name and renders my petname
+	// as a separate chip (targetName === petname in that case).
+	let targetLabel = $derived(targetPetname ? (targetAuthName || targetName || targetHandle) : (targetName || targetHandle));
 	let formLabel = $derived(`Inline reply to ${targetLabel}`);
 	let avatarAlt = $derived(`${targetName || targetHandle} avatar`);
 	let targetAvatar = $derived({
@@ -165,6 +172,7 @@
 				<Icon name="reply" width={10} height={10} />
 				{targetLabel}
 			</span>
+			{#if targetPetname}<PetnameChip petname={targetPetname} />{/if}
 		</div>
 		<ComposerMentionEditor
 			value={draft}

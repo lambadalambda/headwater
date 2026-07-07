@@ -3335,3 +3335,73 @@ test('home timeline reconciles favourite counts and reactions from a streamed no
 	await expect(post.locator('[data-testid="post-reactions"]')).toContainText('1');
 	expect(homeTimelineRequests).toBe(0);
 });
+
+test('home timeline post header renders auth name + petname chip for renamed contacts', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [
+			{
+				...pleromaFixtures.status,
+				id: 'status-petname',
+				content: 'hello from carol',
+				pleroma: { ...pleromaFixtures.status.pleroma, content: { 'text/plain': 'hello from carol' } },
+				account: {
+					...pleromaFixtures.account,
+					id: '12',
+					username: 'zbie604yz',
+					acct: 'zbie604yz@nine.testrun.org',
+					// displayName prefers MY override (like core), so display_name
+					// arrives as the petname; auth_name carries their chosen name.
+					display_name: 'carol',
+					pleroma: { ...pleromaFixtures.account.pleroma, deltanet: { auth_name: 'Carol Sparkle', petname: 'carol' } }
+				}
+			}
+		]);
+	});
+
+	await setViewport(page, 'desktop');
+	await page.goto('/app/home');
+
+	const post = page.locator('.post').filter({ hasText: 'hello from carol' }).first();
+	// Main name = THEIR chosen name; my petname renders as chip chrome.
+	await expect(post.locator('.post-name')).toHaveText('Carol Sparkle');
+	await expect(post.getByTestId('petname-chip')).toContainText('carol');
+});
+
+test('home timeline reply pill shows their name plus my petname chip', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [
+			{
+				...pleromaFixtures.status,
+				id: 'status-petname-reply',
+				in_reply_to_id: 'parent-status',
+				in_reply_to_account_id: 'carol-account',
+				content: 'agreed!',
+				pleroma: {
+					...pleromaFixtures.status.pleroma,
+					content: { 'text/plain': 'agreed!' },
+					in_reply_to_account_acct: 'zbie604yz@nine.testrun.org'
+				},
+				mentions: [
+					{
+						id: 'carol-account',
+						url: 'https://pleroma.example/deltanet/contact/12',
+						username: 'zbie604yz',
+						acct: 'zbie604yz@nine.testrun.org',
+						display_name: 'carol',
+						auth_name: 'Carol Sparkle',
+						petname: 'carol'
+					}
+				]
+			}
+		]);
+	});
+
+	await setViewport(page, 'desktop');
+	await page.goto('/app/home');
+
+	const post = page.locator('.post').filter({ hasText: 'agreed!' }).first();
+	await expect(post.locator('.post-pinged-chip-parent .post-pinged-handle')).toHaveText('Carol Sparkle');
+	await expect(post.locator('.post-pinged').getByTestId('petname-chip')).toContainText('carol');
+});

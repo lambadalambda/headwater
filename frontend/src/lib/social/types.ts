@@ -147,8 +147,14 @@ export type SocialPost = {
 	media?: MediaVariant;
 	attachments?: PostAttachment[];
 	addressees?: string[];
-	/** Addressee handle (lowercased) -> chosen display name, when known (deltanet mentions). */
+	/** Addressee handle (lowercased) -> their chosen name, when known (deltanet mentions). */
 	addresseeNames?: Record<string, string>;
+	/** Addressee handle (lowercased) -> my local petname, when set (deltanet mentions). */
+	addresseePetnames?: Record<string, string>;
+	/** The author's self-chosen name (deltanet petnames; name above prefers my petname). */
+	authName?: string;
+	/** My local key-bound petname for the author, when set. */
+	petname?: string;
 	boostedBy?: BoostAttributionView;
 	copyJson?: unknown;
 	quotedPost?: QuotedPostView;

@@ -18,6 +18,9 @@ export type ProfilePost = PostLike & {
 	bodyEmojis?: CustomEmoji[];
 	addressees?: string[];
 	addresseeNames?: Record<string, string>;
+	addresseePetnames?: Record<string, string>;
+	authName?: string;
+	petname?: string;
 	attachments?: Attachment[];
 	replies: number;
 	boosts: number;

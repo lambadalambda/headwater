@@ -1387,6 +1387,62 @@ a { color: inherit; text-decoration: none; }
 	color: var(--ink-2);
 	font-size: 13px;
 }
+.pp-petname-edit {
+	margin-left: 6px;
+	color: var(--muted);
+	font-family: var(--mono);
+	font-size: 10px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.pp-petname-edit:hover { color: var(--accent-ink); }
+.pp-petname-form {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+	margin: 6px 0 2px;
+}
+.pp-petname-input {
+	min-width: 0;
+	flex: 0 1 240px;
+	padding: 5px 9px;
+	border: 1px solid var(--border-strong);
+	border-radius: 4px;
+	background: var(--panel-2);
+	font-size: 12.5px;
+}
+.pp-petname-save, .pp-petname-cancel {
+	padding: 5px 10px;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	background: var(--panel);
+	font-size: 12px;
+}
+.pp-petname-save { border-color: var(--accent-ink); background: var(--accent-ink); color: white; }
+.petname-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin-left: 6px;
+	padding: 1px 7px;
+	border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+	border-radius: 999px;
+	background: var(--accent-soft);
+	color: var(--accent-ink);
+	font-family: var(--mono);
+	font-size: 10.5px;
+	font-weight: 600;
+	line-height: 1.5;
+	vertical-align: middle;
+	white-space: nowrap;
+}
+.petname-chip-text {
+	max-width: 16ch;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
 .backup-status.backup-nag {
 	padding: 10px 14px;
 	border: 1px solid var(--border);

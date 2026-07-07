@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { DEFAULT_STATUS_CHARACTER_LIMIT, adaptPleromaNotifications, adaptPleromaStatus, adaptPleromaStatuses, formatRelativeStatusTime, htmlToPlainText, mediaPlaceholderText, normalizePleromaRequestError, profileSettingsFromAccount, profileUpdateFromSettings, statusCharacterLimit } from './ui';
+import { DEFAULT_STATUS_CHARACTER_LIMIT, adaptPleromaAccount, adaptPleromaNotifications, adaptPleromaProfile, adaptPleromaStatus, adaptPleromaStatuses, formatRelativeStatusTime, htmlToPlainText, mediaPlaceholderText, normalizePleromaRequestError, profileSettingsFromAccount, profileUpdateFromSettings, statusCharacterLimit } from './ui';
 import { pleromaFixtures } from './fixtures';
 import type { PleromaStatus } from './types';
 
@@ -779,4 +779,70 @@ test('reply addressees and body mentions canonicalize to full federated handles'
 		pleroma: { content: { 'text/plain': '@quietadmin hello.' } }
 	}));
 	expect(local.addressees).toEqual(['@quietadmin']);
+});
+
+test('account/profile adapters expose auth name + petname from pleroma.deltanet', () => {
+	const carol = {
+		...pleromaFixtures.account,
+		id: 'carol-account',
+		acct: 'zbie604yz@nine.testrun.org',
+		display_name: 'carol',
+		pleroma: { ...pleromaFixtures.account.pleroma, deltanet: { auth_name: 'Carol Sparkle', petname: 'carol' } }
+	};
+	const view = adaptPleromaAccount(carol);
+	expect(view.authName).toBe('Carol Sparkle');
+	expect(view.petname).toBe('carol');
+
+	const profile = adaptPleromaProfile(carol);
+	expect(profile.authName).toBe('Carol Sparkle');
+	expect(profile.petname).toBe('carol');
+
+	// No deltanet bag (fediverse account) -> nulls.
+	const plain = adaptPleromaAccount(pleromaFixtures.account);
+	expect(plain.authName).toBeNull();
+	expect(plain.petname).toBeNull();
+});
+
+test('status adapter carries the author petname + auth name onto the post view', () => {
+	const post = adaptPleromaStatus(withStatus({
+		id: 'petname-post',
+		account: {
+			...pleromaFixtures.account,
+			id: 'carol-account',
+			acct: 'zbie604yz@nine.testrun.org',
+			display_name: 'carol',
+			pleroma: { ...pleromaFixtures.account.pleroma, deltanet: { auth_name: 'Carol Sparkle', petname: 'carol' } }
+		}
+	}));
+	// name stays displayName (petname-first, like core); the pill render uses
+	// authName + petname to show "Carol Sparkle [carol]".
+	expect(post.name).toBe('carol');
+	expect(post.authName).toBe('Carol Sparkle');
+	expect(post.petname).toBe('carol');
+});
+
+test('addressee maps prefer the auth name and expose petnames separately', () => {
+	const post = adaptPleromaStatus(withStatus({
+		id: 'petname-reply',
+		in_reply_to_id: 'parent-status',
+		in_reply_to_account_id: 'carol-account',
+		content: 'hey!',
+		pleroma: {
+			content: { 'text/plain': 'hey!' },
+			in_reply_to_account_acct: 'zbie604yz@nine.testrun.org'
+		},
+		mentions: [
+			{
+				id: 'carol-account',
+				url: 'http://localhost:4030/deltanet/contact/12',
+				username: 'zbie604yz',
+				acct: 'zbie604yz@nine.testrun.org',
+				display_name: 'carol',
+				auth_name: 'Carol Sparkle',
+				petname: 'carol'
+			}
+		]
+	}));
+	expect(post.addresseeNames?.['@zbie604yz@nine.testrun.org']).toBe('Carol Sparkle');
+	expect(post.addresseePetnames?.['@zbie604yz@nine.testrun.org']).toBe('carol');
 });

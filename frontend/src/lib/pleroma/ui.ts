@@ -8,6 +8,10 @@ export type PleromaAccountView = {
 	id: string;
 	username: string;
 	displayName: string;
+	/** The name THEY chose (deltanet); null on fediverse accounts without the extension. */
+	authName: string | null;
+	/** MY local key-bound petname (deltanet); null when unset. */
+	petname: string | null;
 	acct: string;
 	handle: string;
 	url: string;
@@ -32,6 +36,8 @@ export type PleromaProfileView = {
 	username: string;
 	displayName: string;
 	displayNameEmojis: CustomEmoji[];
+	authName: string | null;
+	petname: string | null;
 	acct: string;
 	handle: string;
 	url: string;
@@ -229,21 +235,37 @@ const mentionAcctMap = (status: PleromaStatus): Record<string, string> => {
  * so the "Replying to" pill renders these names instead of handles; empty
  * for fediverse statuses whose mentions carry no display names.
  */
-const mentionNameMap = (status: PleromaStatus): Record<string, string> => {
+const mentionField = (values: Record<string, unknown>, key: string): string =>
+	typeof values[key] === 'string' ? (values[key] as string).trim() : '';
+
+const mentionMapFor = (
+	status: PleromaStatus,
+	pick: (values: Record<string, unknown>) => string,
+): Record<string, string> => {
 	const map: Record<string, string> = {};
 	for (const mention of status.mentions) {
 		if (!mention || typeof mention !== 'object') continue;
 		const values = mention as Record<string, unknown>;
-		const name = typeof values.display_name === 'string' ? values.display_name.trim() : '';
+		const name = pick(values);
 		if (!name) continue;
 		const full = handleFromAcct(values.acct);
 		if (!full) continue;
-		const username = typeof values.username === 'string' ? values.username.trim() : '';
+		const username = mentionField(values, 'username');
 		if (username) map[`@${username.toLowerCase()}`] = name;
 		map[full.toLowerCase()] = name;
 	}
 	return map;
 };
+
+// The THEIR-name label for a chip: auth_name (their self-chosen name) wins
+// over display_name, because display_name prefers MY petname override —
+// which renders separately as the petname pill.
+const mentionNameMap = (status: PleromaStatus): Record<string, string> =>
+	mentionMapFor(status, (values) => mentionField(values, 'auth_name') || mentionField(values, 'display_name'));
+
+/** Handle -> my local petname, when the mention carries one (deltanet). */
+const mentionPetnameMap = (status: PleromaStatus): Record<string, string> =>
+	mentionMapFor(status, (values) => mentionField(values, 'petname'));
 
 const directReplyAccountHandle = (status: PleromaStatus) => {
 	if (!status.in_reply_to_id) return null;
@@ -657,6 +679,8 @@ export const adaptPleromaAccount = (account: PleromaAccount): PleromaAccountView
 	id: account.id,
 	username: account.username,
 	displayName: displayName(account),
+	authName: typeof account.pleroma.deltanet?.auth_name === 'string' ? account.pleroma.deltanet.auth_name : null,
+	petname: typeof account.pleroma.deltanet?.petname === 'string' ? account.pleroma.deltanet.petname : null,
 	acct: account.acct,
 	handle: handle(account.acct),
 	url: account.url,
@@ -704,6 +728,8 @@ export const adaptPleromaProfile = (account: PleromaAccount, options: { instance
 	username: account.username,
 	displayName: displayName(account),
 	displayNameEmojis: adaptCustomEmojis(account.emojis),
+	authName: typeof account.pleroma.deltanet?.auth_name === 'string' ? account.pleroma.deltanet.auth_name : null,
+	petname: typeof account.pleroma.deltanet?.petname === 'string' ? account.pleroma.deltanet.petname : null,
 	acct: account.acct,
 	handle: handle(account.acct),
 	url: account.url,
@@ -824,6 +850,8 @@ export const adaptPleromaStatus = (status: PleromaStatus, options: AdaptPleromaS
 		timelines: timelineMembership(source, options),
 		name: account.displayName,
 		nameEmojis: account.emojis,
+		authName: account.authName ?? undefined,
+		petname: account.petname ?? undefined,
 		handle: account.handle,
 		time: formatRelativeStatusTime(source.created_at, options.now),
 		cw: warning || undefined,
@@ -831,6 +859,7 @@ export const adaptPleromaStatus = (status: PleromaStatus, options: AdaptPleromaS
 		bodyEmojis: adaptCustomEmojis(source.emojis),
 		addressees: body.addressees,
 		addresseeNames: mentionNameMap(source),
+		addresseePetnames: mentionPetnameMap(source),
 		mentionAccts: mentionAcctMap(source),
 		copyJson: status,
 		quotedPost: quotedPost ? adaptQuotedPost(quotedPost, options.now) : undefined,

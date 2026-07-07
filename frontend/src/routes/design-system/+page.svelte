@@ -389,6 +389,8 @@
 		username: 'soft.hertz',
 		displayName: 'soft.hertz ✦',
 		displayNameEmojis: [],
+		authName: null,
+		petname: null,
 		acct: 'soft.hertz@kolektiva.social',
 		handle: '@soft.hertz@kolektiva.social',
 		url: 'https://kolektiva.social/users/soft.hertz',

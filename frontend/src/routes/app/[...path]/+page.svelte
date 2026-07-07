@@ -34,6 +34,7 @@
 		fetchDeltanetInvite,
 		followDeltanetInvite,
 		isFeedInvite,
+		setDeltanetPetname,
 		type DeltanetBackupInfo
 	} from '$lib/pleroma/deltanet';
 	import { NOTIFICATION_POLL_EVENT, NOTIFICATION_POLL_INTERVAL_MS, readNotificationLastSeenAt, writeNotificationLastSeenAt } from '$lib/pleroma/notifications';
@@ -77,6 +78,8 @@
 		handle: string;
 		visibility: StatusVisibility;
 		name: string;
+		authName?: string;
+		petname?: string;
 		avClass?: string;
 		avBanner?: BannerVariant;
 		avatarUrl?: string | null;
@@ -89,6 +92,8 @@
 		threadStatusId?: string;
 		visibility?: StatusVisibility;
 		name: string;
+		authName?: string;
+		petname?: string;
 		nameEmojis?: SocialPost['nameEmojis'];
 		handle: string;
 		time: string;
@@ -193,6 +198,8 @@
 	let threadState = $state<ThreadState>({ status: 'idle' });
 	let profileRouteState = $state<ProfileState>({ status: 'idle' });
 	let profileFollowPending = $state(false);
+	let profilePetnamePending = $state(false);
+	let profilePetnameError = $state<string | null>(null);
 	let profileFollowError = $state<PleromaRequestErrorView | null>(null);
 	let notificationState = $state<NotificationState>({ status: 'idle' });
 	let searchState = $state<SearchState>({ status: 'idle' });
@@ -595,6 +602,8 @@
 			visibility: post.visibility,
 			name: account?.displayName ?? post.name,
 			nameEmojis: account?.emojis ?? post.nameEmojis,
+			authName: account?.authName ?? post.authName,
+			petname: account?.petname ?? post.petname,
 			handle: account?.handle ?? post.handle,
 			time: post.time,
 			createdAt: post.createdAt,
@@ -607,6 +616,7 @@
 			attachments: post.attachments,
 			addressees: post.addressees,
 			addresseeNames: post.addresseeNames,
+			addresseePetnames: post.addresseePetnames,
 			mentionAccts: post.mentionAccts,
 			boostedBy: post.boostedBy ? {
 				name: booster?.displayName ?? post.boostedBy.name,
@@ -1787,6 +1797,44 @@
 	const toggleComposerPoll = () => {
 		composerPoll = composerPoll ? null : createComposerPollDraft();
 	};
+	// Petnames (meta/issues/petnames.md): save my local name for the viewed
+	// contact, then merge ONLY the name fields back into the profile state —
+	// the endpoint's account payload carries no relationship, so re-adapting it
+	// wholesale would wrongly reset followState.
+	const saveProfilePetname = async (petname: string) => {
+		const session = currentSession;
+		if (!session || profileRouteState.status !== 'success' || profilePetnamePending) return;
+		const target = profileRouteState.data.profile;
+		profilePetnamePending = true;
+		profilePetnameError = null;
+		try {
+			const account = (await setDeltanetPetname({
+				instanceUrl: session.instanceUrl,
+				accessToken: session.accessToken,
+				contactId: target.id,
+				petname,
+				fetch: window.fetch.bind(window)
+			})) as { display_name?: unknown; pleroma?: { deltanet?: { auth_name?: unknown; petname?: unknown } } } | null;
+			if (profileRouteState.status !== 'success' || profileRouteState.data.profile.id !== target.id) return;
+			const deltanet = account?.pleroma?.deltanet ?? {};
+			profileRouteState = {
+				...profileRouteState,
+				data: {
+					...profileRouteState.data,
+					profile: {
+						...target,
+						displayName: typeof account?.display_name === 'string' && account.display_name.trim() ? account.display_name : target.displayName,
+						authName: typeof deltanet.auth_name === 'string' ? deltanet.auth_name : target.authName,
+						petname: typeof deltanet.petname === 'string' ? deltanet.petname : null
+					}
+				}
+			};
+		} catch (error) {
+			profilePetnameError = error instanceof Error ? error.message : 'Could not save the petname.';
+		} finally {
+			profilePetnamePending = false;
+		}
+	};
 	const openInlineReply = (post: RebuildPost, targetRoute: StatusActionOrigin) => {
 		if (inlineReplySubmitState === 'submitting') return;
 
@@ -1800,6 +1848,8 @@
 			handle: inlineReplyTargetHandle(post.handle),
 			visibility: post.visibility ?? 'public',
 			name: post.name,
+			authName: post.authName,
+			petname: post.petname,
 			avClass: post.avClass,
 			avBanner: post.avBanner,
 			avatarUrl: post.avatarUrl
@@ -3002,6 +3052,8 @@
 	const inlineReplyComposerProps = $derived<InlineReplyComposerData | null>(inlineReplyTarget ? {
 		targetHandle: inlineReplyTarget.handle,
 		targetName: inlineReplyTarget.name,
+		targetAuthName: inlineReplyTarget.authName,
+		targetPetname: inlineReplyTarget.petname,
 		targetAvClass: inlineReplyTarget.avClass,
 		targetAvBanner: inlineReplyTarget.avBanner,
 		targetAvatarUrl: inlineReplyTarget.avatarUrl,
@@ -4564,6 +4616,9 @@
 								canManage={Boolean(currentSession)}
 								onEditProfile={() => goto('/app/settings')}
 								onFollowToggle={toggleProfileFollow}
+								onSetPetname={profileRouteState.data.profile.id !== '0' ? saveProfilePetname : undefined}
+								petnamePending={profilePetnamePending}
+								petnameError={profilePetnameError}
 							/>
 						{/if}
 					</section>

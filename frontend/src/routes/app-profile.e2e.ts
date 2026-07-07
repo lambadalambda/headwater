@@ -852,3 +852,54 @@ test('signed-out visitors resolve remote profiles through account lookup', async
 	await expect(view.getByRole('heading', { name: 'datagram' })).toBeVisible();
 	await expect(view.getByRole('button', { name: 'Sign in to follow' })).toBeVisible();
 });
+
+test('petnames: set from the profile, rendered as a chip after their chosen name', async ({ page }) => {
+	// A deltanet contact account (numeric-ish contact id, deltanet extension).
+	const carolAccount: PleromaAccount = {
+		...profileAccount,
+		id: '12',
+		username: 'zbie604yz',
+		acct: 'zbie604yz@nine.testrun.org',
+		display_name: 'Carol Sparkle',
+		bot: false,
+		fields: [],
+		pleroma: {
+			...profileAccount.pleroma,
+			relationship: undefined,
+			deltanet: { auth_name: 'Carol Sparkle' }
+		}
+	};
+	await authenticate(page);
+	await mockProfileApis(page, carolAccount);
+	await page.route('https://pleroma.example/api/v1/accounts/relationships**', async (route: Route) => {
+		await fulfillJson(route, [relationshipFor(carolAccount.id, { following: true })]);
+	});
+	let petnameBody: unknown;
+	await page.route('https://pleroma.example/api/deltanet/contacts/12/petname', async (route: Route) => {
+		petnameBody = route.request().postDataJSON();
+		await fulfillJson(route, {
+			...carolAccount,
+			display_name: 'carol',
+			pleroma: { ...carolAccount.pleroma, deltanet: { auth_name: 'Carol Sparkle', petname: 'carol' } }
+		});
+	});
+	await setViewport(page, 'desktop');
+
+	await page.goto('/app/profiles/zbie604yz@nine.testrun.org');
+
+	const profile = page.getByTestId('profile-view');
+	await expect(profile.getByRole('heading', { name: 'Carol Sparkle' })).toBeVisible();
+	await expect(profile.getByTestId('petname-chip')).toHaveCount(0);
+
+	await profile.getByTestId('petname-edit').click();
+	await profile.getByRole('textbox', { name: 'Petname' }).fill('carol');
+	await profile.getByRole('button', { name: 'Save' }).click();
+
+	expect(petnameBody).toEqual({ petname: 'carol' });
+	// Their chosen name stays the heading; my petname renders as the chip.
+	await expect(profile.getByRole('heading', { name: 'Carol Sparkle' })).toBeVisible();
+	await expect(profile.getByTestId('petname-chip')).toContainText('carol');
+	// The follow state was NOT clobbered by the petname response (no
+	// relationship in that payload).
+	await expect(profile).toContainText('Following');
+});

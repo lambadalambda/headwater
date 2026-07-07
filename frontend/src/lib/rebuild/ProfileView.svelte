@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Avatar from './Avatar.svelte';
 	import Icon from './Icon.svelte';
+	import PetnameChip from './PetnameChip.svelte';
 	import Post from './Post.svelte';
 	import ProfileSideRail from './ProfileSideRail.svelte';
 	import RichText from './RichText.svelte';
@@ -27,11 +28,26 @@
 		onEditProfile?: () => void;
 		onFollowToggle?: () => void;
 		onSignIn?: () => void;
+		/** Petnames (meta/issues/petnames.md): save MY local name for this contact ('' clears). */
+		onSetPetname?: (petname: string) => void | Promise<void>;
+		petnamePending?: boolean;
+		petnameError?: string | null;
 	};
 
-	let { profile, posts = [], replies = [], pinned = [], media = [], timelineLoading = false, followPending = false, followError = null, signedOut = false, onPostOpen, onPostAction, onPostReact, onPostVote, canManage = false, onEditProfile, onFollowToggle, onSignIn }: Props = $props();
+	let { profile, posts = [], replies = [], pinned = [], media = [], timelineLoading = false, followPending = false, followError = null, signedOut = false, onPostOpen, onPostAction, onPostReact, onPostVote, canManage = false, onEditProfile, onFollowToggle, onSignIn, onSetPetname, petnamePending = false, petnameError = null }: Props = $props();
 	let tab = $state<ProfileTab>('posts');
 	let pinnedExpanded = $state(false);
+	let petnameEditorOpen = $state(false);
+	let petnameDraft = $state('');
+	const openPetnameEditor = () => {
+		petnameDraft = profile.petname ?? '';
+		petnameEditorOpen = true;
+	};
+	const savePetname = async () => {
+		if (!onSetPetname || petnamePending) return;
+		await onSetPetname(petnameDraft.trim());
+		petnameEditorOpen = false;
+	};
 	let locked = $derived(profile.relations.locked && !['mutual', 'following', 'self'].includes(profile.followState));
 	let empty = $derived(posts.length === 0 && replies.length === 0 && pinned.length === 0 && media.length === 0 && !timelineLoading);
 	let visiblePinned = $derived(pinnedExpanded ? pinned : pinned.slice(0, 1));
@@ -95,11 +111,31 @@
 				<div class="pp-follow-error" role="alert" data-testid="profile-follow-error">{followError}</div>
 			{/if}
 			<h1 id="profile-heading" class="pp-v1-name">
-				<RichText text={profile.displayName} emojis={profile.displayNameEmojis} />
+				<RichText text={profile.petname ? (profile.authName || profile.displayName) : profile.displayName} emojis={profile.displayNameEmojis} />
+				{#if profile.petname}<PetnameChip petname={profile.petname} />{/if}
+				{#if onSetPetname && profile.followState !== 'self'}
+					<button type="button" class="pp-petname-edit" data-testid="petname-edit" title={profile.petname ? 'Edit petname' : 'Set a petname'} onclick={openPetnameEditor}>{profile.petname ? 'edit petname' : 'set petname'}</button>
+				{/if}
 				{#if profile.relations.locked}<span class="pp-relation-pill locked"><Icon name="lock" width={9} height={9} /> locked</span>{/if}
 				{#if profile.relations.bot}<span class="pp-relation-pill bot">bot</span>{/if}
 				{#if profile.relations.remote}<span class="pp-relation-pill remote">remote</span>{/if}
 			</h1>
+			{#if petnameEditorOpen}
+				<form class="pp-petname-form" data-testid="petname-form" onsubmit={(event) => { event.preventDefault(); void savePetname(); }}>
+					<input
+						class="pp-petname-input"
+						aria-label="Petname"
+						placeholder="Your name for them (empty clears)"
+						value={petnameDraft}
+						oninput={(event) => (petnameDraft = event.currentTarget.value)}
+					/>
+					<button type="submit" class="pp-petname-save" disabled={petnamePending}>{petnamePending ? 'Saving…' : 'Save'}</button>
+					<button type="button" class="pp-petname-cancel" onclick={() => (petnameEditorOpen = false)}>Cancel</button>
+				</form>
+				{#if petnameError}
+					<div class="pp-follow-error" role="alert" data-testid="petname-error">{petnameError}</div>
+				{/if}
+			{/if}
 			<div class="pp-v1-handle">{profile.handle}</div>
 		</div>
 		{#if profile.bio}

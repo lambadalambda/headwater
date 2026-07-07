@@ -73,6 +73,12 @@ export type PleromaAccount = {
 		is_moderator?: boolean;
 		relationship?: PleromaRelationship;
 		tags?: string[];
+		/** deltanet petnames (meta/issues/petnames.md): their chosen name + my local override. */
+		deltanet?: {
+			auth_name?: string;
+			petname?: string;
+			[key: string]: unknown;
+		};
 		[key: string]: unknown;
 	};
 	[key: string]: unknown;

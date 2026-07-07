@@ -265,6 +265,46 @@ export const restoreDeltanet = async ({
 	return { acct };
 };
 
+/**
+ * Set (or clear, with '') MY local petname for a contact
+ * (meta/issues/petnames.md). Returns the updated raw account payload so the
+ * caller can re-adapt profile/relationship state.
+ */
+export const setDeltanetPetname = async ({
+	instanceUrl,
+	accessToken,
+	contactId,
+	petname,
+	fetch: fetchImpl
+}: {
+	instanceUrl: string;
+	accessToken: string;
+	contactId: string;
+	petname: string;
+	fetch?: FetchLike;
+}): Promise<unknown> => {
+	const requestFetch = fetchImpl ?? globalThis.fetch?.bind(globalThis);
+	if (!requestFetch) throw new Error('A fetch implementation is required for deltanet requests.');
+
+	const response = await requestFetch(
+		new URL(`/api/deltanet/contacts/${encodeURIComponent(contactId)}/petname`, instanceUrl).toString(),
+		{
+			method: 'POST',
+			headers: {
+				accept: 'application/json',
+				'content-type': 'application/json',
+				authorization: `Bearer ${accessToken}`
+			},
+			body: JSON.stringify({ petname })
+		}
+	);
+	const payload = await readJsonBody(response);
+	if (!response.ok) {
+		throw new Error(errorMessage(payload, 'Could not save the petname.'));
+	}
+	return payload;
+};
+
 export const isFeedInvite = (value: string) => {
 	const trimmed = value.trim();
 	return trimmed.startsWith('https://i.delta.chat/') || trimmed.toUpperCase().startsWith('OPENPGP4FPR:');

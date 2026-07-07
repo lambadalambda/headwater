@@ -6,6 +6,7 @@
 	import PostPinged from './PostPinged.svelte';
 	import PostReactions from './PostReactions.svelte';
 	import QuotedPost from './QuotedPost.svelte';
+	import PetnameChip from './PetnameChip.svelte';
 	import RichText from './RichText.svelte';
 	import { profileHref } from './profile-links';
 	import VaporBanner from './VaporBanner.svelte';
@@ -25,6 +26,9 @@
 		bodyEmojis?: CustomEmoji[];
 		addressees?: string[];
 		addresseeNames?: Record<string, string>;
+		addresseePetnames?: Record<string, string>;
+		authName?: string;
+		petname?: string;
 		quotedPost?: Record<string, unknown>;
 		mentionAccts?: Record<string, string>;
 		reactions?: PleromaReactionView[];
@@ -112,7 +116,10 @@
 	<div class="focused-post-head">
 		<Avatar post={post} variant="focused" />
 		<div style="min-width:0;flex:1">
-			<div class="focused-name"><RichText text={post.name} emojis={post.nameEmojis} linkMentions={false} /></div>
+			<div class="focused-name">
+				<RichText text={post.petname ? (post.authName || post.name) : post.name} emojis={post.nameEmojis} linkMentions={false} />
+				{#if post.petname}<PetnameChip petname={post.petname} />{/if}
+			</div>
 			{#if href}
 				<a class="focused-handle" href={href}>{post.handle}</a>
 			{:else}
@@ -152,7 +159,7 @@
 	<PostCW post={post}>
 		<div class="focused-body"><RichText text={post.body} emojis={post.bodyEmojis} mentionAccts={post.mentionAccts} mentionClass="post-mention-inline" linkUrls /></div>
 		<QuotedPost quoted={post.quotedPost} />
-		<PostPinged addressees={post.addressees} addresseeNames={post.addresseeNames} focused />
+		<PostPinged addressees={post.addressees} addresseeNames={post.addresseeNames} addresseePetnames={post.addresseePetnames} focused />
 
 		{#if post.media}
 			<div class="focused-media">
