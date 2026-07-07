@@ -1,5 +1,8 @@
 # deltanet docs
 
+- [decisions.md](decisions.md) — standing design decisions (0001: hard cut
+  from vanilla Delta Chat compatibility; wire v2 = JSON bodies).
+
 - [substrate-audit.md](substrate-audit.md) — hard facts about chatmail
   relays + Delta Chat core (limits, retention, encryption model, contact
   model), source-verified 2026-07-06 against relay@filtermail-v0.7.4 and

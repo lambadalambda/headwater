@@ -79,6 +79,10 @@ budget), not a free outbox read like AP.
 
 ## 5. Structured payloads: JSON as extension channel, not body
 
+> **SUPERSEDED by decision 0001** (docs/decisions.md): vanilla-DC rendering
+> compatibility was dropped; JSON becomes the whole body (wire v2), not a
+> sidecar. Kept for the carrier analysis.
+
 Posts stay human-readable text (the vanilla-Delta-Chat interop property is
 load-bearing: followers don't need deltanet, and every post degrades to a
 legible message). But line-grammar markers don't scale to polls, CWs, alt

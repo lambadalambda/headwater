@@ -154,7 +154,8 @@ deliberately; expect migrations.
 - **Offline-first nodes.** Laptop-as-instance is a real deployment. Posts
   queue at the relay; the node catches up on wake (our backfill handles
   ingestion). No fediverse software survives its server sleeping.
-- **Messenger interop.** Every deltanet feed is *readable today* by ~any
+- **Messenger interop.** *(Retired as a goal by decision 0001 —
+  deltanet is its own system; transport-level interop remains.)* Every deltanet feed is *readable today* by ~any
   Delta Chat user as a channel; replies land as chats. The social network
   and the messenger are one substrate — the DM tab isn't a bolted-on
   feature, it's literally the same transport as everything else. Nothing
