@@ -118,6 +118,14 @@ describe('serve side (buildServeBundles)', () => {
     expect(await buildServeBundles(store, transport, [{ u: AU, addr: ALICE }])).toEqual([]);
   });
 
+  it('never serves an own LOCKED post (visibility channels, leak guard)', async () => {
+    const lockedEnv = signAlice(buildPostObject('followers only', AU));
+    store.ingestMessage(makeMessage({ id: 9, text: serializeEnvelope(lockedEnv) }), 'mid-9@x', true);
+    store.markLockedPost(AU);
+    const transport = makeTransport(new Map([[9, serializeEnvelope(lockedEnv)]]));
+    expect(await buildServeBundles(store, transport, [{ u: AU, addr: ALICE }])).toEqual([]);
+  });
+
   it('serves a held envelope onward (relaying)', async () => {
     store.addHeldEnvelope(signAlice(buildPostObject('held', AU)), BOB, 22, ALICE, 1);
     const transport = makeTransport(new Map());

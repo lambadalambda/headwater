@@ -2929,3 +2929,25 @@ describe('visibility channels: posting + invites', () => {
     expect(locked.invite).toBe('OPENPGP4FPR:FAKEINVITE-LOCKED');
   });
 });
+
+describe('visibility channels: own-boost leak guard', () => {
+  it("refuses to boost one's own locked post", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'deltanet-vis-boost-'));
+    const store = createStore(join(dir, 'store.json'));
+    const { transport, posts } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store, dataDir: dir });
+
+    const postRes = await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'locked thing', visibility: 'private' }),
+    });
+    const locked = (await postRes.json()) as any;
+    // Ingest happened at post time; boosting must be refused with a clear error.
+    const boostRes = await app.request(`/api/v1/statuses/${locked.id}/reblog`, { method: 'POST' });
+    expect(boostRes.status).toBe(422);
+    expect(((await boostRes.json()) as any).error).toMatch(/private|locked/i);
+    expect(posts.filter((p) => parseEnvelope(p.text)?.type === 'boost')).toHaveLength(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

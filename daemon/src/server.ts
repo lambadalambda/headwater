@@ -1406,6 +1406,13 @@ export const createApp = (
     }
     const target = parsed?.kind === 'msg' ? await transport.message(parsed.msgId) : null;
     if (!target) return c.json({ error: 'Record not found' }, 404);
+    // Visibility channels leak guard: boosting one's own LOCKED post would
+    // republish followers-only content into the public feed. Refuse (Mastodon
+    // semantics: private posts are not reboggable).
+    const targetUuid = parseWireUuid(target.text);
+    if (targetUuid && store.isLockedPost(targetUuid)) {
+      return c.json({ error: 'private (followers-only) posts cannot be boosted' }, 422);
+    }
     // Target the boosted post's uuid ref (or canonical/mid) so the boost
     // resolves on any node, even when acting on a DM copy.
     const ref = await targetRef(transport, target);

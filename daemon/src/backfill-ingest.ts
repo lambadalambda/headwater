@@ -80,6 +80,10 @@ export const buildServeBundles = async (
     if (!('u' in ref) || !ref.u || seen.has(ref.u)) continue;
     seen.add(ref.u);
     const uuid = ref.u;
+    // Visibility channels leak guard: an OWN post that went to the LOCKED
+    // channel is never served — backfill would otherwise hand followers-only
+    // content to any met contact who asks.
+    if (store.isLockedPost(uuid)) continue;
     // Prefer the real local message (strongest source), else a held envelope we
     // can relay onward (both are signed bodies).
     const localMsgId = store.resolveKey(uuid);
