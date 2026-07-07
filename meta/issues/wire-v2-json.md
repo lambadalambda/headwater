@@ -21,6 +21,9 @@ envelope as the entire message body for all statuses and control messages.
   the same JSON envelope as the feed copy (same uuid).
 - Store/schema: refs and post keys unchanged conceptually (uuid-first);
   bump store schema so re-index parses mixed-era data consistently.
+- Per decision 0002: REMOVE synthesizeStatus/synthesizeAccount — a boost
+  whose target is not locally held renders an explicit placeholder status
+  (type-distinguishable by the frontend), never synthesized content.
 - Reserve envelope field names `pubkey`/`sig` for post attestations
   (docs/design-sketches.md #6) — not implemented in v2, never repurposed.
 - Update DEVLOG + the wire-convention documentation to describe v2 as
@@ -31,6 +34,8 @@ envelope as the entire message body for all statuses and control messages.
 - Full existing test suites pass with v2 emission (unit + the three
   integration topologies), including mixed-era threads (legacy parent,
   v2 reply).
+- No code path can render content attributed to an author without a
+  locally-verified source (grep-level absence of synthesize*).
 - A post whose text starts with legacy marker glyphs (e.g. "♻ hello")
   round-trips as plain content — the in-band ambiguity class is gone.
 - No emitted message contains marker lines or quotedText compat text.

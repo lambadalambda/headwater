@@ -124,6 +124,11 @@ TOFU-with-pinning + automated DM challenge ("did you write u:X?") — the
 same machinery as reaction-receipt verification (sketch 2); attestations
 generalize receipts from "I reacted" to "I said".
 
+Decision 0002 hardens this sketch: verification is not optional — 
+unverifiable republished content renders as a placeholder, never as an
+attributed status. Attestations are the ADMISSION rule for republished
+content, not an overlay.
+
 Boosts are the same case: today a boost carries a 500-char quotedText
 copy (synthesized for non-followers of the author — fabricatable,
 truncated, no media). In v2 a boost embeds the original COMPLETE signed

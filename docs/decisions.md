@@ -30,3 +30,29 @@ deltanet content. Greenfield rules apply.
   substrate is unchanged (E2EE, securejoin, broadcast channels,
   store-and-forward, iroh, webxdc), and deltanet↔anyone mail delivery keeps
   working at the transport level.
+
+## 0002 — No synthesized statuses; rendered content must be verifiable (2026-07-07)
+
+**Decision (project owner):** deltanet never renders synthesized statuses.
+Everything shown as "X said Y" must be real and cryptographically
+verifiable: either a direct delivery (PGP-verified by core) or a
+republished signed envelope whose attestation verifies against X's key.
+
+**Consequences:**
+
+- The v0/v1 `synthesizeStatus`/`synthesizeAccount` paths (boost quotedText
+  → fake status with a synthetic id-"0" account) are scheduled for removal
+  with wire v2. Unresolvable/unverifiable republished content renders as an
+  honest placeholder ("boosted a post that cannot be displayed/verified"),
+  never as attributed content.
+- Interim ordering: wire v2 may ship before attestations — during that
+  window, boosts of posts the recipient doesn't hold render placeholders
+  (no synthesis). Attestations (sketch #6) then upgrade placeholders to
+  verified embeds. Thread republication (sketch #3) launches only WITH
+  attestations — hosts never gain a synthesis privilege.
+- Scope: this governs content attribution (statuses/accounts). Reaction
+  TALLIES remain trust-by-default with verify-on-demand receipts (0001-era
+  discussion) — numbers, not impersonation.
+- Legacy note: current shipped code still synthesizes for pre-v2 boosts;
+  documented here as behavior slated for removal, not a compatibility
+  promise.
