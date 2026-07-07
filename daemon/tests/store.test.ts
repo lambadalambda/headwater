@@ -1107,6 +1107,21 @@ describe('createStore: post-uuid keyspace (wire convention v1)', () => {
     expect(store.resolveMid(UUID)).toBe(100);
   });
 
+  it('keys by uuid even when DC appended its transient download placeholder to the text', () => {
+    // Live-QA regression: a v2 post ingested while its attachment was still
+    // downloading carried `{...} [Image – 137.37 KiB]` as text — the uuid parse
+    // failed and the message got mis-keyed under its canonical MID, so its
+    // reaction tallies (keyed by uuid) never rendered. The tolerant envelope
+    // parse must keep the uuid keying regardless of the suffix.
+    const UUID = 'aaaabbbb-2222-4333-8444-555555555555';
+    const wire = JSON.stringify({ dn: 2, type: 'post', uuid: UUID, text: '', media: { sha256: 'ab'.repeat(32) } });
+    const store = createStore(filePath);
+    store.ingestMessage(makeMessage({ id: 110, text: `${wire} [Image – 137.37 KiB]` }), 'c@x', true);
+
+    expect(store.resolveKey(UUID)).toBe(110);
+    expect(store.midForMsgId(110)).toBe(UUID);
+  });
+
   it('resolveKey prefers the FEED copy when both copies of one uuid are local', () => {
     const UUID = '22222222-3333-4444-8555-666666666666';
     const store = createStore(filePath);

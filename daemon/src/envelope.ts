@@ -341,6 +341,35 @@ export const buildEnvelopeBundle = (envs: Envelope[]): string =>
  * real chat message from an external sender must never crash or misparse).
  * Unknown fields are ignored (kept on the returned object but never required).
  */
+/**
+ * The leading balanced JSON OBJECT of `text` (which must start with `{`), or
+ * null if braces never balance. A plain character scan that respects string
+ * literals and escapes — cheap, pure, and total. Exists solely so
+ * `parseEnvelope` can shed trailing junk (see its doc comment); it does NOT
+ * validate JSON (the follow-up JSON.parse does).
+ */
+const leadingJsonObject = (text: string): string | null => {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.slice(0, i + 1);
+    }
+  }
+  return null;
+};
+
 export const parseEnvelope = (text: string): Envelope | null => {
   const trimmed = text.trim();
   // Cheap gate before attempting a full parse: an envelope is always a JSON
@@ -350,7 +379,20 @@ export const parseEnvelope = (text: string): Envelope | null => {
   try {
     value = JSON.parse(trimmed);
   } catch {
-    return null;
+    // TRAILING-JUNK tolerance: while an attachment is still downloading, DC
+    // core's msg.text can carry its file-placeholder summary appended to the
+    // real body (`{...} [Image – 137.37 KiB]`) — transient on the wire but, if
+    // parsed naively, it (a) rendered raw JSON in the streamed frame and (b)
+    // mis-keyed the message at ingest (uuid lost → mid key). Recover the
+    // LEADING balanced JSON object and parse that; anything after it is
+    // ignored. Leading junk still fails the `{` gate above by design.
+    const lead = leadingJsonObject(trimmed);
+    if (lead === null || lead === trimmed) return null;
+    try {
+      value = JSON.parse(lead);
+    } catch {
+      return null;
+    }
   }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const obj = value as Record<string, unknown>;

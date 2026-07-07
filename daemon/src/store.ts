@@ -61,8 +61,15 @@ const DC_CONTACT_ID_SELF = 1;
  * from a message sweep (they name DC chats created/joined out-of-band) — so,
  * like pins/held envelopes, they SURVIVE a `migrate` re-index. Additive fields,
  * defaulted to `{}` for pre-v7 stores.
+ * Version 8 carries NO shape change: it forces the derived-index re-index
+ * after the trailing-junk-tolerant `parseEnvelope` fix. Messages that arrived
+ * while DC core's transient download placeholder was appended to their text
+ * (`{...} [Image – 137.37 KiB]`) were mis-keyed under their canonical MID
+ * instead of their uuid (the uuid parse failed); the persisted text is clean,
+ * so re-indexing with the tolerant parser re-keys them and their reaction
+ * tallies line up again.
  */
-export const STORE_SCHEMA_VERSION = 7;
+export const STORE_SCHEMA_VERSION = 8;
 
 export type NotificationType =
   | 'follow'

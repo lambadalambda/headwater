@@ -227,6 +227,38 @@ describe('strict dn===2 gate + malformed handling', () => {
   });
 });
 
+describe('trailing-junk tolerance (DC transient file placeholder)', () => {
+  const wire = JSON.stringify({ dn: 2, type: 'post', uuid: UUID, text: '', media: { sha256: 'ab'.repeat(32) } });
+
+  it('parses an envelope with the core download placeholder appended', () => {
+    // While an attachment is still downloading, core's msg.text can carry the
+    // file summary appended to the real body — the exact live-QA symptom.
+    const env = parseEnvelope(`${wire} [Image – 137.37 KiB]`);
+    expect(env).toMatchObject({ type: 'post', uuid: UUID });
+  });
+
+  it('parses with arbitrary trailing junk, including braces and quotes', () => {
+    expect(parseEnvelope(`${wire} trailing } junk " with { braces`)).toMatchObject({ uuid: UUID });
+    expect(parseEnvelope(`${wire}}}}}`)).toMatchObject({ uuid: UUID });
+    expect(parseEnvelope(`${wire}{"dn":2,"type":"post","text":"second"}`)).toMatchObject({
+      uuid: UUID,
+      text: '',
+    });
+  });
+
+  it('is not fooled by braces inside envelope strings', () => {
+    const tricky = JSON.stringify({ dn: 2, type: 'post', uuid: UUID, text: 'a } b { c "quoted" \\' });
+    expect(parseEnvelope(`${tricky} [File – 1 KiB]`)).toMatchObject({ text: 'a } b { c "quoted" \\' });
+  });
+
+  it('still rejects leading junk and non-envelope objects with junk', () => {
+    expect(parseEnvelope(`hello ${wire}`)).toBeNull();
+    expect(parseEnvelope('{"dn":1,"type":"post"} [Image – 2 KiB]')).toBeNull();
+    expect(parseEnvelope('{not json} [Image – 2 KiB]')).toBeNull();
+    expect(parseEnvelope('{"unbalanced": "')).toBeNull();
+  });
+});
+
 describe('mintUuid', () => {
   it('mints distinct uuids', () => {
     expect(mintUuid()).not.toBe(mintUuid());
