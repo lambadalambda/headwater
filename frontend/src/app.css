@@ -6876,8 +6876,8 @@ body[data-theme='simoun'] .pm-v3c-stamp.you {
 body[data-theme='dusk']   { --photo-filter: url(#duotoneDusk); }
 body[data-theme='drive']  { --photo-filter: url(#duotoneDrive); }
 body[data-theme='simoun'] { --photo-filter: url(#duotoneSimoun); }
-body[data-theme='lablight']      { --photo-filter: url(#duotonelablight); }
-body[data-theme='labdark'] { --photo-filter: url(#duotonelabdark); }
+body[data-theme='lablight']      { --photo-filter: url(#duotoneLabLight); }
+body[data-theme='labdark'] { --photo-filter: url(#duotoneLabDark); }
 
 /* ===== Theme class overrides ===== */
 body[data-theme='simoun'] .composer { background: linear-gradient(180deg, #1c2547 0%, #232d54 100%); }
