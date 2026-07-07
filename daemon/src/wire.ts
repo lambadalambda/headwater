@@ -44,6 +44,12 @@ export type ParsedWire = {
   boost?: MsgRef;
   /** Federated attachment alt text (v2 only), if present. */
   mediaDescription?: string | null;
+  /**
+   * The embedded original envelope of a boost (post-attestations, sketch #6):
+   * the booster's verbatim copy of the boosted post's signed envelope, for the
+   * verified-embed rendering ladder. Present only on a v2 boost that carried one.
+   */
+  boostOrig?: Envelope;
 };
 
 /** Build a legacy-shaped `MsgRef` from a typed v2 envelope ref. */
@@ -70,6 +76,7 @@ const wireFromEnvelope = (env: Envelope): ParsedWire => {
       body: '',
       ...(env.uuid !== undefined ? { uuid: env.uuid } : {}),
       ...(env.ref ? { boost: msgRefFromEnvelope(env.ref) } : {}),
+      ...(env.orig ? { boostOrig: env.orig } : {}),
     };
   }
   // 'post' (and any control-message type reaching here) renders as plain body.

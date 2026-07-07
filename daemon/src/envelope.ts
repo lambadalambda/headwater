@@ -12,8 +12,11 @@
  *
  * Schema discipline (decision 0001): the `dn` version field gates parsing
  * (strict `dn === 2`), unknown fields MUST be ignored (forward-compat), and
- * field names are NEVER repurposed. `pubkey`/`sig` are RESERVED for post
- * attestations (design-sketch #6) — never emitted in v2, never repurposed.
+ * field names are NEVER repurposed. `pubkey`/`sig`/`ts`/`orig`/`media.sha256`
+ * are the post-attestation fields (design-sketch #6, decision 0002): every
+ * content envelope (post/reply/boost) is signed with a per-account ed25519 key
+ * (see ./attest.ts) and boosts embed the boosted post's complete signed
+ * envelope as `orig` (+ re-attached media, verified by `media.sha256`).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -46,9 +49,13 @@ export type EnvelopeRef =
 /**
  * The v2 envelope. `dn`/`type` are always present; the rest are per-verb.
  * `media.description` carries persistent, federated alt text for an attachment
- * (replacing the in-memory mediaStore alt-text hack). `pubkey`/`sig` are
- * RESERVED (design-sketch #6) — typed here so the field names are claimed, but
- * NEVER emitted by the builders below.
+ * (replacing the in-memory mediaStore alt-text hack). `media.sha256` is the
+ * author-signed content hash of the attachment (post-attestations, sketch #6)
+ * so a re-attached (boosted) media file is verifiable against the hash. `ts`/
+ * `pubkey`/`sig` are the attestation fields signed over the canonical payload
+ * (see ./attest.ts). `orig` on a boost is the complete signed envelope of the
+ * boosted post (embedded verbatim from the message the booster holds), so a
+ * recipient who never met the original author can verify it offline (0002).
  */
 export type Envelope = {
   dn: number;
@@ -59,16 +66,30 @@ export type Envelope = {
   text?: string;
   /** The target of a reply/boost/react/unreact. */
   ref?: EnvelopeRef;
-  /** Alt text for an attachment on a post/reply (persistent + federated). */
-  media?: { description?: string | null };
+  /**
+   * Attachment metadata on a post/reply: `description` is persistent + federated
+   * alt text; `sha256` is the author-signed content hash of the attached file
+   * (post-attestations) so a re-attached copy verifies against the signature.
+   */
+  media?: { description?: string | null; sha256?: string };
   /** The emoji of a react/unreact. */
   emoji?: string;
   /** The invite link of an invite-grant. */
   link?: string;
-  /** RESERVED for post attestations (sketch #6) — never emitted in v2. */
+  /** Author-declared ms epoch timestamp, signed on every content envelope (sketch #6). */
+  ts?: number;
+  /** base64 SPKI-DER ed25519 public key of the author (sketch #6). */
   pubkey?: string;
-  /** RESERVED for post attestations (sketch #6) — never emitted in v2. */
+  /** base64 ed25519 signature over the canonical payload (sketch #6). */
   sig?: string;
+  /**
+   * On a boost: the complete signed envelope of the boosted post, embedded
+   * verbatim from the message the booster holds, so recipients who lack the
+   * original can verify + render it (sketch #6, decision 0002). Never fabricated
+   * or altered — omit the boost's `orig` entirely if the held target is
+   * unsigned/legacy (nothing to attest → recipient gets the placeholder ladder).
+   */
+  orig?: Envelope;
 };
 
 /** Mint a fresh logical-post UUIDv4 (author-side). Same generator as v1. */
@@ -91,19 +112,69 @@ export const envelopeRefToken = (ref: EnvelopeRef): RefToken =>
 
 const serialize = (env: Envelope): string => JSON.stringify(env);
 
+/** Serialize an envelope object to its wire JSON string. The single serialization seam. */
+export const serializeEnvelope = (env: Envelope): string => serialize(env);
+
+/** Attachment fields on a content envelope: federated alt text + author-signed content hash. */
+export type MediaEnvelopeFields = { description?: string | null; sha256?: string };
+
+/** Build the `media` sub-object iff it carries a description and/or a sha256 (else undefined). */
+const mediaFields = (media?: MediaEnvelopeFields): { media: NonNullable<Envelope['media']> } | {} => {
+  if (!media) return {};
+  const out: NonNullable<Envelope['media']> = {};
+  if (media.description != null) out.description = media.description;
+  if (media.sha256) out.sha256 = media.sha256;
+  return Object.keys(out).length > 0 ? { media: out } : {};
+};
+
+/** A plain post envelope OBJECT (unsigned): minted uuid + human text (+ optional media). */
+export const buildPostObject = (
+  text: string,
+  uuid: string,
+  media?: MediaEnvelopeFields,
+): Envelope => ({
+  dn: DN_VERSION,
+  type: 'post',
+  uuid,
+  text,
+  ...mediaFields(media),
+});
+
+/** A reply envelope OBJECT (unsigned): minted uuid + human text + parent ref (+ optional media). */
+export const buildReplyObject = (
+  text: string,
+  uuid: string,
+  ref: EnvelopeRef,
+  media?: MediaEnvelopeFields,
+): Envelope => ({
+  dn: DN_VERSION,
+  type: 'reply',
+  uuid,
+  text,
+  ref,
+  ...mediaFields(media),
+});
+
+/**
+ * A boost envelope OBJECT (unsigned): minted uuid + the boosted post's ref, plus
+ * the boosted post's complete signed envelope as `orig` when the booster can
+ * attest it (see ./attest.ts + server.ts). Omitting `orig` (unsigned/legacy
+ * target) leaves a ref-only boost → the recipient renders the placeholder.
+ */
+export const buildBoostObject = (uuid: string, ref: EnvelopeRef, orig?: Envelope): Envelope => ({
+  dn: DN_VERSION,
+  type: 'boost',
+  uuid,
+  ref,
+  ...(orig ? { orig } : {}),
+});
+
 /** A plain post envelope: minted uuid + human text (+ optional media alt text). */
 export const buildPostEnvelope = (
   text: string,
   uuid: string,
   media?: { description?: string | null },
-): string =>
-  serialize({
-    dn: DN_VERSION,
-    type: 'post',
-    uuid,
-    text,
-    ...(media && media.description != null ? { media } : {}),
-  });
+): string => serialize(buildPostObject(text, uuid, media));
 
 /** A reply envelope: minted uuid + human text + the parent ref (+ optional media alt text). */
 export const buildReplyEnvelope = (
@@ -111,23 +182,14 @@ export const buildReplyEnvelope = (
   uuid: string,
   ref: EnvelopeRef,
   media?: { description?: string | null },
-): string =>
-  serialize({
-    dn: DN_VERSION,
-    type: 'reply',
-    uuid,
-    text,
-    ref,
-    ...(media && media.description != null ? { media } : {}),
-  });
+): string => serialize(buildReplyObject(text, uuid, ref, media));
 
 /**
- * A boost envelope: minted uuid + the boosted post's ref. Per decision 0002 we
- * do NOT embed the original content (unverifiable embedding returns WITH
- * attestations later) — just the ref.
+ * A boost envelope: minted uuid + the boosted post's ref (ref-only, unsigned).
+ * The signed/embedding boost path uses `buildBoostObject` + attestation.
  */
 export const buildBoostEnvelope = (uuid: string, ref: EnvelopeRef): string =>
-  serialize({ dn: DN_VERSION, type: 'boost', uuid, ref });
+  serialize(buildBoostObject(uuid, ref));
 
 /** A reaction control-DM envelope: emoji + the reacted-to post's ref. */
 export const buildReactEnvelope = (emoji: string, ref: EnvelopeRef): string =>
