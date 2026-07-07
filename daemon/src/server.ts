@@ -559,6 +559,10 @@ export const createApp = (
       origin: '*',
       allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key'],
+      // Content-Disposition is not CORS-safelisted; without exposing it a
+      // cross-origin frontend (two-node dev setup) can't read the backup
+      // download's filename and falls back to a generic one.
+      exposeHeaders: ['Content-Disposition'],
     }),
   );
 
