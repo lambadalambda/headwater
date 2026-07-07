@@ -38,3 +38,4 @@
 - [x] ["Replying to" pill shows the address local part instead of the chosen name](issues/reply-pill-display-name.md)
 - [x] [Petnames: locally-assigned names, shown as a pill after the chosen name](issues/petnames.md)
 - [x] [Addressing + display-name autocomplete in the composer](issues/mention-addressing-autocomplete.md)
+- [x] [Search: users and posts we know about](issues/search.md)

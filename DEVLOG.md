@@ -1,5 +1,24 @@
 # deltanet devlog
 
+## 2026-07-07 — search
+
+`GET /api/v2/search` exists now — the frontend's search page and header
+search were fully built and calling it all along (returning nothing).
+Zero frontend changes needed.
+
+- **Users we know about, through whatever way**: every contact row core
+  holds — including KEYLESS address rows (search is discovery, not
+  deliverability, unlike the mention autocomplete which stays
+  key-contacts-only). Deduped by address preferring the key row, ranked
+  petname > their name > address (`rankedContactSearch`).
+- **Posts we know about**: core's own full-text `searchMessages` across
+  all chats, filtered through `isSearchableContent` (posts/replies/boosts
+  only — reaction/invite/backfill control DMs never surface), with a
+  reply's feed + DM copies collapsed onto the store-preferred copy; PLUS
+  verified held envelopes (content we never received directly) matching
+  the query, rendered through the existing verify-at-render `heldStatus`
+  ladder as `orig-<uuid>` statuses — tampered held content never surfaces.
+
 ## 2026-07-07 — mention autocomplete + addressing
 
 Typing `@` in any composer now autocompletes over people you know — matched
