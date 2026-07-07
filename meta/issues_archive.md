@@ -34,3 +34,4 @@
 - [x] [In-band introduction: content carries the author's contact invite](issues/in-band-introduction.md)
 - [x] [Interactions with embed-only posts (favourite/reply/boost via uuid refs)](issues/interact-with-embed-only-posts.md)
 - [x] [Backup & identity survival UX](issues/backup-second-device.md)
+- [x] [Flaky e2e: public-timeline stale-response test races the reload](issues/flaky-public-timeline-stale-response-test.md)
