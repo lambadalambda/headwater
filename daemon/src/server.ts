@@ -27,6 +27,7 @@ import {
   buildThreadInviteRequestEnvelope,
   buildUnreactEnvelope,
   envelopeRefAddr,
+  envelopeRefKeyString,
   mintUuid,
   parseEnvelope,
   refTokenToEnvelopeRef,
@@ -1109,69 +1110,48 @@ export const createApp = (
     // (thread auto-backfill): the pre-rendered status + a sort timestamp (ms).
     type Entry = { status: MastodonStatus; sortTs: number };
 
-    // Ancestors: walk the reply chain upward. Each parent is EITHER a locally-held
-    // message OR a HELD foreign envelope (backfilled) — the walk crosses freely
-    // between them, which is how carol's thread of bob's reply surfaces alice's
-    // held posts as real, verified, attributed ancestors. Stops at the first
-    // unresolvable link (neither local nor held) or a non-reply root.
+    // Ancestors: ONE upward climb by post KEY (uuid or legacy mid). Each parent
+    // is EITHER a locally-held message OR (for uuid keys) a HELD foreign
+    // envelope (backfilled) — the walk crosses freely between eras and classes:
+    // uuid links, legacy mid links, and held envelopes all continue the same
+    // loop. Deliberate: a mixed-era chain (legacy root under a v2 subtree) must
+    // render the SAME ancestors from every entry point — the split-loop version
+    // this replaces broke at the uuid→mid boundary (live QA: /thread of a deep
+    // reply lost the legacy root its parent's own /thread still showed). Stops
+    // at the first unresolvable link or a non-reply root.
     const ancestors: MastodonStatus[] = [];
-    // The reply parent uuid of the target we start from (numeric path uses the
-    // message's own parsed reply; orig path starts from the held envelope's ref).
-    let climbUuid: string | null = null;
-    let climbFrom: T.Message | null = target;
+    // The reply-parent key of the target (numeric path: the message's parsed
+    // reply ref of EITHER kind; orig path: the held envelope's ref).
+    let climbKey: string | null = null;
     if (target) {
       const p = parseWire(target.text);
-      climbUuid = p.reply && p.reply.key.kind === 'uuid' ? p.reply.keyString : null;
-      // A mid-ref parent still uses the legacy local-only climb below.
-      if (!climbUuid && p.reply) {
-        const pid = store.resolveKey(p.reply.keyString);
-        if (pid !== null) climbFrom = await transport.message(pid);
-      }
+      climbKey = p.reply ? p.reply.keyString : null;
     } else if (parsed.kind === 'orig') {
       const held = store.heldEnvelope(parsed.uuid);
       const ref = held?.env.ref;
-      climbUuid = ref && 'u' in ref && ref.u ? ref.u : null;
+      climbKey = ref ? envelopeRefKeyString(ref) : null;
     }
-    // Unified upward climb by uuid, crossing local<->held. For a legacy mid-only
-    // chain (no uuid), fall back to the original local-message climb.
-    if (climbUuid !== null) {
-      let uuid: string | null = climbUuid;
-      for (let depth = 0; depth < MAX_CONTEXT_ANCESTORS && uuid; depth++) {
-        const localId = store.resolveKey(uuid);
-        if (localId !== null) {
-          const msg = await transport.message(localId);
-          if (!msg) break;
-          await ingest(transport, msg);
-          ancestors.unshift(await toStatus(transport, msg));
-          const p = parseWire(msg.text);
-          uuid = p.reply && p.reply.key.kind === 'uuid' ? p.reply.keyString : null;
-          if (!uuid && p.reply) break; // legacy mid parent above the uuid chain
-          continue;
-        }
-        const held = store.heldEnvelope(uuid);
-        if (!held) break;
-        const status = await mapper.heldStatus(transport, uuid, heldReplyParentId(held.env));
-        if (!status) break; // unverifiable held ancestor: render nothing, stop
-        ancestors.unshift(status);
-        const ref = held.env.ref;
-        uuid = ref && 'u' in ref && ref.u ? ref.u : null;
+    for (let depth = 0; depth < MAX_CONTEXT_ANCESTORS && climbKey; depth++) {
+      const localId = store.resolveKey(climbKey);
+      if (localId !== null) {
+        const msg = await transport.message(localId);
+        if (!msg) break;
+        await ingest(transport, msg);
+        ancestors.unshift(await toStatus(transport, msg));
+        const p = parseWire(msg.text);
+        climbKey = p.reply ? p.reply.keyString : null;
+        continue;
       }
-    } else {
-      // Legacy local-only climb (mid-ref chain, no uuid to cross into held).
-      let cur: T.Message | null = climbFrom;
-      // `cur` already points at the first parent for the mid-ref case; for the
-      // uuid-less non-reply case it's the target itself, whose loop below no-ops.
-      if (cur && cur !== target) {
-        for (let depth = 0; depth < MAX_CONTEXT_ANCESTORS && cur; depth++) {
-          await ingest(transport, cur);
-          ancestors.unshift(await toStatus(transport, cur));
-          const p = parseWire(cur.text);
-          if (!p.reply) break;
-          const pid = store.resolveKey(p.reply.keyString);
-          if (pid === null) break;
-          cur = await transport.message(pid);
-        }
-      }
+      // Not locally held: only a uuid key can resolve to a held envelope (mid
+      // keys contain '@' and are never held-envelope keys).
+      if (climbKey.includes('@')) break;
+      const held = store.heldEnvelope(climbKey);
+      if (!held) break;
+      const status = await mapper.heldStatus(transport, climbKey, heldReplyParentId(held.env));
+      if (!status) break; // unverifiable held ancestor: render nothing, stop
+      ancestors.unshift(status);
+      const ref = held.env.ref;
+      climbKey = ref ? envelopeRefKeyString(ref) : null;
     }
 
     // Descendants: BFS over BOTH the local reply-children index AND the held

@@ -1186,6 +1186,29 @@ describe('GET /api/v1/statuses/:id/context', () => {
     expect(context).toEqual({ ancestors: [], descendants: [] });
   });
 
+  it('the ancestor climb crosses the uuid→mid era boundary (mixed-era chain)', async () => {
+    // Live-QA regression: legacy root (12, uuid-less) ← reply (v2, MID ref)
+    // ← reply2 (v2, uuid ref). Entering the thread from reply2 must climb
+    // THROUGH the mid-ref link to the legacy root, not stop at the boundary —
+    // /thread/<reply2> and /thread/<reply> must render the same ancestors.
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const reply = await (await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'first reply', in_reply_to_id: '12' }),
+    })).json() as any;
+    const reply2 = await (await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'second reply', in_reply_to_id: reply.id }),
+    })).json() as any;
+
+    const deep = await (await app.request(`/api/v1/statuses/${reply2.id}/context`)).json() as any;
+    expect(deep.ancestors.map((s: any) => s.id)).toEqual(['12', reply.id]);
+  });
+
   it('a DM copy of a reply (isFeedMessage=false) does not appear in descendants or replies_count, only the feed copy does', async () => {
     // Simulates the real-world double delivery: a reply is sent once via
     // the replier's feed broadcast, and once as a DM copy to the original
