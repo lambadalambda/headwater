@@ -363,3 +363,69 @@ describe('deriveOnIngest: SELF reaction re-derivation (own reactions on re-index
     expect(store.listNotifications({})).toHaveLength(0);
   });
 });
+
+describe('deriveOnIngest: TOFU key pinning', () => {
+  const ALICE = 'alice@example.org';
+  const UUID = 'aaaa1111-2222-4333-8444-555555555555';
+
+  /** A signed post envelope string authored by `addr` via a scratch attestor. */
+  const signedPost = async (addr: string, text: string, keyFile: string) => {
+    const { openAttestor } = await import('../src/attest.js');
+    const { buildPostObject, serializeEnvelope } = await import('../src/envelope.js');
+    const a = openAttestor(join(dir, keyFile));
+    const env = buildPostObject(text, UUID);
+    const { ts, pubkey, sig } = a.sign(env, addr);
+    return { text: serializeEnvelope({ ...env, ts, pubkey, sig }), pubkey };
+  };
+
+  it('pins the pubkey of a direct (non-SELF) signed delivery, first-wins', async () => {
+    const { text, pubkey } = await signedPost(ALICE, 'hi', 'k1.json');
+    const msg = makeMessage({ id: 2, fromId: 11, text, sender: { address: ALICE } as any });
+    deriveOnIngest(store, msg, 'mid@x');
+    expect(store.pinnedKey(ALICE)).toBe(pubkey);
+  });
+
+  it('does not overwrite an existing pin on a later conflicting delivery', async () => {
+    const first = await signedPost(ALICE, 'hi', 'k1.json');
+    const second = await signedPost(ALICE, 'later', 'k2.json'); // different key
+    deriveOnIngest(store, makeMessage({ id: 2, fromId: 11, text: first.text, sender: { address: ALICE } as any }), 'm1@x');
+    deriveOnIngest(store, makeMessage({ id: 3, fromId: 11, text: second.text, sender: { address: ALICE } as any }), 'm2@x');
+    expect(store.pinnedKey(ALICE)).toBe(first.pubkey);
+    expect(second.pubkey).not.toBe(first.pubkey);
+  });
+
+  it('never pins from an embedded boost orig (a booster cannot seed a fake pin)', async () => {
+    // Booster BOB boosts ALICE's post, embedding ALICE's signed orig. Ingesting
+    // BOB's boost pins BOB's key (if signed) but NEVER ALICE's from the orig.
+    const { openAttestor } = await import('../src/attest.js');
+    const { buildPostObject, buildBoostObject, serializeEnvelope } = await import('../src/envelope.js');
+    const aliceA = openAttestor(join(dir, 'alice.json'));
+    const aliceEnv = buildPostObject('alice post', UUID);
+    const aliceSig = aliceA.sign(aliceEnv, ALICE);
+    const orig = { ...aliceEnv, ...aliceSig };
+
+    const BOB = 'bob@example.org';
+    const bobA = openAttestor(join(dir, 'bob.json'));
+    const boostEnv = buildBoostObject('boost-uuid', { u: UUID, addr: ALICE }, orig);
+    const bobSig = bobA.sign(boostEnv, BOB);
+    const boostText = serializeEnvelope({ ...boostEnv, ...bobSig });
+
+    const msg = makeMessage({ id: 5, fromId: 22, text: boostText, sender: { address: BOB } as any });
+    deriveOnIngest(store, msg, 'boost-mid@x');
+    expect(store.pinnedKey(ALICE), 'orig author never pinned from an embed').toBeNull();
+    expect(store.pinnedKey(BOB), 'the direct booster IS pinned').toBe(bobA.publicKeyBase64());
+  });
+
+  it('does not pin from a SELF message', async () => {
+    const { text } = await signedPost('self@x', 'mine', 'self.json');
+    const msg = makeMessage({ id: 2, fromId: 1, text, sender: { address: 'self@x' } as any });
+    deriveOnIngest(store, msg, 'mid@x', 'self@x');
+    expect(store.pinnedKey('self@x')).toBeNull();
+  });
+
+  it('does not pin an unsigned/legacy delivery (no pubkey)', () => {
+    const msg = makeMessage({ id: 2, fromId: 11, text: 'plain legacy post', sender: { address: ALICE } as any });
+    deriveOnIngest(store, msg, 'mid@x');
+    expect(store.pinnedKey(ALICE)).toBeNull();
+  });
+});

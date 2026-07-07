@@ -1197,3 +1197,44 @@ describe('createStore: pending follow requests', () => {
     expect(reloaded.pendingFollowRequests()).toEqual({ [ALICE]: 1234 });
   });
 });
+
+describe('createStore: TOFU key pins', () => {
+  const ALICE = 'alice@example.org';
+
+  it('pins a key on first sighting and reads it back', () => {
+    const store = createStore(filePath);
+    expect(store.pinnedKey(ALICE)).toBeNull();
+    expect(store.pinKey(ALICE, 'KEY_A')).toBe('KEY_A');
+    expect(store.pinnedKey(ALICE)).toBe('KEY_A');
+  });
+
+  it('is first-wins: a conflicting later pin is a no-op and returns the original', () => {
+    const store = createStore(filePath);
+    store.pinKey(ALICE, 'KEY_A');
+    expect(store.pinKey(ALICE, 'KEY_B')).toBe('KEY_A');
+    expect(store.pinnedKey(ALICE)).toBe('KEY_A');
+  });
+
+  it('re-pinning the same key is idempotent', () => {
+    const store = createStore(filePath);
+    store.pinKey(ALICE, 'KEY_A');
+    expect(store.pinKey(ALICE, 'KEY_A')).toBe('KEY_A');
+    expect(store.pinnedKey(ALICE)).toBe('KEY_A');
+  });
+
+  it('persists pins across store reloads', () => {
+    const store = createStore(filePath);
+    store.pinKey(ALICE, 'KEY_A');
+    expect(createStore(filePath).pinnedKey(ALICE)).toBe('KEY_A');
+  });
+
+  it('survives a schema re-index (migrate) like notifications/pending', () => {
+    // Seed an old-version store on disk with a pin, force a migrate on load.
+    const store = createStore(filePath);
+    store.pinKey(ALICE, 'KEY_A');
+    const raw = JSON.parse(readFileSync(filePath, 'utf8'));
+    raw.schemaVersion = 0; // pre-current → triggers migrate on next load
+    writeFileSync(filePath, JSON.stringify(raw));
+    expect(createStore(filePath).pinnedKey(ALICE)).toBe('KEY_A');
+  });
+});

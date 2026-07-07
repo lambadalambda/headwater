@@ -8,7 +8,7 @@
  */
 import type { T } from '@deltachat/jsonrpc-client';
 import { type RefToken } from './protocol.js';
-import { buildInviteGrantEnvelope } from './envelope.js';
+import { buildInviteGrantEnvelope, parseEnvelope } from './envelope.js';
 import {
   parseWire,
   parseWireInviteGrant,
@@ -90,6 +90,17 @@ export const deriveOnIngest = (
   const accountAddr = msg.sender.address;
   const accountContactId = msg.fromId;
   const created: Notification[] = [];
+
+  // TOFU key pinning (post-attestations, sketch #6 / decision 0002): this
+  // message arrived through normal transport ingestion — a DIRECT delivery,
+  // core-PGP verified (any chat type: feed broadcast or DM copy, both are
+  // securejoin/Autocrypt-verified channels). If its OUTER envelope carries a
+  // signing pubkey, pin `sender.address -> pubkey`, first-wins. We read the
+  // pubkey off the outer envelope ONLY — NEVER off an embedded boost `orig`
+  // (that would let a booster seed a fake pin for an author they impersonate).
+  // The pin is the strong binding a later verification checks against.
+  const env = parseEnvelope(msg.text);
+  if (env?.pubkey) store.pinKey(accountAddr, env.pubkey);
 
   const reaction = parseWireReaction(msg.text);
   if (reaction) {

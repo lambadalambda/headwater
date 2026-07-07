@@ -166,6 +166,19 @@ type StoreData = {
    * what stops an *unsolicited* grant from silently joining us to a feed.
    */
   pendingFollowRequests: Record<string, number>;
+  /**
+   * TOFU key pins (post-attestations, sketch #6 / decision 0002): sender
+   * address -> the ed25519 pubkey (base64) first seen on a DIRECT delivery from
+   * that address. First-wins: once pinned, a later signed envelope whose pubkey
+   * CONFLICTS with the pin is treated as unverified (renders a placeholder).
+   * Additive field (no schema bump): the `{...emptyData(), ...raw}` load pattern
+   * defaults it to `{}` for pre-attestation stores, and it survives `migrate`
+   * (like notifications/pending) so hard-won pins are never dropped by a
+   * derived-index re-index. Pinned ONLY from direct deliveries (core-PGP
+   * verified) — NEVER from an embedded boost `orig` (a booster could seed a fake
+   * pin).
+   */
+  pinnedKeys: Record<string, string>;
 };
 
 const emptyData = (): StoreData => ({
@@ -188,6 +201,7 @@ const emptyData = (): StoreData => ({
   notificationDedupeKeys: [],
   nextNotificationId: 1,
   pendingFollowRequests: {},
+  pinnedKeys: {},
 });
 
 /**
@@ -215,6 +229,10 @@ const migrate = (old: StoreData): StoreData => ({
   notificationDedupeKeys: old.notificationDedupeKeys ?? [],
   nextNotificationId: old.nextNotificationId ?? 1,
   pendingFollowRequests: old.pendingFollowRequests ?? {},
+  // Key pins are a TOFU trust root, not a derivable index — preserve them across
+  // a re-index exactly like notifications/pending (never re-derivable from a
+  // sweep: pinning happens only on live direct delivery, first-wins).
+  pinnedKeys: old.pinnedKeys ?? {},
 });
 
 export type ReactionTally = { emoji: string; count: number; reactors: string[] };
@@ -304,6 +322,16 @@ export type Store = {
   hasPendingFollowRequest(addr: string): boolean;
   /** All pending invite-requests: addr -> requested-at ms. */
   pendingFollowRequests(): Record<string, number>;
+  /**
+   * TOFU-pin `pubkey` for `addr` on FIRST sighting (first-wins): records the pin
+   * iff none exists for `addr`. A later call with a different pubkey is a no-op
+   * (the pin is immutable) — the conflict surfaces at verify time via
+   * `pinnedKey`. Returns the currently-pinned key (the newly-set one on first
+   * pin, or the pre-existing one). MUST only be called for direct deliveries.
+   */
+  pinKey(addr: string, pubkey: string): string;
+  /** The pinned pubkey for `addr`, or null if none pinned yet. */
+  pinnedKey(addr: string): string | null;
 };
 
 /** A fresh scratch path for callers (tests, `createApp` defaults) that don't need cross-restart persistence. */
@@ -738,5 +766,16 @@ export const createStore = (filePath: string): Store => {
     hasPendingFollowRequest: (addr) => addr in load().pendingFollowRequests,
 
     pendingFollowRequests: () => ({ ...load().pendingFollowRequests }),
+
+    pinKey: (addr, pubkey) => {
+      const d = load();
+      const existing = d.pinnedKeys[addr];
+      if (existing !== undefined) return existing; // first-wins: never overwrite
+      d.pinnedKeys[addr] = pubkey;
+      save();
+      return pubkey;
+    },
+
+    pinnedKey: (addr) => load().pinnedKeys[addr] ?? null,
   };
 };
