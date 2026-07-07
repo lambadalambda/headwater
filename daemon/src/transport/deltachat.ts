@@ -318,6 +318,23 @@ export const openTransport = async (
     return chatId;
   };
 
+  /**
+   * The e2ee-capable KEY-contact id for `addr`, or null. Core keeps
+   * KEY-contacts (securejoin/message-derived) and ADDRESS-contacts (keyless)
+   * as SEPARATE rows for the same addr; only a row with `e2eeAvail` can be
+   * sent to (a keyless row fails "e2e encryption unavailable"). Shared by
+   * `keyContactIdForAddr` (reachability probe) and `introduceViaInvite`
+   * (whose success criterion + post-join address check this IS).
+   */
+  const keyContactFor = async (addr: string): Promise<number | null> => {
+    const contacts = await rpc.getContacts(accountId, 0, addr).catch(() => [] as T.Contact[]);
+    const target = addr.toLowerCase();
+    const match = contacts.find(
+      (c) => c.address.toLowerCase() === target && c.e2eeAvail && c.id !== DC_CONTACT_ID_SELF,
+    );
+    return match ? match.id : null;
+  };
+
   // Cached so we don't hit getConfig once per message when mapping timelines.
   let cachedDisplayName: string | null | undefined;
   const selfDisplayName = async (): Promise<string | null> => {
@@ -582,16 +599,36 @@ export const openTransport = async (
       // SELF is trivially reachable (we can address our own thread), but a
       // subscription to our own thread is nonsensical; the caller guards that.
       if (matchesSelfAddr(addr, creds.addr)) return DC_CONTACT_ID_SELF;
-      // Core keeps KEY-contacts (e2ee-capable) and ADDRESS-contacts (keyless) as
-      // SEPARATE rows for the same addr. Query by addr and pick the row we can
-      // ACTUALLY encrypt to (`e2eeAvail`), so a send won't fail "e2e encryption
-      // unavailable". No such row → null (honest: no key path to this author yet).
-      const contacts = await rpc.getContacts(accountId, 0, addr).catch(() => [] as T.Contact[]);
-      const target = addr.toLowerCase();
-      const match = contacts.find(
-        (c) => c.address.toLowerCase() === target && c.e2eeAvail && c.id !== DC_CONTACT_ID_SELF,
-      );
-      return match ? match.id : null;
+      return keyContactFor(addr);
+    },
+
+    contactInvite: async () => rpc.getChatSecurejoinQrCode(accountId, null),
+
+    introduceViaInvite: async (invite: string, expectedAddr: string) => {
+      // A received envelope's invite is attacker-influencable, so gate the QR
+      // KIND before acting: only a contact-verification invite may be joined.
+      // Anything else (a broadcast/group invite smuggled into the field) would
+      // silently subscribe/join us to something — refuse.
+      const qr = await rpc.checkQr(accountId, invite).catch(() => null);
+      if (!qr || qr.kind !== 'askVerifyContact') return null;
+      try {
+        await rpc.secureJoin(accountId, invite);
+      } catch {
+        return null;
+      }
+      // Success criterion = an e2ee-capable KEY-contact for `expectedAddr`
+      // exists. This folds the mandatory post-join ADDRESS CHECK (the link is
+      // self-authenticating; addr equality is the authenticator — a swapped
+      // link completes against someone else and never produces this row) and
+      // handshake completion into one honest probe, polled bounded (the
+      // securejoin handshake is a multi-message email exchange).
+      const deadline = Date.now() + 60_000;
+      for (;;) {
+        const id = await keyContactFor(expectedAddr);
+        if (id !== null) return id;
+        if (Date.now() >= deadline) return null;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
     },
 
     follow: async (invite: string) => {

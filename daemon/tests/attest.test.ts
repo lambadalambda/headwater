@@ -250,6 +250,26 @@ describe('openAttestor / sign / verify', () => {
     expect(pub2).toBe(pub1);
   });
 
+  it('verification is INDIFFERENT to the unsigned invite field (by design)', () => {
+    // In-band introduction: `invite` is deliberately outside the canonical
+    // payload — securejoin links are self-authenticating and the joiner's
+    // post-join addr check is the authenticator, so a signature must neither
+    // require nor break on the field (authors can rotate invites; relayers
+    // stripping it is plain omission).
+    const a = openAttestor(keyPath);
+    const env: Envelope = { dn: 2, type: 'post', uuid: UUID, text: 'hello' };
+    const signed: Envelope = { ...env, ...a.sign(env, ADDR) };
+    expect(verify(signed, ADDR)).toBe(true);
+    expect(verify({ ...signed, invite: 'https://i.delta.chat/#ABC' }, ADDR)).toBe(true);
+    const signedWithInvite: Envelope = {
+      ...env,
+      invite: 'https://i.delta.chat/#ABC',
+      ...a.sign({ ...env, invite: 'https://i.delta.chat/#ABC' }, ADDR),
+    };
+    expect(verify({ ...signedWithInvite, invite: undefined }, ADDR)).toBe(true);
+    expect(verify({ ...signedWithInvite, invite: 'https://i.delta.chat/#SWAPPED' }, ADDR)).toBe(true);
+  });
+
   it('signs an envelope and verify() accepts the round-trip', () => {
     const a = openAttestor(keyPath);
     const env: Envelope = { dn: 2, type: 'post', uuid: UUID, text: 'hello' };

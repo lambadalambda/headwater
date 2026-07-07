@@ -98,6 +98,17 @@ export type Envelope = {
    * (post-attestations) so a re-attached copy verifies against the signature.
    */
   media?: { description?: string | null; sha256?: string };
+  /**
+   * In-band introduction (meta/issues/in-band-introduction.md): the author's
+   * multi-use CONTACT invite link, so a stranger holding this (verified) post
+   * can securejoin its author on demand — the substrate has no cold 1:1 send.
+   * DELIBERATELY unsigned (outside the canonical payload): securejoin links are
+   * self-authenticating, and the joiner's mandatory post-join address check is
+   * the authenticator — a swapped link either fails the handshake or yields a
+   * contact whose addr mismatches. Unsigned also lets authors rotate invites
+   * and keeps the dn3 layout stable. Non-string values are dropped at parse.
+   */
+  invite?: string;
   /** The emoji of a react/unreact. */
   emoji?: string;
   /** The invite link of an invite-grant. */
@@ -406,6 +417,9 @@ export const parseEnvelope = (text: string): Envelope | null => {
   // EMPTY key string — so a grafted `{u:'',addr:evil}` must never survive the
   // parse seam. Dropping (not rejecting) keeps foreign messages rendering.
   if (obj['root'] !== undefined && !isWellFormedRootRef(obj['root'])) delete obj['root'];
+  // `invite` is an unsigned string-only field (in-band introduction); anything
+  // else degrades to absent so downstream code never sees junk.
+  if (obj['invite'] !== undefined && typeof obj['invite'] !== 'string') delete obj['invite'];
   return obj as Envelope;
 };
 

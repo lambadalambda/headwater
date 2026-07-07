@@ -259,6 +259,23 @@ describe('trailing-junk tolerance (DC transient file placeholder)', () => {
   });
 });
 
+describe('in-band introduction: invite field', () => {
+  it('round-trips a string invite on a content envelope', () => {
+    const env = parseEnvelope(
+      JSON.stringify({ dn: 2, type: 'post', uuid: UUID, text: 'hi', invite: 'https://i.delta.chat/#ABC' }),
+    );
+    expect(env?.invite).toBe('https://i.delta.chat/#ABC');
+  });
+
+  it('drops a non-string invite (tolerant parse)', () => {
+    for (const bad of [42, null, { link: 'x' }, ['x']]) {
+      const env = parseEnvelope(JSON.stringify({ dn: 2, type: 'post', uuid: UUID, text: 'hi', invite: bad }));
+      expect(env).not.toBeNull();
+      expect(env?.invite, `invite ${JSON.stringify(bad)} must be dropped`).toBeUndefined();
+    }
+  });
+});
+
 describe('mintUuid', () => {
   it('mints distinct uuids', () => {
     expect(mintUuid()).not.toBe(mintUuid());

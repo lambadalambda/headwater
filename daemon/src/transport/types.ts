@@ -69,6 +69,23 @@ export interface Transport {
    * clean "can't reach the thread author yet" error, never a cold send.
    */
   keyContactIdForAddr(addr: string): Promise<number | null>;
+  /**
+   * Our own multi-use CONTACT invite link (chatId-less securejoin QR) — the
+   * in-band introduction payload stamped onto outgoing content envelopes so a
+   * stranger holding a post of ours can securejoin us on demand.
+   */
+  contactInvite(): Promise<string>;
+  /**
+   * Join `invite` (a CONTACT invite; any other QR kind is refused via checkQr)
+   * and wait, bounded, until an e2ee-capable key-contact for `expectedAddr`
+   * exists — which is simultaneously the handshake-completion signal AND the
+   * mandatory post-join ADDRESS CHECK (invite links are self-authenticating; a
+   * swapped link completes against someone else and never yields this row).
+   * Returns that contact id, or null on refusal/failure/timeout. Callers must
+   * treat this as SLOW (a securejoin is a multi-message email exchange) and
+   * only invoke it on EXPLICIT need — never from plain ingest.
+   */
+  introduceViaInvite(invite: string, expectedAddr: string): Promise<number | null>;
   contact(contactId: number): Promise<T.Contact | null>;
   /**
    * Resolve a contact id from an email address. Also matches SELF: if the
