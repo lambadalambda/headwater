@@ -384,7 +384,7 @@ describe('timelines', () => {
     expect(reply.in_reply_to_id).toBe('12');
     expect(reply.in_reply_to_account_id).toBe('11'); // bob's contact id
     expect(reply.mentions).toEqual([
-      { id: '11', username: 'zbie604yz', acct: BOB.address, url: `${BASE}/deltanet/contact/11` },
+      { id: '11', username: 'zbie604yz', acct: BOB.address, url: `${BASE}/deltanet/contact/11`, display_name: 'bob' },
     ]);
   });
 });

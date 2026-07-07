@@ -264,6 +264,10 @@ describe('messageToStatus: reply markers', () => {
         username: 'parentauthor',
         acct: 'parentauthor@example.org',
         url: `${BASE}/deltanet/contact/21`,
+        // Non-standard additive field: chatmail local parts are random
+        // registration strings, so the "Replying to" pill needs the chosen
+        // name (see meta/issues/reply-pill-display-name.md).
+        display_name: 'parent author',
       },
     ]);
   });
@@ -305,6 +309,7 @@ describe('messageToStatus: reply markers', () => {
         username: 'p6yalimhl',
         acct: 'p6yalimhl@nine.testrun.org',
         url: `${BASE}/deltanet/contact/1`,
+        display_name: 'alice',
       },
     ]);
   });

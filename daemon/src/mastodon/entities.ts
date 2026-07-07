@@ -21,6 +21,13 @@ export type MastodonMention = {
   username: string;
   acct: string;
   url: string;
+  /**
+   * NON-STANDARD additive field: the contact's chosen display name. Chatmail
+   * local parts are random registration strings, so anything rendering a
+   * mention (the "Replying to" pill) needs the name, not the handle
+   * (decision 0001: the API is ours; vanilla clients ignore extra fields).
+   */
+  display_name: string;
 };
 
 /** Full Mastodon relationship shape (only `following` is ever true today; the rest are honest `false`s). */
@@ -221,6 +228,7 @@ const contactToMention = (contact: T.Contact, baseUrl: string): MastodonMention 
     username,
     acct: contact.address,
     url: `${baseUrl}/deltanet/contact/${contact.id}`,
+    display_name: contact.displayName,
   };
 };
 
