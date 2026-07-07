@@ -1,5 +1,28 @@
 # deltanet devlog
 
+## 2026-07-07 — reply pill shows the chosen name
+
+The "Replying to" pill showed the address local part — a chosen nickname on
+the fediverse, but a random registration string on chatmail. Both renderings
+now lead with the author's chosen display name ("Carol Sparkle"), full
+address demoted to the chip tooltip:
+
+- The daemon ships a NON-STANDARD `display_name` on status mentions (built
+  from the parent message's sender contact, which it always had in hand);
+  decision 0001 applies — the API is ours, vanilla clients ignore the field.
+- Frontend: `addresseeNames` (handle → name, both `@user` and `@user@host`
+  key forms, mirroring `mentionAcctMap`) flows adapt → Post* → PostBody →
+  PostPinged; the inline reply composer already had `targetName` plumbed and
+  just never rendered it. Fediverse statuses without mention names keep the
+  handle fallback. Gotcha for next time: the app page's post re-map
+  (`+page.svelte` ~line 600) is a field-PICKING copy — a new view-model field
+  silently vanishes unless added there too (caught by the route-level e2e
+  after the adapter unit test was already green).
+
+Companion issue filed for later: mention addressing + display-name
+autocomplete in the composer (meta/issues/mention-addressing-autocomplete.md
+— wire format, delivery semantics, and notification questions noted there).
+
 ## 2026-07-07 — backup & identity survival (.dnbk export/restore)
 
 The data dir is the identity and the relay retains nothing, so losing the disk
