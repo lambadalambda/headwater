@@ -1,5 +1,52 @@
 # deltanet devlog
 
+## 2026-07-07 — orig-<uuid> thread view (clicking a verified boost embed)
+
+Fix (`meta/issues/orig-status-thread-view.md`): clicking a verified boost
+embed navigated to `/app/thread/orig-<uuid>`; the daemon's status + context
+handlers did `Number(id)` → NaN → `transport.message(NaN)` threw → 500. Now
+these ids resolve honestly, and every `/statuses/:id` route is hardened.
+
+### Changes (`daemon/src/server.ts` only)
+
+- `parseStatusId(raw)`: one shared helper turning the opaque `:id` param into a
+  discriminated union — all-digits → `{ kind:'msg', msgId }`, `orig-<uuid>` →
+  `{ kind:'orig', uuid }`, anything else / empty → `null`. Replaces the
+  scattered `Number(id)` calls so a non-numeric id is a clean 404, never a 500.
+- `resolveOrigStatus(transport, uuid)`: (1) if we hold the original locally
+  (`store.resolveKey(uuid)`), return the REAL local status; (2) else walk the
+  boost index (`store.boostsByMid(uuid)`) for a held boost whose embedded
+  `orig` verifies — `toStatus` runs the SAME ladder as the timeline (sig + pin
+  + media hash + contact-first attribution) and yields a status whose `.reblog`
+  IS the verified embed; return that nested reblog (id `orig-<uuid>`); (3) no
+  verifiable candidate → `null` → 404. No verification is reimplemented.
+- `GET /statuses/:id`: numeric → existing path; `orig-<uuid>` →
+  `resolveOrigStatus`; else 404.
+- `GET /statuses/:id/context`: for `orig-<uuid>` ancestors are `[]` (we hold no
+  original to climb from) and the descendant BFS roots at the uuid post key, so
+  DM reply copies we DO hold still render — mapped exactly like the numeric
+  path; unresolvable / unknown → empty arrays. Numeric path unchanged.
+- Action routes (reblog / unreblog / favourite / reactions): all now take the
+  local msgId via `parseStatusId` and 404 on any non-numeric id (an action on
+  an `orig-*` post has no local target — making interactions work via uuid refs
+  is a separate future issue, per the spec).
+
+### Frontend
+
+No change needed. Status ids are already opaque strings end to end: the thread
+route (`/app/thread/<id>`), `threadHref` (`encodeURIComponent(statusId)`), and
+the whole e2e suite drive non-numeric ids (`status-1`) with empty context. An
+`orig-<uuid>` id is structurally the same, so the frontend renders it as-is.
+Frontend suite not run (untouched).
+
+### Tests
+
+`daemon/tests/server.test.ts` +14 (739 total, was 725): verified-embed fetch
+with contact-first attribution, locally-held original → real status, unknown
+uuid → 404, non-numeric id → 404 (no 500); orig context empty vs. resolvable
+reply children; and the action-route hardening matrix. `pnpm test` +
+`pnpm check` green. Integration suite not run.
+
 ## 2026-07-07 — verified boost embeds honor known contacts
 
 Fix (`meta/issues/verified-embed-known-contact.md`): a verified boost embed
