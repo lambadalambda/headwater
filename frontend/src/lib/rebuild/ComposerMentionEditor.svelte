@@ -48,7 +48,9 @@
 	const accountMatches = (query: string) => accounts.filter((account) =>
 		account.username.toLowerCase().includes(query) ||
 		account.acct.toLowerCase().includes(query) ||
-		account.displayName.toLowerCase().includes(query)
+		account.displayName.toLowerCase().includes(query) ||
+		(account.petname ?? '').toLowerCase().includes(query) ||
+		(account.authName ?? '').toLowerCase().includes(query)
 	).slice(0, 5);
 	const emojiMatches = (query: string) => emojis.filter((emoji) => emoji.shortcode.toLowerCase().includes(query)).slice(0, 5);
 	let visibleAccounts = $derived(pop?.type === 'mention' ? accountMatches(pop.query) : []);

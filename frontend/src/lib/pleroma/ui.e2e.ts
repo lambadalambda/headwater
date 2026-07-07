@@ -846,3 +846,33 @@ test('addressee maps prefer the auth name and expose petnames separately', () =>
 	expect(post.addresseeNames?.['@zbie604yz@nine.testrun.org']).toBe('Carol Sparkle');
 	expect(post.addresseePetnames?.['@zbie604yz@nine.testrun.org']).toBe('carol');
 });
+
+test('mentionNames maps body mention handles to petname-first labels', () => {
+	const post = adaptPleromaStatus(withStatus({
+		id: 'body-mention-post',
+		content: 'hey @zbie604yz@nine.testrun.org!',
+		pleroma: { content: { 'text/plain': 'hey @zbie604yz@nine.testrun.org!' } },
+		mentions: [
+			{
+				id: 'carol-account',
+				url: 'http://localhost:4030/deltanet/contact/12',
+				username: 'zbie604yz',
+				acct: 'zbie604yz@nine.testrun.org',
+				display_name: 'carol',
+				auth_name: 'Carol Sparkle',
+				petname: 'carol'
+			},
+			{
+				id: 'bob-account',
+				url: 'http://localhost:4030/deltanet/contact/11',
+				username: 'aab3ff9',
+				acct: 'aab3ff9@nine.testrun.org',
+				display_name: 'bob',
+				auth_name: 'bob'
+			}
+		]
+	}));
+	// Petname wins; auth name is the fallback.
+	expect(post.mentionNames?.['@zbie604yz@nine.testrun.org']).toBe('carol');
+	expect(post.mentionNames?.['@aab3ff9@nine.testrun.org']).toBe('bob');
+});

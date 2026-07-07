@@ -151,6 +151,8 @@ export type SocialPost = {
 	addresseeNames?: Record<string, string>;
 	/** Addressee handle (lowercased) -> my local petname, when set (deltanet mentions). */
 	addresseePetnames?: Record<string, string>;
+	/** Body-mention handle (lowercased) -> render label (petname-first). */
+	mentionNames?: Record<string, string>;
 	/** The author's self-chosen name (deltanet petnames; name above prefers my petname). */
 	authName?: string;
 	/** My local key-bound petname for the author, when set. */

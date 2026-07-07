@@ -267,6 +267,19 @@ const mentionNameMap = (status: PleromaStatus): Record<string, string> =>
 const mentionPetnameMap = (status: PleromaStatus): Record<string, string> =>
 	mentionMapFor(status, (values) => mentionField(values, 'petname'));
 
+/**
+ * Handle -> the label a BODY mention token renders as: my petname wins (it's
+ * the name I trust), else their chosen name. Feeds RichText's mentionNames.
+ */
+const mentionLabelMap = (status: PleromaStatus): Record<string, string> =>
+	mentionMapFor(
+		status,
+		(values) =>
+			mentionField(values, 'petname') ||
+			mentionField(values, 'auth_name') ||
+			mentionField(values, 'display_name'),
+	);
+
 const directReplyAccountHandle = (status: PleromaStatus) => {
 	if (!status.in_reply_to_id) return null;
 	const pleromaAcct = handleFromAcct(status.pleroma.in_reply_to_account_acct);
@@ -860,6 +873,7 @@ export const adaptPleromaStatus = (status: PleromaStatus, options: AdaptPleromaS
 		addressees: body.addressees,
 		addresseeNames: mentionNameMap(source),
 		addresseePetnames: mentionPetnameMap(source),
+		mentionNames: mentionLabelMap(source),
 		mentionAccts: mentionAcctMap(source),
 		copyJson: status,
 		quotedPost: quotedPost ? adaptQuotedPost(quotedPost, options.now) : undefined,

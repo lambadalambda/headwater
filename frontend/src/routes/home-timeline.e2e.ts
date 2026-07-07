@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { pleromaFixtures } from '../lib/pleroma/fixtures';
-import { expectElementIsTruncatedWithinParent, expectNoHorizontalOverflow, mockRightRailApis, setViewport } from '../test/playwright';
+import { expectElementIsTruncatedWithinParent, expectNoHorizontalOverflow, fulfillJson, mockRightRailApis, setViewport } from '../test/playwright';
 
 const session = {
 	instanceUrl: 'https://pleroma.example',
@@ -3404,4 +3404,83 @@ test('home timeline reply pill shows their name plus my petname chip', async ({ 
 	const post = page.locator('.post').filter({ hasText: 'agreed!' }).first();
 	await expect(post.locator('.post-pinged-chip-parent .post-pinged-handle')).toHaveText('Carol Sparkle');
 	await expect(post.locator('.post-pinged').getByTestId('petname-chip')).toContainText('carol');
+});
+
+test('body mention tokens render as names (petname-first) with the address as tooltip', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [
+			{
+				...pleromaFixtures.status,
+				id: 'status-body-mention',
+				content: 'lunch with @zbie604yz@nine.testrun.org tomorrow',
+				pleroma: { ...pleromaFixtures.status.pleroma, content: { 'text/plain': 'lunch with @zbie604yz@nine.testrun.org tomorrow' } },
+				mentions: [
+					{
+						id: 'carol-account',
+						url: 'https://pleroma.example/deltanet/contact/12',
+						username: 'zbie604yz',
+						acct: 'zbie604yz@nine.testrun.org',
+						display_name: 'carol',
+						auth_name: 'Carol Sparkle',
+						petname: 'carol'
+					}
+				]
+			}
+		]);
+	});
+
+	await setViewport(page, 'desktop');
+	await page.goto('/app/home');
+
+	const post = page.locator('.post').filter({ hasText: 'lunch with' }).first();
+	const mention = post.locator('.post-mention-inline');
+	await expect(mention).toHaveText('@carol');
+	await expect(mention).toHaveAttribute('title', '@zbie604yz@nine.testrun.org');
+	await expect(post.locator('.post-body')).not.toContainText('zbie604yz');
+});
+
+test('composer autocomplete searches contacts and inserts a full-address mention', async ({ page }) => {
+	await authenticate(page);
+	await mockInstance(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [pleromaFixtures.status]);
+	});
+	let searchQuery = '';
+	await page.route('https://pleroma.example/api/v1/accounts/search**', async (route) => {
+		searchQuery = new URL(route.request().url()).searchParams.get('q') ?? '';
+		await fulfillJson(route, [
+			{
+				...pleromaFixtures.account,
+				id: '12',
+				username: 'zbie604yz',
+				acct: 'zbie604yz@nine.testrun.org',
+				display_name: 'carol',
+				pleroma: { ...pleromaFixtures.account.pleroma, deltanet: { auth_name: 'Carol Sparkle', petname: 'carol' } }
+			}
+		]);
+	});
+	let createBody = '';
+	await page.route('https://pleroma.example/api/v1/statuses', async (route) => {
+		createBody = route.request().postData() ?? '';
+		await fulfillHome(route, statusWithText('created-mention-post', 'hi @zbie604yz@nine.testrun.org'));
+	});
+
+	await setViewport(page, 'desktop');
+	await page.goto('/app/home');
+
+	const editor = page.getByRole('textbox', { name: 'Post text' });
+	await editor.click();
+	await editor.pressSequentially('hi @car', { delay: 30 });
+
+	// The popup offers carol (petname matched via the daemon search).
+	const option = page.getByRole('option').filter({ hasText: 'carol' }).first();
+	await expect(option).toBeVisible();
+	expect(searchQuery).toBe('car');
+	await option.click();
+
+	await page.getByRole('button', { name: 'Post', exact: true }).click();
+	await expect
+		.poll(() => new URLSearchParams(createBody).get('status'))
+		.toContain('@zbie604yz@nine.testrun.org');
 });

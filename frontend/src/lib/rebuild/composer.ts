@@ -4,6 +4,10 @@ export type ComposerMentionAccount = {
 	id: string;
 	username: string;
 	displayName: string;
+	/** Their self-chosen name (deltanet petnames). */
+	authName?: string | null;
+	/** My local petname — autocomplete matches it and it should rank first. */
+	petname?: string | null;
 	acct: string;
 	avatarUrl?: string | null;
 	avClass?: string;

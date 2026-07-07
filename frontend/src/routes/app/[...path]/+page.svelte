@@ -617,6 +617,7 @@
 			addressees: post.addressees,
 			addresseeNames: post.addresseeNames,
 			addresseePetnames: post.addresseePetnames,
+			mentionNames: post.mentionNames,
 			mentionAccts: post.mentionAccts,
 			boostedBy: post.boostedBy ? {
 				name: booster?.displayName ?? post.boostedBy.name,
@@ -2592,6 +2593,8 @@
 			id: view.id,
 			username: view.username,
 			displayName: view.displayName,
+			authName: view.authName,
+			petname: view.petname,
 			acct: view.acct,
 			avatarUrl: view.avatarUrl,
 			avClass: 'av-grad-3'

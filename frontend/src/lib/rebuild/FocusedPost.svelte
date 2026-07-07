@@ -27,6 +27,7 @@
 		addressees?: string[];
 		addresseeNames?: Record<string, string>;
 		addresseePetnames?: Record<string, string>;
+		mentionNames?: Record<string, string>;
 		authName?: string;
 		petname?: string;
 		quotedPost?: Record<string, unknown>;
@@ -157,7 +158,7 @@
 	</div>
 
 	<PostCW post={post}>
-		<div class="focused-body"><RichText text={post.body} emojis={post.bodyEmojis} mentionAccts={post.mentionAccts} mentionClass="post-mention-inline" linkUrls /></div>
+		<div class="focused-body"><RichText text={post.body} emojis={post.bodyEmojis} mentionAccts={post.mentionAccts} mentionNames={post.mentionNames} mentionClass="post-mention-inline" linkUrls /></div>
 		<QuotedPost quoted={post.quotedPost} />
 		<PostPinged addressees={post.addressees} addresseeNames={post.addresseeNames} addresseePetnames={post.addresseePetnames} focused />
 

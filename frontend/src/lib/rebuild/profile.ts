@@ -19,6 +19,7 @@ export type ProfilePost = PostLike & {
 	addressees?: string[];
 	addresseeNames?: Record<string, string>;
 	addresseePetnames?: Record<string, string>;
+	mentionNames?: Record<string, string>;
 	authName?: string;
 	petname?: string;
 	attachments?: Attachment[];

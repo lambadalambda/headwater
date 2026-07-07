@@ -10,11 +10,19 @@
 		linkMentions?: boolean;
 		linkUrls?: boolean;
 		mentionAccts?: Record<string, string>;
+		/** Handle (lowercased) -> label to render instead of the raw token (petname/name). */
+		mentionNames?: Record<string, string>;
 	};
 
-	let { text = '', emojis = [], mentionClass = '', linkMentions = true, linkUrls = false, mentionAccts = {} }: Props = $props();
+	let { text = '', emojis = [], mentionClass = '', linkMentions = true, linkUrls = false, mentionAccts = {}, mentionNames = {} }: Props = $props();
 	let parts = $derived(renderBodyText(text, emojis));
 	const mentionTarget = (mention: string) => mentionAccts[mention.toLowerCase()] ?? mention;
+	// A mention token renders as the person's NAME when known (chatmail local
+	// parts are random registration strings); the full handle stays the title.
+	const mentionLabel = (mention: string) => {
+		const name = mentionNames[mention.toLowerCase()] ?? mentionNames[mentionTarget(mention).toLowerCase()];
+		return name ? `@${name}` : mention;
+	};
 </script>
 
 {#each parts as part, i (typeof part === 'string' ? `t${i}` : part.key)}
@@ -29,8 +37,8 @@
 			{part.text}
 		{/if}
 	{:else if linkMentions}
-		<a class={mentionClass} href={profileHref(mentionTarget(part.text)) ?? undefined} title={mentionTarget(part.text)}>{part.text}</a>
+		<a class={mentionClass} href={profileHref(mentionTarget(part.text)) ?? undefined} title={mentionTarget(part.text)}>{mentionLabel(part.text)}</a>
 	{:else}
-		<span class={mentionClass}>{part.text}</span>
+		<span class={mentionClass}>{mentionLabel(part.text)}</span>
 	{/if}
 {/each}
