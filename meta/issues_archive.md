@@ -28,3 +28,6 @@
 - [x] [Clicking a verified boost embed 500s the thread view](issues/orig-status-thread-view.md)
 - [x] [Wire: signed thread-root ref on replies + DM copy to root author](issues/wire-thread-root-ref.md)
 - [x] [Thread auto-backfill: fetch dangling ancestors from the peer who showed them to us](issues/thread-auto-backfill.md)
+- [x] [Subscribe to thread: per-thread channel hosted by the root author](issues/thread-subscribe.md)
+- [x] [Attachment posts sometimes render/ingest as naked JSON](issues/attachment-transient-text.md)
+- [x] [Context ancestors stop at the uuid→mid era boundary](issues/mixed-era-ancestor-climb.md)

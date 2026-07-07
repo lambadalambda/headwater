@@ -1,5 +1,142 @@
 # deltanet devlog
 
+## 2026-07-07 — live-QA fixes: DC transient text suffix; mixed-era ancestor climb
+
+Two bugs from live QA, one shared root cause discovered. (1) While an attachment
+is still downloading, DC core's `msg.text` can transiently carry its
+file-placeholder summary appended to the real body (`{...} [Image – 137.37 KiB]`);
+the persisted text is clean afterwards. The trailing junk broke `parseEnvelope`,
+which (a) rendered raw JSON in the live-streamed status frame and (b) — worse,
+persisted — made `parseWireUuid` fail at ingest, mis-keying the message under its
+canonical MID instead of its uuid, so its reaction tallies (uuid-keyed by the
+send path) never rendered even though the author received them. Fix:
+`parseEnvelope` now recovers the LEADING balanced JSON object (string/escape-aware
+brace scan) and ignores trailing junk; leading junk still fails. Store schema
+v8 (no shape change) forces the derived-index re-index so already-mis-keyed
+messages re-key from their clean stored text — verified live: the damaged
+message re-keyed on boot and the stranded favourite appeared.
+
+(2) The context endpoint's ancestor climb (introduced with thread-auto-backfill)
+broke at the uuid→mid era boundary: a v2 reply whose parent chain crosses into
+legacy mid refs stopped climbing, so /thread/<deep-reply> showed fewer ancestors
+than /thread/<its-parent>. Replaced the split uuid-loop + legacy-fallback with
+ONE climb by post key (uuid or mid), crossing local ↔ held ↔ legacy freely.
+Verified live: the previously truncated thread renders its full chain.
+
+## 2026-07-07 — thread subscribe: per-thread channel hosted by the root author
+
+Issue `meta/issues/thread-subscribe.md` (design-sketch #3, layers 2–3). Auto-backfill
+heals history reachable through your peers; explicit subscription covers a thread's
+FUTURE and branches no peer touched. A "Subscribe to thread" action DMs the root
+author a SCOPED invite-request; the root's daemon lazily hosts a per-thread broadcast
+channel, auto-grants + sends the thread-so-far bundle, and REPUBLISHES incoming replies
+into the channel. Subscribers join it as a THREAD subscription (never a followed feed)
+and admit its bundles through the existing held-envelope ingest.
+
+### Protocol (extends existing invite types — old nodes degrade gracefully)
+
+- `invite-request`/`invite-grant` gain an OPTIONAL `scope: { thread: 'u:<root-uuid>' }`
+  (`envelope.ts`). ABSENT = the existing FEED follow-back flow, UNCHANGED (regression
+  tests assert both parsers still fire, and that an old node reading a scoped envelope
+  sees a plain request/grant → degrades to a feed follow-back). Scope parsed TOLERANTLY
+  (`threadScopeRootUuid`): a malformed/unknown scope → null → treated as unscoped.
+  `wire.ts` gains `parseWireThreadInviteRequest`/`parseWireThreadInviteGrant`.
+- Republication + thread-so-far REUSE the `envelope-bundle` + held-envelope machinery
+  from thread-auto-backfill (no second relay format; verbatim signed envelopes only, 0002).
+
+### New modules
+
+- **`src/thread-collect.ts`** (pure): `collectThreadUuids` — root + descendant uuids over
+  the store's reply graph (local `replyChildMids` ∪ held `heldChildrenOf`), the thread-
+  so-far membership set. Bounded.
+- **`src/thread-subscribe.ts`** (ingest wiring + pure helpers, mirrors backfill-ingest.ts):
+  - `handleThreadInviteRequest` (HOST): only for a thread whose ROOT we hold; lazily
+    `createBroadcast` + persist the binding (once); auto-grant a scoped invite-grant to
+    the requester's message-derived id (reachable by construction — the request just
+    arrived); DM the thread-so-far via `buildServeBundles` over `collectThreadUuids`.
+  - `republishReplyToThread` (HOST): a fresh FEED reply whose SIGNED `root` ∈ hostedThreads
+    → wrap its OWN signed envelope verbatim in an `envelope-bundle`, `postToChat` the
+    channel. Signed-only (never fabricate); OMIT is moderation. Dedupe via
+    `store.wasRepublished(uuid)` so feed+DM copies / restart never double-post.
+  - `handleThreadInviteGrant` (SUBSCRIBER): a SOLICITED scoped grant (gated on
+    `hasPendingThreadRequest`, like feed follow-backs) → `follow()` + record a THREAD
+    subscription; pending cleared even on join failure.
+  - `handleThreadChannelBundle` (SUBSCRIBER): a bundle on a REGISTERED thread-subscription
+    chat → the EXISTING `processBundle` held-envelope ingest (render-time verify, no TOFU
+    pins). Never serves requests from channels.
+
+### Store (schema v6 → v7)
+
+Four new non-derivable roots that SURVIVE `migrate` (like pins/held envelopes — they name
+out-of-band DC chats / network history a message sweep can't reconstruct): `hostedThreads`
+(rootUuid→chatId), `threadSubscriptions` (rootUuid→chatId), `pendingThreadRequests`
+(rootUuid→ts, the anti-unsolicited-join gate), `republishedUuids` (dedupe). Additive
+fields; a v6 store gains them on load.
+
+### Transport seams (`transport/{types,deltachat}.ts`)
+
+`createBroadcast(name)` + `chatInvite(chatId)` (host channel creation, mirroring the feed
+broadcast), `postToChat(chatId, text)` (republication), `leaveChat(chatId)` (unsubscribe =
+`blockChat`, same mechanism as unfollow), and **`keyContactIdForAddr(addr)`** — the honest
+reachability probe: queries `getContacts` by addr and returns an id ONLY for a row with
+`e2eeAvail` (a KEY-contact we can actually encrypt to), else null. No cold sends.
+
+### API + UI
+
+- `POST/DELETE /api/v1/pleroma/statuses/:id/subscribe` (`:id` numeric or `orig-<uuid>`).
+  `resolveThreadRoot` identifies the thread via the SIGNED `root` ref on a reply, else the
+  target's own uuid+author when it IS the root (handles local, held, and orig ids).
+  Reachability gate → 422 `unreachable_author` (no key path) / `own_thread`; NEVER a cold
+  send. Statuses gain `pleroma.deltanet.thread_subscribed` (resolver `isThreadSubscribed`).
+- `following()`/home timeline EXCLUDE thread-channel chats — filtered in server.ts via the
+  store's `threadSubscriptions` chatId set (`followedFeeds`/`excludeThreadSubscriptionMessages`),
+  NOT a transport-level hack: a thread channel is an InBroadcast like any feed, so the only
+  honest discriminator is "is this chat registered as a thread subscription?".
+- Frontend: Subscribe/Unsubscribe action on the thread view's FocusedPost (root status)
+  via new `client.subscribeThread`/`unsubscribeThread`; optimistic toggle with revert +
+  clean toast for the unreachable-author 422. State survives reload (the flag is served on
+  the root status). Playwright covers subscribe→Unsubscribe and the unreachable toast.
+
+### Streaming decision (nice-to-have)
+
+Streaming a thread update to an open thread view is DEFERRED (minimal): channel bundles are
+suppressed exactly like backfill (no streaming/notifications, held content never in
+timelines), and the thread view refetches context on navigation. Live push into an open
+thread view would need a per-thread streaming channel — out of scope; noted.
+
+### FINDING — honest C→A reachability WITHOUT C following A's feed (inviter gets the key)
+
+The integration test establishes C→A reachability by having **A follow C's FEED** (not the
+reverse). Securejoin exchanges keys both ways, so C — the INVITER — ends up with a
+KEY-contact for A and can encrypt the scoped invite-request, yet C is NOT a member of A's
+feed. This matters: had C followed A's feed (the first attempt), A's future replies would
+reach C DIRECTLY, and the channel republication would be redundant (the held-envelope ingest
+also refuses to overwrite the local copy, so the assertion `heldEnvelope(reply)` would even
+stay null). With A→C instead, A's NEW deep reply reaches C ONLY through A's thread channel —
+the load-bearing property (`resolveKey(reply)` is null on C; only `heldEnvelope(reply)` is
+set). Because A is both root and host, A republishes its OWN reply too; a self-authored feed
+post never re-arrives via the ingest hook (no IncomingMsg for own sends), so republication
+is ALSO triggered at post time in the reply endpoint (dedupe makes it idempotent with the
+received-reply ingest-hook path). `resolveThreadRoot` handles the `orig-<uuid>` subscribe
+target whether A's root is held (backfilled) or, in other topologies, held locally.
+
+### Tests
+
+`pnpm test` (1028 unit, was 952): new `thread-subscribe-envelope` (scope round-trip +
+unscoped regression + tolerant parse), `thread-subscribe-store` (round-trip + migration),
+`thread-subscribe` (collect, host grant/channel-reuse/thread-so-far, republish
+verbatim/dedupe/omit/feed-only, subscriber solicited-join/unsolicited-ignore, channel-
+bundle admit/reject/self-echo-idempotent), `server.test.ts` +9 (endpoint reachable/422/
+own/unsubscribe/flag/404 + following+timeline exclusion), `followback.test.ts` +3
+(scoped requests are NOT feed follow-backs). Integration
+`thread-subscribe.test.ts` green over the podman relay (~52s test): A follows C's feed for
+an honest key path (C is the inviter → C gets A's key without following A), C backfills A's
+root, subscribes via `orig-<rootUuid>`, joins A's channel; A's NEW deep reply reaches C
+ONLY via republication (held, not local) — home timeline + notifications suppressed;
+unsubscribe stops updates. Full daemon integration suite (9 files / 11 tests) green.
+Frontend `pnpm test` (317 Playwright) + `pnpm check` green with the Subscribe/Unsubscribe
+button + unreachable-toast covered.
+
 ## 2026-07-07 — thread auto-backfill: heal dangling ancestors from the peer who showed them
 
 Issue `meta/issues/thread-auto-backfill.md` (design-sketch #3, layer 1). The QA
