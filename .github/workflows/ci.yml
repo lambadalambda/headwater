@@ -37,11 +37,9 @@ jobs:
 
       - name: Unit tests
         run: pnpm test
-        # The integration suite (pnpm test:integration) is intentionally NOT run
-        # here: it provisions a real chatmail relay in a systemd podman container,
-        # which GitHub's hosted runners can't launch. Run it locally before
-        # releasing wire/federation changes (see README "Testing against a local
-        # relay"). This job is the fast, hermetic second check on every push/PR.
+        # The integration suite runs in its own `integration` job below (it needs
+        # a systemd podman relay + several minutes to build the image), keeping
+        # this job the fast hermetic check.
 
   frontend:
     name: frontend (typecheck + Playwright)
@@ -74,3 +72,43 @@ jobs:
         # playwright.config.ts's webServer builds the SPA and serves it; the
         # suite drives the app against mocked API fixtures (no daemon needed).
         run: pnpm test
+
+  integration:
+    name: daemon integration (podman chatmail relay)
+    runs-on: ubuntu-latest
+    # The suite builds a real chatmail relay image (clone + apt + venv) and boots
+    # it as a systemd podman container, so give it room.
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: daemon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: daemon/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Podman preflight (version + systemd-in-container smoke)
+        run: |
+          set -euxo pipefail
+          podman version
+          # Confirm this runner can run systemd as PID 1 in a container at all,
+          # so a failure here is a clear "substrate" signal vs. a relay-build bug.
+          podman run --rm --systemd=always quay.io/podman/stable:latest \
+            /bin/sh -c 'command -v systemctl' || \
+            echo "::warning::systemd-in-container smoke failed; the relay may not boot"
+
+      - name: Build the relay image
+        run: bash testenv/relay.sh build
+
+      - name: Integration tests
+        run: pnpm test:integration

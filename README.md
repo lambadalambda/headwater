@@ -124,11 +124,16 @@ accept-invalid-certificates login params (see
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push and pull request as a second
-set of checks: the daemon typecheck + unit suite, and the frontend typecheck +
-Playwright suite. The **integration suite is not run in CI** — it provisions a
-real chatmail relay in a systemd podman container, which GitHub's hosted
-runners can't launch. Run it locally (see above) before releasing changes to
-the wire format, transport, or federation logic.
+set of checks, in three jobs:
+
+- **daemon** — typecheck + unit suite (fast, hermetic).
+- **frontend** — typecheck + Playwright suite.
+- **integration** — the full federation suite against a real chatmail relay
+  built and booted as a systemd **podman** container on the hosted runner
+  (`ubuntu-latest` ships podman + cgroup v2). This job builds the relay image
+  each run, so it takes several minutes; a preflight step smoke-tests
+  systemd-in-container first so a substrate failure is distinguishable from a
+  relay-build or test failure.
 
 ## Repo layout
 
