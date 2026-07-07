@@ -16,7 +16,7 @@ import {
   type MastodonRelationship,
   type MastodonStatus,
 } from './mastodon/entities.js';
-import type { Transport } from './transport/types.js';
+import type { OwnChannel, Transport } from './transport/types.js';
 import { createMediaStore, isSupportedImageMime } from './media.js';
 import { parseCanonicalMid, type RefToken } from './protocol.js';
 import {
@@ -1181,6 +1181,10 @@ export const createApp = (
     }
 
     const inReplyToId = body['in_reply_to_id'] != null ? String(body['in_reply_to_id']) : undefined;
+    // Visibility channels: 'private' ("Followers") goes to the LOCKED channel;
+    // public/unlisted/default to the public feed. The posted uuid is recorded
+    // so leak guards + rendering know the post is locked.
+    const channel: OwnChannel = String(body['visibility'] ?? '') === 'private' ? 'locked' : 'public';
     if (inReplyToId) {
       const parsedParent = parseStatusId(inReplyToId);
       if (parsedParent?.kind === 'orig') {
@@ -1204,8 +1208,9 @@ export const createApp = (
           await mapper.ownAddr(transport),
           await ownContactInvite(transport),
         );
-        const msg = await transport.post(replyText, media ? { file: media.path } : undefined);
+        const msg = await transport.post(replyText, { channel, ...(media ? { file: media.path } : {}) });
         if (media) mediaStore.tagMessage(msg.id, media.description);
+        if (channel === 'locked') store.markLockedPost(uuid);
         await ingest(transport, msg);
         // Parent-author DM copy + root copy, both key-contact-first with
         // in-band introduction, background + best-effort.
@@ -1265,8 +1270,9 @@ export const createApp = (
         await ownContactInvite(transport),
       );
 
-      const msg = await transport.post(replyText, media ? { file: media.path } : undefined);
+      const msg = await transport.post(replyText, { channel, ...(media ? { file: media.path } : {}) });
       if (media) mediaStore.tagMessage(msg.id, media.description);
+      if (channel === 'locked') store.markLockedPost(uuid);
       await ingest(transport, msg);
 
       // Thread-subscribe (host side): if WE host the thread this reply belongs to,
@@ -1329,13 +1335,15 @@ export const createApp = (
     const postMedia = media
       ? { description: media.description, sha256: await sha256File(media.path) }
       : undefined;
+    const postUuid = mintUuid();
     const postText = signEnvelope(
-      buildPostObject(text, mintUuid(), postMedia),
+      buildPostObject(text, postUuid, postMedia),
       await mapper.ownAddr(transport),
       await ownContactInvite(transport),
     );
-    const msg = await transport.post(postText, media ? { file: media.path } : undefined);
+    const msg = await transport.post(postText, { channel, ...(media ? { file: media.path } : {}) });
     if (media) mediaStore.tagMessage(msg.id, media.description);
+    if (channel === 'locked') store.markLockedPost(postUuid);
     await ingest(transport, msg);
     await deliverMentionCopies(transport, postText, text, [
       (await mapper.ownAddr(transport)).toLowerCase(),
@@ -1780,9 +1788,13 @@ export const createApp = (
     return c.json(contactToAccount(updated ?? existing, baseUrl));
   });
 
-  app.get('/api/deltanet/invite', requireTransport, async (c) =>
-    c.json({ invite: await c.get('transport').feedInvite() }),
-  );
+  app.get('/api/deltanet/invite', requireTransport, async (c) => {
+    // Visibility channels: `?channel=locked` hands out the locked channel's
+    // invite — meant to be shared one-to-one (approval = sending it), never
+    // published. Default stays the public feed.
+    const channel: OwnChannel = c.req.query('channel') === 'locked' ? 'locked' : 'public';
+    return c.json({ invite: await c.get('transport').feedInvite(channel) });
+  });
 
   app.post('/api/deltanet/follow', requireTransport, async (c) => {
     const { invite } = await c.req.json<{ invite?: string }>();

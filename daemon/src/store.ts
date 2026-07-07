@@ -301,6 +301,13 @@ type StoreData = {
    */
   republishedUuids: Record<string, boolean>;
   /**
+   * Uuids of OWN posts sent to the LOCKED channel (visibility channels, part
+   * 1C guards): backfill serving refuses them and reblog of one's own locked
+   * post is rejected. Non-derivable (which channel a post went to isn't in
+   * the message text) — survives migrate like pins.
+   */
+  lockedPostUuids: Record<string, boolean>;
+  /**
    * SUBSCRIBER side (thread-subscribe): outstanding thread invite-requests we've
    * sent and are awaiting a grant for, keyed by thread ROOT uuid -> requested-at
    * ms. A scoped invite-grant is only auto-joined when its rootUuid has an entry
@@ -337,6 +344,7 @@ const emptyData = (): StoreData => ({
   threadSubscriptions: {},
   pendingThreadRequests: {},
   republishedUuids: {},
+  lockedPostUuids: {},
 });
 
 /**
@@ -380,6 +388,7 @@ const migrate = (old: StoreData): StoreData => ({
   threadSubscriptions: old.threadSubscriptions ?? {},
   pendingThreadRequests: old.pendingThreadRequests ?? {},
   republishedUuids: old.republishedUuids ?? {},
+  lockedPostUuids: old.lockedPostUuids ?? {},
 });
 
 export type ReactionTally = { emoji: string; count: number; reactors: string[] };
@@ -527,6 +536,11 @@ export type Store = {
   hostedThreadUuids(): string[];
   /** Drop a hosted-thread binding (channel gone). No-op if absent. */
   removeHostedThread(rootUuid: string): void;
+  /** Was own post `uuid` sent to the LOCKED channel? (visibility channels) */
+  isLockedPost(uuid: string): boolean;
+  /** Record that own post `uuid` went to the LOCKED channel. Idempotent. */
+  markLockedPost(uuid: string): void;
+
   /** Have we already republished reply `uuid` into a thread channel? */
   wasRepublished(uuid: string): boolean;
   /** Mark reply `uuid` as republished (dedupe; idempotent). */
@@ -1101,6 +1115,14 @@ export const createStore = (
       delete d.hostedThreads[rootUuid];
       save();
     },
+    isLockedPost: (uuid) => load().lockedPostUuids[uuid] === true,
+    markLockedPost: (uuid) => {
+      const d = load();
+      if (d.lockedPostUuids[uuid] === true) return;
+      d.lockedPostUuids[uuid] = true;
+      save();
+    },
+
     wasRepublished: (uuid) => load().republishedUuids[uuid] === true,
     markRepublished: (uuid) => {
       const d = load();

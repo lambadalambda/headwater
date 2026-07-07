@@ -75,6 +75,8 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
     midForMsgId: (msgId) => store.midForMsgId(msgId),
     reactionTallies: (mid) => store.reactionTallies(mid),
     ownAddr: () => ownAddrCache,
+    // Visibility channels: own locked posts render 'private'.
+    isLockedPost: (uuid) => store.isLockedPost(uuid),
     // Thread auto-backfill: a reply whose parent we hold only as a HELD envelope
     // (backfilled) links via the parent's `orig-<uuid>` id. Only for uuid keys.
     heldOrigId: (keyString) =>

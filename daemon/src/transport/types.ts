@@ -10,7 +10,17 @@ export type PostOptions = {
   file?: string;
   /** Freeform quote bubble (deltanet wire convention: reply/boost embeds). */
   quotedText?: string;
+  /**
+   * Which owned broadcast the post goes to (visibility channels): the PUBLIC
+   * feed (default — the account's original feed) or the LOCKED channel
+   * (created lazily; its invite is never published, see
+   * ../meta/issues/visibility-channels.md).
+   */
+  channel?: OwnChannel;
 };
+
+/** The two owned broadcast channels (visibility channels). */
+export type OwnChannel = 'public' | 'locked';
 
 /**
  * What the Mastodon API layer needs from the federation transport.
@@ -39,8 +49,12 @@ export interface Transport {
   timeline(query: TimelineQuery): Promise<T.Message[]>;
   message(msgId: number): Promise<T.Message | null>;
   post(text: string, opts?: PostOptions): Promise<T.Message>;
-  /** Invite link others use to follow (join) our feed. */
-  feedInvite(): Promise<string>;
+  /**
+   * Invite link others use to follow (join) one of our channels. Default: the
+   * PUBLIC feed. `'locked'` lazily creates the locked channel; its link is
+   * meant to be handed out one-to-one (approval = sending it), never published.
+   */
+  feedInvite(channel?: OwnChannel): Promise<string>;
   /**
    * Export core's passphrase-encrypted backup tar into `destDir` and return
    * the written file's path. Stamps the last-backup timestamp config on

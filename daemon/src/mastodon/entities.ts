@@ -72,7 +72,7 @@ export type MastodonStatus = {
   media_attachments: ReturnType<typeof mediaAttachments>;
   sensitive: boolean;
   spoiler_text: string;
-  visibility: 'public';
+  visibility: 'public' | 'private';
   language: null;
   reblog: MastodonStatus | null;
   application: { name: string };
@@ -474,6 +474,13 @@ export type StatusResolver = {
   /** Our own account's address, to compute `favourited`/`me` flags; default null (never "me"). */
   ownAddr?(): string | null;
   /**
+   * Visibility channels: did OWN post `uuid` go to the LOCKED channel? Drives
+   * `visibility: 'private'` on the rendered status (composer icon + Mastodon
+   * clients disabling boost). Only meaningful for own posts — received posts
+   * carry no channel knowledge yet (part 2). Default: never.
+   */
+  isLockedPost?(uuid: string): boolean;
+  /**
    * Thread auto-backfill: if a reply's parent post key resolves to a HELD
    * envelope (not a local message), the `orig-<uuid>` status id it renders under —
    * so a LOCAL reply to a backfilled parent still links into the thread via
@@ -660,7 +667,11 @@ export const messageToStatus = (
     media_attachments: mediaAttachments(msg, baseUrl, altText),
     sensitive: false,
     spoiler_text: '',
-    visibility: 'public' as const,
+    // Visibility channels: an OWN post that went to the LOCKED channel renders
+    // 'private' (composer icon; Mastodon clients disable boosting it).
+    visibility: (parsed.uuid && resolver.isLockedPost?.(parsed.uuid) ? 'private' : 'public') as
+      | 'public'
+      | 'private',
     language: null,
     reblog,
     application: { name: 'deltanet' },

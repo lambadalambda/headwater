@@ -65,7 +65,7 @@ const makeFakeTransport = () => {
   const keyReachable = new Map<string, number>([[BOB.address.toLowerCase(), 11]]);
   // In-band introductions attempted via introduceViaInvite (for assertions).
   const introductions: Array<{ invite: string; expectedAddr: string }> = [];
-  const posts: Array<{ text: string; file?: string; quotedText?: string }> = [];
+  const posts: Array<{ text: string; file?: string; quotedText?: string; channel?: string }> = [];
   const dms: Array<{ contactId: number; text: string; quotedText?: string }> = [];
   const deleted: number[] = [];
   const unfollowed: number[] = [];
@@ -98,7 +98,7 @@ const makeFakeTransport = () => {
         .slice(0, limit),
     message: async (msgId) => messages.find((m) => m.id === msgId) ?? null,
     post: async (text, opts) => {
-      posts.push({ text, file: opts?.file, quotedText: opts?.quotedText });
+      posts.push({ text, file: opts?.file, quotedText: opts?.quotedText, channel: opts?.channel });
       const id = nextId++;
       const msg = makeMessage({
         id,
@@ -113,7 +113,7 @@ const makeFakeTransport = () => {
       mids.set(id, `mid-${nextMid++}@example.org`);
       return msg;
     },
-    feedInvite: async () => 'OPENPGP4FPR:FAKEINVITE',
+    feedInvite: async (channel) => (channel === 'locked' ? 'OPENPGP4FPR:FAKEINVITE-LOCKED' : 'OPENPGP4FPR:FAKEINVITE'),
     // Fake core backup: writes a recognizable "tar" into destDir like core's
     // exportBackup does, and stamps the last-backup timestamp.
     exportBackup: async (destDir, _passphrase) => {
@@ -2859,5 +2859,73 @@ describe('GET /api/v2/search', () => {
     expect(result.statuses.map((s: any) => s.id)).toEqual([`orig-${heldUuid}`]);
 
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+// --- visibility channels part 1A (meta/issues/visibility-channels.md) -------
+
+describe('visibility channels: posting + invites', () => {
+  it("maps 'private' visibility to the locked channel and renders it back", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'deltanet-vis-'));
+    const store = createStore(join(dir, 'store.json'));
+    const { transport, posts } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store, dataDir: dir });
+
+    const res = await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'followers only', visibility: 'private' }),
+    });
+    expect(res.status).toBe(200);
+    const status = (await res.json()) as any;
+    expect(status.visibility).toBe('private');
+    expect(posts[0]!.channel).toBe('locked');
+    // The uuid is recorded so leak guards can check it later.
+    expect(store.isLockedPost(parseEnvelope(posts[0]!.text)!.uuid!)).toBe(true);
+
+    // Re-reading the status renders private again (store-backed).
+    const read = (await (await app.request(`/api/v1/statuses/${status.id}`)).json()) as any;
+    expect(read.visibility).toBe('private');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('public/unlisted/default go to the public feed and render public', async () => {
+    const { transport, posts } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+    for (const body of [{ status: 'plain' }, { status: 'pub', visibility: 'public' }, { status: 'unl', visibility: 'unlisted' }]) {
+      const res = await app.request('/api/v1/statuses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as any).visibility).toBe('public');
+    }
+    expect(posts.every((p) => p.channel !== 'locked')).toBe(true);
+  });
+
+  it('a private reply goes to the locked channel too', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'deltanet-vis-reply-'));
+    const store = createStore(join(dir, 'store.json'));
+    const { transport, posts } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE, store, dataDir: dir });
+    const res = await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'locked reply', in_reply_to_id: '12', visibility: 'private' }),
+    });
+    expect(res.status).toBe(200);
+    expect(posts[0]!.channel).toBe('locked');
+    expect(((await res.json()) as any).visibility).toBe('private');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('the invite endpoint hands out the locked invite on request', async () => {
+    const { transport } = makeFakeTransport();
+    const app = createApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+    const pub = (await (await app.request('/api/deltanet/invite')).json()) as any;
+    expect(pub.invite).toBe('OPENPGP4FPR:FAKEINVITE');
+    const locked = (await (await app.request('/api/deltanet/invite?channel=locked')).json()) as any;
+    expect(locked.invite).toBe('OPENPGP4FPR:FAKEINVITE-LOCKED');
   });
 });

@@ -1281,3 +1281,23 @@ describe('reload (backup restore seam)', () => {
     expect(JSON.parse(readFileSync(filePath, 'utf8')).schemaVersion).toBe(STORE_SCHEMA_VERSION);
   });
 });
+
+describe('locked posts (visibility channels)', () => {
+  it('marks and reports locked post uuids', () => {
+    const store = createStore(filePath);
+    const uuid = mintPostUuid();
+    expect(store.isLockedPost(uuid)).toBe(false);
+    store.markLockedPost(uuid);
+    expect(store.isLockedPost(uuid)).toBe(true);
+  });
+
+  it('locked markers survive a schema re-index (non-derivable root)', () => {
+    const store = createStore(filePath);
+    const uuid = mintPostUuid();
+    store.markLockedPost(uuid);
+    const raw = JSON.parse(readFileSync(filePath, 'utf8'));
+    raw.schemaVersion = 0;
+    writeFileSync(filePath, JSON.stringify(raw));
+    expect(createStore(filePath).isLockedPost(uuid)).toBe(true);
+  });
+});

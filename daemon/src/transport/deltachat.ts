@@ -7,6 +7,7 @@ import { initialOf } from '../mastodon/entities.js';
 
 const DC_CONTACT_ID_SELF = 1;
 const FEED_CHAT_ID_KEY = 'ui.deltanet.feed_chat_id';
+const LOCKED_CHAT_ID_KEY = 'ui.deltanet.locked_chat_id';
 
 /** Chat types whose messages appear in the timeline. */
 const FEED_CHAT_TYPES: ReadonlySet<T.ChatType> = new Set([
@@ -418,6 +419,29 @@ const buildTransport = (
     return chatId;
   };
 
+  /** The LOCKED channel (visibility channels), created lazily like the feed. */
+  const ensureLockedChat = async (): Promise<number> => {
+    const stored = await rpc.getConfig(accountId, LOCKED_CHAT_ID_KEY);
+    if (stored) return Number(stored);
+    const name = `${creds.displayName}'s locked feed`;
+    const chatId = await rpc.createBroadcast(accountId, name);
+    await rpc.setConfig(accountId, LOCKED_CHAT_ID_KEY, String(chatId));
+    return chatId;
+  };
+
+  /**
+   * The locked channel's chat id WITHOUT creating it — read paths (stats,
+   * self timeline) must not conjure an empty channel as a side effect.
+   */
+  const lockedChatIdIfAny = async (): Promise<number | null> => {
+    const stored = await rpc.getConfig(accountId, LOCKED_CHAT_ID_KEY);
+    return stored ? Number(stored) : null;
+  };
+
+  /** The target chat for an own post/invite by channel choice. */
+  const ownChannelChat = async (channel?: 'public' | 'locked'): Promise<number> =>
+    channel === 'locked' ? ensureLockedChat() : ensureFeedChat();
+
   /**
    * The e2ee-capable KEY-contact id for `addr`, or null. Core keeps
    * KEY-contacts (securejoin/message-derived) and ADDRESS-contacts (keyless)
@@ -651,7 +675,7 @@ const buildTransport = (
     },
 
     post: async (text: string, opts?: PostOptions) => {
-      const chatId = await ensureFeedChat();
+      const chatId = await ownChannelChat(opts?.channel);
       // Our own just-sent message has the SELF contact as sender, whose
       // displayName is the placeholder "Me" — apply the same override
       // loadMessages/self() do so the returned status carries the configured
@@ -677,8 +701,8 @@ const buildTransport = (
       return loadOwn(msgId);
     },
 
-    feedInvite: async () => {
-      const chatId = await ensureFeedChat();
+    feedInvite: async (channel?: 'public' | 'locked') => {
+      const chatId = await ownChannelChat(channel);
       return rpc.getChatSecurejoinQrCode(accountId, chatId);
     },
 
@@ -848,18 +872,25 @@ const buildTransport = (
     },
 
     stats: async () => {
+      // Both owned channels count (visibility channels): follower sets are
+      // UNIONED (a locked follower usually also follows public), post counts
+      // summed. The locked chat is never created here — read paths must not
+      // conjure it.
       const feedChatId = await ensureFeedChat();
-      const [feedContacts, entries, msgIds] = await Promise.all([
-        rpc.getChatContacts(accountId, feedChatId),
+      const lockedChatId = await lockedChatIdIfAny();
+      const chatIds = [feedChatId, ...(lockedChatId !== null ? [lockedChatId] : [])];
+      const [contactLists, entries, msgIdLists] = await Promise.all([
+        Promise.all(chatIds.map((id) => rpc.getChatContacts(accountId, id))),
         rpc.getChatlistEntries(accountId, null, null, null),
-        rpc.getMessageIds(accountId, feedChatId, false, false),
+        Promise.all(chatIds.map((id) => rpc.getMessageIds(accountId, id, false, false))),
       ]);
-      const followers = feedContacts.filter((id) => id !== DC_CONTACT_ID_SELF).length;
+      const followerIds = new Set(contactLists.flat().filter((id) => id !== DC_CONTACT_ID_SELF));
+      const followers = followerIds.size;
 
       const chats = await Promise.all(entries.map((id) => rpc.getBasicChatInfo(accountId, id)));
       const following = chats.filter((chat) => chat.chatType === 'InBroadcast').length;
 
-      const messages = await loadMessages(msgIds);
+      const messages = await loadMessages(msgIdLists.flat());
       const statuses = messages.length;
 
       return { followers, following, statuses };
@@ -926,11 +957,21 @@ const buildTransport = (
     },
 
     timelineFrom: async (contactId, { limit, maxId, minId }: TimelineQuery) => {
-      // Our own profile: read from our own feed broadcast (we're not a
-      // member of an InBroadcast chat for ourselves).
-      const chatId = contactId === DC_CONTACT_ID_SELF ? await ensureFeedChat() : await inBroadcastChatFor(contactId);
-      if (chatId === null) return [];
-      const ids = (await rpc.getMessageIds(accountId, chatId, false, false))
+      // Our own profile: read from our own broadcasts — BOTH channels (we're
+      // not a member of an InBroadcast chat for ourselves).
+      let chatIds: number[];
+      if (contactId === DC_CONTACT_ID_SELF) {
+        const locked = await lockedChatIdIfAny();
+        chatIds = [await ensureFeedChat(), ...(locked !== null ? [locked] : [])];
+      } else {
+        chatIds = [await inBroadcastChatFor(contactId)].filter((id): id is number => id !== null);
+      }
+      if (chatIds.length === 0) return [];
+      const perChat = await Promise.all(
+        chatIds.map((id) => rpc.getMessageIds(accountId, id, false, false)),
+      );
+      const ids = perChat
+        .flat()
         .filter((id) => (maxId === undefined || id < maxId) && (minId === undefined || id > minId))
         .sort((a, b) => b - a)
         .slice(0, limit * 2);
