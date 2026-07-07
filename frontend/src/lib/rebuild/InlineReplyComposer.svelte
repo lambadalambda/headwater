@@ -82,7 +82,11 @@
 	let emojiRecents = $state<Array<string | ComposerEmoji>>([]);
 	let insertRequest = $state<{ id: number; item: string | ComposerEmoji } | null>(null);
 	let insertRequestId = 0;
-	let formLabel = $derived(`Inline reply to ${targetHandle}`);
+	// The chosen display name leads everywhere a human reads it (chatmail
+	// handles are random registration strings); the handle stays the fallback
+	// and the tooltip.
+	let targetLabel = $derived(targetName || targetHandle);
+	let formLabel = $derived(`Inline reply to ${targetLabel}`);
 	let avatarAlt = $derived(`${targetName || targetHandle} avatar`);
 	let targetAvatar = $derived({
 		name: targetName,
@@ -157,16 +161,16 @@
 	<div class="thread-inline-reply-main">
 		<div class="thread-inline-reply-addr">
 			<span>Replying to</span>
-			<span class="thread-inline-reply-addr-chip">
+			<span class="thread-inline-reply-addr-chip" title={targetHandle}>
 				<Icon name="reply" width={10} height={10} />
-				{targetHandle}
+				{targetLabel}
 			</span>
 		</div>
 		<ComposerMentionEditor
 			value={draft}
 			onInput={onDraftInput}
 			ariaLabel="Reply text"
-			placeholder={`Reply to ${targetHandle}...`}
+			placeholder={`Reply to ${targetLabel}...`}
 			disabled={submitting}
 			autoFocus
 			{accounts}

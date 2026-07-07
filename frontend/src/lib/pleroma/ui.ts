@@ -222,6 +222,29 @@ const mentionAcctMap = (status: PleromaStatus): Record<string, string> => {
 	return map;
 };
 
+/**
+ * Handle (lowercased, both `@username` and full `@user@host` forms) → the
+ * author's chosen display name, from the deltanet-specific `display_name`
+ * field on mentions. Chatmail local parts are random registration strings,
+ * so the "Replying to" pill renders these names instead of handles; empty
+ * for fediverse statuses whose mentions carry no display names.
+ */
+const mentionNameMap = (status: PleromaStatus): Record<string, string> => {
+	const map: Record<string, string> = {};
+	for (const mention of status.mentions) {
+		if (!mention || typeof mention !== 'object') continue;
+		const values = mention as Record<string, unknown>;
+		const name = typeof values.display_name === 'string' ? values.display_name.trim() : '';
+		if (!name) continue;
+		const full = handleFromAcct(values.acct);
+		if (!full) continue;
+		const username = typeof values.username === 'string' ? values.username.trim() : '';
+		if (username) map[`@${username.toLowerCase()}`] = name;
+		map[full.toLowerCase()] = name;
+	}
+	return map;
+};
+
 const directReplyAccountHandle = (status: PleromaStatus) => {
 	if (!status.in_reply_to_id) return null;
 	const pleromaAcct = handleFromAcct(status.pleroma.in_reply_to_account_acct);
@@ -807,6 +830,7 @@ export const adaptPleromaStatus = (status: PleromaStatus, options: AdaptPleromaS
 		body: body.body,
 		bodyEmojis: adaptCustomEmojis(source.emojis),
 		addressees: body.addressees,
+		addresseeNames: mentionNameMap(source),
 		mentionAccts: mentionAcctMap(source),
 		copyJson: status,
 		quotedPost: quotedPost ? adaptQuotedPost(quotedPost, options.now) : undefined,

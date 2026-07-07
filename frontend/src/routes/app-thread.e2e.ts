@@ -238,7 +238,7 @@ test('real thread route loads focused status, ancestors, and replies from Plerom
 	await expect(page.getByTestId('thread-ancestor')).toContainText('gridwave');
 	await expect(page.getByTestId('thread-ancestor')).toContainText('the earlier context from gridwave');
 	await page.getByTestId('thread-ancestor').getByRole('button', { name: 'Reply 1' }).click();
-	const ancestorReplyForm = page.getByRole('form', { name: 'Inline reply to @gridwave' });
+	const ancestorReplyForm = page.getByRole('form', { name: 'Inline reply to gridwave' });
 	await expect(ancestorReplyForm).toBeVisible();
 	await ancestorReplyForm.getByRole('button', { name: 'Cancel' }).click();
 	await expect(ancestorReplyForm).toHaveCount(0);
@@ -333,7 +333,7 @@ test('real thread route handles an empty descendant context and accepts the firs
 	await expect(page.getByRole('group', { name: 'Reply sort' })).toHaveCount(0);
 
 	await page.getByTestId('focused-post').getByRole('button', { name: 'Reply 0' }).click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @quietadmin' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to quiet admin' });
 	await replyForm.getByRole('textbox', { name: 'Reply text' }).fill('the first reply lands in an empty thread');
 	await replyForm.getByRole('button', { name: 'Reply', exact: true }).click();
 
@@ -584,7 +584,7 @@ test('real thread route inline reply composer submits for the focused post', asy
 	const focusedReplyButton = focused.getByRole('button', { name: 'Reply 2' });
 	await expect(focusedReplyButton).toHaveAttribute('aria-expanded', 'false');
 	await focusedReplyButton.click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @quietadmin' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to quiet admin' });
 	await expect(replyForm).toBeVisible();
 	await expect(focusedReplyButton).toHaveAttribute('aria-expanded', 'true');
 	await expect(focusedReplyButton).toHaveAttribute('aria-controls', await replyForm.getAttribute('id') ?? 'missing-inline-reply-id');
@@ -623,12 +623,13 @@ test('real thread route inline reply composer opens below a targeted reply and c
 	const replyButton = reply.getByRole('button', { name: 'Reply 0' });
 	await expect(replyButton).toHaveAttribute('aria-expanded', 'false');
 	await replyButton.click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @datagram' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to datagram' });
 	await expect(replyForm).toBeVisible();
 	await expect(replyButton).toHaveAttribute('aria-expanded', 'true');
 	await expect(replyButton).toHaveAttribute('aria-controls', await replyForm.getAttribute('id') ?? 'missing-inline-reply-id');
 	await expect(replyForm).toContainText('Replying to');
-	await expect(replyForm).toContainText('@datagram');
+	await expect(replyForm).toContainText('datagram');
+	await expect(replyForm.locator('.thread-inline-reply-addr-chip')).toHaveAttribute('title', '@datagram');
 	await expect(replyForm.getByRole('img', { name: 'datagram avatar' })).toHaveAttribute('src', 'https://pleroma.example/datagram.png');
 	await reply.getByRole('button', { name: 'Reply 0' }).click();
 	await expect(page.getByRole('form', { name: /Inline reply/ })).toHaveCount(0);
@@ -659,7 +660,7 @@ test('real thread route inline reply composer submits below a targeted reply', a
 
 	const reply = page.getByTestId('thread-reply').filter({ hasText: 'we used to log off. when did that stop being a thing.' });
 	await reply.getByRole('button', { name: 'Reply 0' }).click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @datagram' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to datagram' });
 	await replyForm.getByRole('textbox', { name: 'Reply text' }).fill('replying inline to a thread reply');
 	await replyForm.getByRole('button', { name: 'Reply', exact: true }).click();
 
@@ -696,7 +697,7 @@ test('real thread route inline reply composer submits below an expanded nested r
 	await page.getByRole('button', { name: 'Show 1 reply' }).click();
 	const nested = page.locator('.nested-replies .post-reply').first();
 	await nested.getByRole('button', { name: 'Reply 0' }).click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @orbit' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to orbit' });
 	await replyForm.getByRole('textbox', { name: 'Reply text' }).fill('replying inline to a nested reply');
 	await replyForm.getByRole('button', { name: 'Reply', exact: true }).click();
 
@@ -748,7 +749,7 @@ test('real thread route nested inline reply composer autocompletes mentions and 
 	await page.getByRole('button', { name: 'Show 1 reply' }).click();
 	const nested = page.locator('.nested-replies .post-reply').first();
 	await nested.getByRole('button', { name: 'Reply 0' }).click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @orbit' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to orbit' });
 	const replyEditor = replyForm.getByRole('textbox', { name: 'Reply text' });
 	await replyEditor.click();
 	await replyEditor.pressSequentially('reply @so', { delay: 20 });
@@ -798,7 +799,7 @@ test('real thread route inline reply composer attaches pasted and dropped media'
 	await page.goto('/app/thread/status-1');
 
 	await page.getByTestId('focused-post').getByRole('button', { name: 'Reply 2' }).click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @quietadmin' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to quiet admin' });
 	const replyEditor = replyForm.getByRole('textbox', { name: 'Reply text' });
 	await replyEditor.fill('with uploads');
 	await replyEditor.evaluate((node) => {
@@ -1031,7 +1032,7 @@ test('real thread inline reply composer remains usable on mobile', async ({ page
 	await page.goto('/app/thread/status-1');
 
 	await page.getByTestId('focused-post').getByRole('button', { name: 'Reply 2' }).click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @quietadmin' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to quiet admin' });
 	await expect(replyForm).toBeVisible();
 	await expect(replyForm.getByRole('textbox', { name: 'Reply text' })).toBeVisible();
 	await expect(replyForm.getByRole('button', { name: 'Reply', exact: true })).toBeDisabled();
@@ -1067,7 +1068,7 @@ test('real thread nested inline reply composer remains usable on mobile', async 
 	await deepNested.getByRole('button', { name: 'Show 1 reply' }).click();
 	const cappedNested = page.locator('.nested-replies .nested-replies .nested-replies .post-reply').filter({ hasText: 'the fourth nested mobile reply still fits' }).first();
 	await cappedNested.getByRole('button', { name: 'Reply 0' }).click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @wavelet' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to wavelet' });
 	await expect(replyForm).toBeVisible();
 	await expect(replyForm.getByRole('textbox', { name: 'Reply text' })).toBeVisible();
 	await expect(replyForm.getByRole('button', { name: 'Reply', exact: true })).toBeDisabled();

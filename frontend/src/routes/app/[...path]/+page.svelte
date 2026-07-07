@@ -606,6 +606,7 @@
 			media: post.media,
 			attachments: post.attachments,
 			addressees: post.addressees,
+			addresseeNames: post.addresseeNames,
 			mentionAccts: post.mentionAccts,
 			boostedBy: post.boostedBy ? {
 				name: booster?.displayName ?? post.boostedBy.name,

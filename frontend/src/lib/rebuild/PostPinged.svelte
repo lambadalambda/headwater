@@ -3,12 +3,20 @@
 
 	type Props = {
 		addressees?: string[];
+		/** Addressee handle (lowercased) -> chosen display name (deltanet mentions). */
+		addresseeNames?: Record<string, string>;
 		focused?: boolean;
 	};
 
-	let { addressees = [], focused = false }: Props = $props();
+	let { addressees = [], addresseeNames = {}, focused = false }: Props = $props();
 	let parent = $derived(addressees[0]);
 	let cc = $derived(addressees.slice(1));
+
+	// Chatmail local parts are random registration strings, so a chip shows the
+	// author's chosen display name when the status's mentions carry one; the
+	// full handle stays available as the chip's title/tooltip.
+	const chipLabel = (address: string) =>
+		addresseeNames[address.trim().toLowerCase()] ?? shortHandle(address);
 
 	const shortHandle = (address: string) => {
 		const trimmed = address.trim();
@@ -28,13 +36,13 @@
 					<path d="M6 4L2 8l4 4" />
 					<path d="M2 8h7a4 4 0 014 4v1" />
 				</svg>
-				<span class="post-pinged-handle">{shortHandle(parent)}</span>
+				<span class="post-pinged-handle">{chipLabel(parent)}</span>
 			</a>
 			{#if cc.length > 0}
 				<span class="post-pinged-also">· also</span>
 			{/if}
 			{#each cc as address}
-				<a class="post-pinged-chip" title={address} aria-label={`Open profile for ${address}`} href={profileHref(address) ?? undefined}>{shortHandle(address)}</a>
+				<a class="post-pinged-chip" title={address} aria-label={`Open profile for ${address}`} href={profileHref(address) ?? undefined}>{chipLabel(address)}</a>
 			{/each}
 		</span>
 	</div>

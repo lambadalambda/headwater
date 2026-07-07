@@ -479,7 +479,7 @@ test('renders the canonical thread specimen with targeted inline reply composers
 	const ancestorReplyButton = ancestorPost.getByRole('button', { name: 'Reply 18' });
 	await expect(ancestorReplyButton).toHaveAttribute('aria-expanded', 'false');
 	await ancestorReplyButton.click();
-	const ancestorComposer = thread.getByRole('form', { name: 'Inline reply to @gridwave' });
+	const ancestorComposer = thread.getByRole('form', { name: 'Inline reply to gridwave' });
 	await expect(ancestorComposer).toBeVisible();
 	await expect(ancestorReplyButton).toHaveAttribute('aria-expanded', 'true');
 	await expect(ancestorReplyButton).toHaveAttribute('aria-controls', await ancestorComposer.getAttribute('id') ?? 'missing-inline-reply-id');
@@ -489,7 +489,7 @@ test('renders the canonical thread specimen with targeted inline reply composers
 	const focusedReplyButton = focusedPost.getByRole('button', { name: 'Reply 2' });
 	await expect(focusedReplyButton).toHaveAttribute('aria-expanded', 'false');
 	await focusedReplyButton.click();
-	const focusedComposer = thread.getByRole('form', { name: 'Inline reply to @emichan' });
+	const focusedComposer = thread.getByRole('form', { name: 'Inline reply to emi' });
 	await expect(focusedComposer).toBeVisible();
 	await expect(focusedReplyButton).toHaveAttribute('aria-expanded', 'true');
 	await expect(focusedReplyButton).toHaveAttribute('aria-controls', await focusedComposer.getAttribute('id') ?? 'missing-inline-reply-id');
@@ -497,10 +497,10 @@ test('renders the canonical thread specimen with targeted inline reply composers
 
 	const nyanReply = thread.locator('.post-reply').filter({ hasText: 'this is the energy i needed today' }).first();
 	await nyanReply.getByRole('button', { name: 'Reply 2' }).click();
-	const nyanComposer = thread.getByRole('form', { name: 'Inline reply to @nyan' });
+	const nyanComposer = thread.getByRole('form', { name: 'Inline reply to nyan.binary' });
 	await expect(nyanComposer).toBeVisible();
 	await expect(nyanComposer).toContainText('Replying to');
-	await expect(nyanComposer).toContainText('@nyan');
+	await expect(nyanComposer).toContainText('nyan.binary');
 	await expect(nyanComposer.getByRole('button', { name: 'Reply', exact: true })).toBeDisabled();
 	await nyanComposer.getByRole('textbox', { name: 'Reply text' }).fill('soft web yes');
 	await expect(nyanComposer.getByRole('button', { name: 'Reply', exact: true })).toBeEnabled();
@@ -508,14 +508,14 @@ test('renders the canonical thread specimen with targeted inline reply composers
 	await expect(thread.getByRole('form', { name: /Inline reply/ })).toHaveCount(0);
 
 	await nyanReply.getByRole('button', { name: 'Reply 2' }).click();
-	const reopenedNyanComposer = thread.getByRole('form', { name: 'Inline reply to @nyan' });
+	const reopenedNyanComposer = thread.getByRole('form', { name: 'Inline reply to nyan.binary' });
 	await expect(reopenedNyanComposer.getByRole('textbox', { name: 'Reply text' })).toBeEmpty();
 	await reopenedNyanComposer.getByRole('textbox', { name: 'Reply text' }).fill('soft web yes');
 
 	const softReply = thread.locator('.post-reply').filter({ hasText: 'touched grass too' }).first();
 	await softReply.getByRole('button', { name: 'Reply 0' }).click();
 	await expect(thread.getByRole('form', { name: /Inline reply/ })).toHaveCount(1);
-	const softComposer = thread.getByRole('form', { name: 'Inline reply to @soft.hertz' });
+	const softComposer = thread.getByRole('form', { name: 'Inline reply to soft.hertz' });
 	await expect(softComposer).toBeVisible();
 	await expect(softComposer.getByRole('textbox', { name: 'Reply text' })).toBeEmpty();
 
@@ -529,7 +529,7 @@ test('renders the canonical thread specimen with targeted inline reply composers
 
 	await setViewport(page, 'mobile');
 	await softReply.getByRole('button', { name: 'Reply 0' }).click();
-	await expect(thread.getByRole('form', { name: 'Inline reply to @soft.hertz' })).toBeVisible();
+	await expect(thread.getByRole('form', { name: 'Inline reply to soft.hertz' })).toBeVisible();
 	await expectNoHorizontalOverflow(page);
 });
 

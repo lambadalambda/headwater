@@ -189,6 +189,60 @@ test('Pleroma status adapters synthesize reply addressees from metadata without 
 	expect(post.addressees).toEqual(['@mischievoustomato@tsundere.love']);
 });
 
+test('Pleroma status adapters map addressee handles to display names from mentions', () => {
+	// deltanet ships a non-standard `display_name` on mentions (chatmail local
+	// parts are random registration strings); the "Replying to" pill renders it.
+	const post = adaptPleromaStatus(withStatus({
+		id: 'named-reply',
+		in_reply_to_id: 'parent-status',
+		in_reply_to_account_id: 'parent-account',
+		content: 'hello carol',
+		pleroma: {
+			content: { 'text/plain': 'hello carol' },
+			in_reply_to_account_acct: 'zbie604yz@nine.testrun.org'
+		},
+		mentions: [
+			{
+				id: 'parent-account',
+				url: 'http://localhost:4030/deltanet/contact/12',
+				username: 'zbie604yz',
+				acct: 'zbie604yz@nine.testrun.org',
+				display_name: 'Carol Sparkle'
+			}
+		]
+	}));
+
+	expect(post.addressees).toEqual(['@zbie604yz@nine.testrun.org']);
+	// Both handle forms are keyed, mirroring mentionAcctMap.
+	expect(post.addresseeNames).toEqual({
+		'@zbie604yz@nine.testrun.org': 'Carol Sparkle',
+		'@zbie604yz': 'Carol Sparkle'
+	});
+});
+
+test('addresseeNames is empty when mentions carry no display names (fediverse statuses)', () => {
+	const post = adaptPleromaStatus(withStatus({
+		id: 'unnamed-reply',
+		in_reply_to_id: 'parent-status',
+		in_reply_to_account_id: 'parent-account',
+		content: 'amazing look',
+		pleroma: {
+			content: { 'text/plain': 'amazing look' },
+			in_reply_to_account_acct: 'mischievoustomato@tsundere.love'
+		},
+		mentions: [
+			{
+				id: 'parent-account',
+				url: 'https://tsundere.love/users/mischievoustomato',
+				username: 'mischievoustomato',
+				acct: 'mischievoustomato@tsundere.love'
+			}
+		]
+	}));
+
+	expect(post.addresseeNames).toEqual({});
+});
+
 test('Pleroma status adapters handle reblogs, remote handles, warnings, and fallback assets', () => {
 	const remoteAccount = {
 		...pleromaFixtures.account,

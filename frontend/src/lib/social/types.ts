@@ -147,6 +147,8 @@ export type SocialPost = {
 	media?: MediaVariant;
 	attachments?: PostAttachment[];
 	addressees?: string[];
+	/** Addressee handle (lowercased) -> chosen display name, when known (deltanet mentions). */
+	addresseeNames?: Record<string, string>;
 	boostedBy?: BoostAttributionView;
 	copyJson?: unknown;
 	quotedPost?: QuotedPostView;

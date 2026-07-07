@@ -24,6 +24,7 @@
 		body?: string;
 		bodyEmojis?: CustomEmoji[];
 		addressees?: string[];
+		addresseeNames?: Record<string, string>;
 		quotedPost?: Record<string, unknown>;
 		mentionAccts?: Record<string, string>;
 		reactions?: PleromaReactionView[];
@@ -151,7 +152,7 @@
 	<PostCW post={post}>
 		<div class="focused-body"><RichText text={post.body} emojis={post.bodyEmojis} mentionAccts={post.mentionAccts} mentionClass="post-mention-inline" linkUrls /></div>
 		<QuotedPost quoted={post.quotedPost} />
-		<PostPinged addressees={post.addressees} focused />
+		<PostPinged addressees={post.addressees} addresseeNames={post.addresseeNames} focused />
 
 		{#if post.media}
 			<div class="focused-media">

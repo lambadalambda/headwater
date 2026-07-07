@@ -905,12 +905,15 @@ test('home timeline inline reply composer creates a reply for the selected post'
 	const replyButton = post.getByRole('button', { name: 'Reply 0' });
 	await expect(replyButton).toHaveAttribute('aria-expanded', 'false');
 	await replyButton.click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @quietadmin' });
+	// The pill leads with the chosen display name (chatmail handles are random
+	// registration strings); the handle stays as the chip tooltip.
+	const replyForm = page.getByRole('form', { name: 'Inline reply to quiet admin' });
 	await expect(replyForm).toBeVisible();
 	await expect(replyButton).toHaveAttribute('aria-expanded', 'true');
 	await expect(replyButton).toHaveAttribute('aria-controls', await replyForm.getAttribute('id') ?? 'missing-inline-reply-id');
 	await expect(replyForm).toContainText('Replying to');
-	await expect(replyForm).toContainText('@quietadmin');
+	await expect(replyForm).toContainText('quiet admin');
+	await expect(replyForm.locator('.thread-inline-reply-addr-chip')).toHaveAttribute('title', '@quietadmin');
 	await expect(replyForm.getByRole('img', { name: 'quiet admin avatar' })).toHaveAttribute('src', 'https://pleroma.example/avatar.png');
 	await replyForm.getByRole('textbox', { name: 'Reply text' }).fill('timeline inline reply body');
 	await replyForm.getByRole('textbox', { name: 'Reply text' }).press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
@@ -943,7 +946,7 @@ test('home timeline inline reply composer submits content warnings', async ({ pa
 	await setViewport(page, 'desktop');
 	await page.goto('/app/home');
 	await page.locator('[data-status-id="status-inline-cw"]').getByRole('button', { name: 'Reply 0' }).click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @quietadmin' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to quiet admin' });
 	const cwButton = replyForm.getByRole('button', { name: 'Content warning', exact: true });
 	await cwButton.click();
 	await expect(cwButton).toHaveAttribute('aria-pressed', 'true');
@@ -985,7 +988,7 @@ test('home timeline inline reply composer submits poll fields', async ({ page })
 	await setViewport(page, 'desktop');
 	await page.goto('/app/home');
 	await page.locator('[data-status-id="status-inline-poll"]').getByRole('button', { name: 'Reply 0' }).click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @quietadmin' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to quiet admin' });
 	const pollButton = replyForm.getByRole('button', { name: 'Poll', exact: true });
 	await replyForm.getByRole('textbox', { name: 'Reply text' }).fill('reply poll');
 	await pollButton.click();
@@ -1049,7 +1052,7 @@ test('home timeline inline reply composer autocompletes mentions and custom emoj
 	await setViewport(page, 'desktop');
 	await page.goto('/app/home');
 	await page.locator('[data-status-id="status-inline-autocomplete"]').getByRole('button', { name: 'Reply 0' }).click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @quietadmin' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to quiet admin' });
 	const replyEditor = replyForm.getByRole('textbox', { name: 'Reply text' });
 	await replyEditor.click();
 	await replyEditor.pressSequentially('reply @so', { delay: 20 });
@@ -1100,7 +1103,7 @@ test('home timeline inline reply composer uploads media-only replies', async ({ 
 	await setViewport(page, 'desktop');
 	await page.goto('/app/home');
 	await page.locator('[data-status-id="status-inline-media"]').getByRole('button', { name: 'Reply 0' }).click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @quietadmin' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to quiet admin' });
 	await expect(replyForm.getByRole('button', { name: 'Reply', exact: true })).toBeDisabled();
 	await replyForm.getByLabel('Attach reply media').setInputFiles({ name: 'reply-cat.png', mimeType: 'image/png', buffer: Buffer.from('cat') });
 
@@ -1141,7 +1144,7 @@ test('home timeline inline reply composer inserts custom emoji from picker', asy
 	await setViewport(page, 'desktop');
 	await page.goto('/app/home');
 	await page.locator('[data-status-id="status-inline-picker"]').getByRole('button', { name: 'Reply 0' }).click();
-	const replyForm = page.getByRole('form', { name: 'Inline reply to @quietadmin' });
+	const replyForm = page.getByRole('form', { name: 'Inline reply to quiet admin' });
 	const replyEditor = replyForm.getByRole('textbox', { name: 'Reply text' });
 	await replyEditor.fill('picker ');
 	await replyForm.getByRole('button', { name: 'Emoji' }).click();
@@ -1184,7 +1187,7 @@ test('home timeline inline reply composer moves between targets and cancels', as
 
 	const firstPost = page.locator('[data-status-id="status-inline-first"]');
 	await firstPost.getByRole('button', { name: 'Reply 0' }).click();
-	const firstForm = page.getByRole('form', { name: 'Inline reply to @quietadmin' });
+	const firstForm = page.getByRole('form', { name: 'Inline reply to quiet admin' });
 	await expect(firstForm).toBeVisible();
 	await firstForm.getByRole('textbox', { name: 'Reply text' }).fill('draft that should close');
 	await firstPost.getByRole('button', { name: 'Reply 0' }).click();
@@ -1195,7 +1198,7 @@ test('home timeline inline reply composer moves between targets and cancels', as
 	await page.locator('[data-status-id="status-inline-second"]').getByRole('button', { name: 'Reply 0' }).click();
 
 	await expect(page.getByRole('form', { name: /Inline reply/ })).toHaveCount(1);
-	const movedForm = page.getByRole('form', { name: 'Inline reply to @datagram' });
+	const movedForm = page.getByRole('form', { name: 'Inline reply to datagram' });
 	await expect(movedForm).toBeVisible();
 	await expect(movedForm.getByRole('textbox', { name: 'Reply text' })).toBeEmpty();
 	await movedForm.getByRole('button', { name: 'Cancel' }).click();
@@ -1601,6 +1604,48 @@ test('home timeline shows reply pill from metadata when the body has no leading 
 	await expect(post.locator('.post-pinged-chip-parent')).toHaveAttribute('title', '@mischievoustomato@tsundere.love');
 	await expect(post.locator('.post-pinged-chip-parent')).toHaveAttribute('href', '/app/profiles/mischievoustomato%40tsundere.love');
 	await expect(post.locator('.post-pinged-also')).toHaveCount(0);
+});
+
+test('home timeline reply pill shows the chosen display name for deltanet mentions', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [
+			{
+				...pleromaFixtures.status,
+				id: 'status-named-reply',
+				in_reply_to_id: 'parent-status',
+				in_reply_to_account_id: 'carol-account',
+				content: 'welcome to the network!',
+				pleroma: {
+					...pleromaFixtures.status.pleroma,
+					content: { 'text/plain': 'welcome to the network!' },
+					// Chatmail addresses have random local parts — useless as labels.
+					in_reply_to_account_acct: 'zbie604yz@nine.testrun.org'
+				},
+				mentions: [
+					{
+						id: 'carol-account',
+						url: 'https://pleroma.example/deltanet/contact/12',
+						username: 'zbie604yz',
+						acct: 'zbie604yz@nine.testrun.org',
+						// deltanet's non-standard mention field: the chosen name.
+						display_name: 'Carol Sparkle'
+					}
+				]
+			}
+		]);
+	});
+
+	await setViewport(page, 'desktop');
+	await page.goto('/app/home');
+
+	const post = page.locator('.post').filter({ hasText: 'welcome to the network!' }).first();
+	await expect(post.locator('.post-pinged-l')).toHaveText('Replying to');
+	await expect(post.locator('.post-pinged-chip-parent .post-pinged-handle')).toHaveText('Carol Sparkle');
+	// The full address stays reachable as the tooltip; the random local part
+	// never renders as the label.
+	await expect(post.locator('.post-pinged-chip-parent')).toHaveAttribute('title', '@zbie604yz@nine.testrun.org');
+	await expect(post.locator('.post-pinged-list')).not.toContainText('zbie604yz');
 });
 
 test('home timeline shows reply pill from in_reply_to_account_id and mentions alone, without in_reply_to_account_acct', async ({ page }) => {
