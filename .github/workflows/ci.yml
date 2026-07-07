@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One in-flight run per ref; a newer push cancels the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  daemon:
+    name: daemon (typecheck + unit tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: daemon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: daemon/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (tsc --noEmit)
+        run: pnpm check
+
+      - name: Unit tests
+        run: pnpm test
+        # The integration suite (pnpm test:integration) is intentionally NOT run
+        # here: it provisions a real chatmail relay in a systemd podman container,
+        # which GitHub's hosted runners can't launch. Run it locally before
+        # releasing wire/federation changes (see README "Testing against a local
+        # relay"). This job is the fast, hermetic second check on every push/PR.
+
+  frontend:
+    name: frontend (typecheck + Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (svelte-check)
+        run: pnpm check
+
+      - name: Install Playwright browser (chromium)
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Playwright tests
+        # playwright.config.ts's webServer builds the SPA and serves it; the
+        # suite drives the app against mocked API fixtures (no daemon needed).
+        run: pnpm test

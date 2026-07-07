@@ -121,6 +121,15 @@ daemon's transport connects with explicit IMAP/SMTP host+port and
 accept-invalid-certificates login params (see
 `daemon/src/transport/deltachat.ts`), so no DNS or valid TLS chain is needed.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request as a second
+set of checks: the daemon typecheck + unit suite, and the frontend typecheck +
+Playwright suite. The **integration suite is not run in CI** — it provisions a
+real chatmail relay in a systemd podman container, which GitHub's hosted
+runners can't launch. Run it locally (see above) before releasing changes to
+the wire format, transport, or federation logic.
+
 ## Repo layout
 
 - `daemon/` — TypeScript daemon: Mastodon client API in front,
