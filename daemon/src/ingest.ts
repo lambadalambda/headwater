@@ -9,6 +9,7 @@
 import type { T } from '@deltachat/jsonrpc-client';
 import { type RefToken } from './protocol.js';
 import { buildInviteGrantEnvelope, parseEnvelope } from './envelope.js';
+import { parseBodyMentions } from './mentions.js';
 import {
   parseWire,
   parseWireInviteGrant,
@@ -16,6 +17,7 @@ import {
   parseWireReaction,
   parseWireThreadInviteGrant,
   parseWireThreadInviteRequest,
+  parseWireUuid,
 } from './wire.js';
 import type { Notification, Store } from './store.js';
 import type { Transport } from './transport/types.js';
@@ -163,6 +165,30 @@ export const deriveOnIngest = (
         accountContactId,
         statusMsgId: msg.id,
         dedupeMid: boostedKey,
+      });
+      if (notification) created.push(notification);
+    }
+  }
+
+  // Body mentions (see ../meta/issues/mention-addressing-autocomplete.md): a
+  // content message whose body carries my `@address` token notifies me —
+  // that's the receive half of mention addressing (the send half DM-copies
+  // the same envelope here, so this fires even for posters I don't follow).
+  // Skipped when this same message already notified as a reply to one of my
+  // posts (one logical event, one notification), and deduped by the POST KEY
+  // so the feed copy and the mention DM copy collapse.
+  if (ownAddr && parsed.body) {
+    const alreadyNotifiedAsReply = parsed.reply
+      ? store.isOwnMid(refKey(store, parsed.reply.key))
+      : false;
+    if (!alreadyNotifiedAsReply && parseBodyMentions(parsed.body).includes(ownAddr.toLowerCase())) {
+      const postKey = parseWireUuid(msg.text) ?? mid;
+      const notification = store.addNotification({
+        type: 'mention',
+        accountAddr,
+        accountContactId,
+        statusMsgId: msg.id,
+        dedupeMid: postKey,
       });
       if (notification) created.push(notification);
     }

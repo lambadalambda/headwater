@@ -13,6 +13,7 @@ import {
   type RefToken,
 } from '../src/protocol.js';
 import { deriveOnIngest } from '../src/ingest.js';
+import { buildPostEnvelope } from '../src/envelope.js';
 import { makeMessage } from './entities.test.js';
 
 let dir: string;
@@ -427,5 +428,73 @@ describe('deriveOnIngest: TOFU key pinning', () => {
     const msg = makeMessage({ id: 2, fromId: 11, text: 'plain legacy post', sender: { address: ALICE } as any });
     deriveOnIngest(store, msg, 'mid@x');
     expect(store.pinnedKey(ALICE)).toBeNull();
+  });
+});
+
+describe('deriveOnIngest: body mentions (addressing)', () => {
+  const MY_ADDR = 'p6yalimhl@nine.testrun.org';
+  const postMsg = (id: number, body: string, uuid = mintPostUuid()) =>
+    makeMessage({
+      id,
+      fromId: 11,
+      text: buildPostEnvelope(body, uuid),
+      sender: { address: BOB } as any,
+    });
+
+  it('notifies when a content message mentions my address', () => {
+    const msg = postMsg(2, `hey @${MY_ADDR} look at this`);
+    store.ingestMessage(msg, 'post-mid@example.org');
+    const created = deriveOnIngest(store, msg, 'post-mid@example.org', MY_ADDR);
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({ type: 'mention', accountAddr: BOB, statusMsgId: 2 });
+  });
+
+  it('dedupes across the feed copy and the mention DM copy (same uuid)', () => {
+    const uuid = mintPostUuid();
+    const feed = postMsg(2, `hi @${MY_ADDR}`, uuid);
+    const dm = postMsg(3, `hi @${MY_ADDR}`, uuid);
+    store.ingestMessage(feed, 'copy-a@example.org');
+    store.ingestMessage(dm, 'copy-b@example.org', false);
+    expect(deriveOnIngest(store, feed, 'copy-a@example.org', MY_ADDR)).toHaveLength(1);
+    expect(deriveOnIngest(store, dm, 'copy-b@example.org', MY_ADDR)).toHaveLength(0);
+  });
+
+  it('does not double-notify a reply to my post that also mentions me', () => {
+    seedOwnMessage();
+    const ref = refFromToken({ kind: 'mid', mid: OWN_MID }, 'self@example.org');
+    const msg = makeMessage({
+      id: 2,
+      fromId: 11,
+      text: buildReplyText(`right @${MY_ADDR}?`, ref, mintPostUuid()),
+      sender: { address: BOB } as any,
+    });
+    store.ingestMessage(msg, 'reply-mid@example.org');
+    const created = deriveOnIngest(store, msg, 'reply-mid@example.org', MY_ADDR);
+    expect(created).toHaveLength(1);
+    expect(created[0]!.type).toBe('mention');
+  });
+
+  it("notifies a mention inside a reply to someone ELSE's post", () => {
+    const ref = refFromToken({ kind: 'mid', mid: 'someone-elses@example.org' }, 'carol@x.org');
+    const msg = makeMessage({
+      id: 2,
+      fromId: 11,
+      text: buildReplyText(`cc @${MY_ADDR}`, ref, mintPostUuid()),
+      sender: { address: BOB } as any,
+    });
+    store.ingestMessage(msg, 'reply-mid@example.org');
+    const created = deriveOnIngest(store, msg, 'reply-mid@example.org', MY_ADDR);
+    expect(created).toHaveLength(1);
+    expect(created[0]!.type).toBe('mention');
+  });
+
+  it('never notifies for my own messages or messages not mentioning me', () => {
+    const own = makeMessage({ id: 2, fromId: 1, text: `note to self @${MY_ADDR}` });
+    store.ingestMessage(own, 'own2@example.org');
+    expect(deriveOnIngest(store, own, 'own2@example.org', MY_ADDR)).toHaveLength(0);
+
+    const other = postMsg(3, 'mentioning @someoneelse@nine.testrun.org only');
+    store.ingestMessage(other, 'other@example.org');
+    expect(deriveOnIngest(store, other, 'other@example.org', MY_ADDR)).toHaveLength(0);
   });
 });
