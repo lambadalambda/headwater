@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { T } from '@deltachat/jsonrpc-client';
 import { createStore, type Store } from '../src/store.js';
 import { createApp, type AppContext } from '../src/server.js';
@@ -9,6 +9,7 @@ import { openAttestor } from '../src/attest.js';
 import {
   buildPostObject,
   buildReplyObject,
+  parseEnvelope,
   serializeEnvelope,
   type Envelope,
 } from '../src/envelope.js';
@@ -187,5 +188,61 @@ describe('context endpoint: held-envelope thread traversal', () => {
     // The tampered mid does not render; the climb stops before alice's root.
     expect(ctx.ancestors.map((s: any) => s.id)).not.toContain(`orig-${A_MID}`);
     expect(ctx.ancestors.map((s: any) => s.id)).not.toContain(`orig-${A_ROOT}`);
+  });
+});
+
+describe('unconfirmed-author mark + thread-view key confirmation', () => {
+  it('an unpinned held author renders author_unconfirmed; a matching pin clears it', async () => {
+    const { transport } = seedCarol();
+    const app = createApp(ctxFor(transport), { baseUrl: BASE, store });
+    const before = (await (await app.request(`/api/v1/statuses/orig-${A_ROOT}`)).json()) as any;
+    expect(before.pleroma.deltanet?.author_unconfirmed).toBe(true);
+
+    store.pinKey(ALICE, aliceAttestor().publicKeyBase64());
+    const after = (await (await app.request(`/api/v1/statuses/orig-${A_ROOT}`)).json()) as any;
+    expect(after.pleroma.deltanet?.author_unconfirmed).toBeUndefined();
+  });
+
+  it('viewing held content from an unpinned author triggers ONE background confirmation', async () => {
+    // A held root carrying alice's contact invite (unsigned field, added after
+    // signing — exactly how send paths stamp it).
+    const INVITE = 'OPENPGP4FPR:ALICE-CONTACT-INVITE';
+    store.addHeldEnvelope(
+      { ...signAlice(buildPostObject('alice root', A_ROOT)), invite: INVITE },
+      BOB,
+      22,
+      ALICE,
+      1,
+    );
+    const introductions: Array<{ invite: string; addr: string }> = [];
+    const dms: Array<{ contactId: number; text: string }> = [];
+    const transport = {
+      ...makeTransport(new Map()),
+      // Alice is a total stranger: no key contact until the introduction runs.
+      keyContactIdForAddr: async () => null,
+      introduceViaInvite: async (invite: string, addr: string) => {
+        introductions.push({ invite, addr });
+        return 55;
+      },
+      sendControlDm: async (contactId: number, text: string) => {
+        dms.push({ contactId, text });
+      },
+    } as unknown as Transport;
+    const app = createApp(ctxFor(transport), { baseUrl: BASE, store });
+
+    expect((await app.request(`/api/v1/statuses/orig-${A_ROOT}`)).status).toBe(200);
+    await vi.waitFor(() => {
+      expect(introductions).toEqual([{ invite: INVITE, addr: ALICE }]);
+      expect(dms).toHaveLength(1);
+    });
+    const request = parseEnvelope(dms[0]!.text);
+    expect(request?.type).toBe('envelope-request');
+    expect(request?.refs).toEqual([{ u: A_ROOT, addr: ALICE }]);
+
+    // A second view within the attempt window never re-introduces.
+    expect((await app.request(`/api/v1/statuses/orig-${A_ROOT}`)).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(introductions).toHaveLength(1);
+    expect(dms).toHaveLength(1);
   });
 });

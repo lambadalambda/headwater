@@ -244,3 +244,28 @@ describe('seedBackfillQueue', () => {
     expect(bf.pendingFor(BOB)).toContain(RU);
   });
 });
+
+describe('self-served-bundle pin rule (key confirmation)', () => {
+  it('pins the SENDER when a bundle item verifies against their own address', () => {
+    const own = signAlice(buildPostObject('my own post, served by me', AU));
+    const bundle = parseEnvelope(buildEnvelopeBundle([own]))!;
+    expect(store.pinnedKey(ALICE)).toBeNull();
+    processBundle(store, makeBackfiller().bf, ALICE, 7, bundle, 1000);
+    expect(store.pinnedKey(ALICE)).toBe(own.pubkey);
+  });
+
+  it('never pins from RELAYED items (author != sender)', () => {
+    const alicePost = signAlice(buildPostObject('alice post relayed by bob', AU));
+    const bundle = parseEnvelope(buildEnvelopeBundle([alicePost]))!;
+    processBundle(store, makeBackfiller().bf, BOB, 22, bundle, 1000);
+    expect(store.pinnedKey(ALICE)).toBeNull();
+    expect(store.pinnedKey(BOB)).toBeNull();
+  });
+
+  it('never overwrites an existing pin (first-wins, like direct deliveries)', () => {
+    store.pinKey(ALICE, 'EXISTING_PIN');
+    const own = signAlice(buildPostObject('later self-serve', AU));
+    processBundle(store, makeBackfiller().bf, ALICE, 7, parseEnvelope(buildEnvelopeBundle([own]))!, 1000);
+    expect(store.pinnedKey(ALICE)).toBe('EXISTING_PIN');
+  });
+});

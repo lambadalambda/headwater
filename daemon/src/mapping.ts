@@ -120,7 +120,7 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
       const actual = await sha256File(path).catch(() => null);
       if (actual !== orig.media.sha256) return { kind: 'unverified' };
     }
-    return { kind: 'verified', orig, addr };
+    return { kind: 'verified', orig, addr, pinnedAtVerify: pinned };
   };
 
   /**
@@ -132,7 +132,15 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
     transport: Transport,
     msg: T.Message,
   ): Promise<BoostEmbed | undefined> => {
-    if (embedCache.has(msg.id)) return embedCache.get(msg.id);
+    if (embedCache.has(msg.id)) {
+      const cached = embedCache.get(msg.id);
+      // Key confirmation: a verdict cached before a pin landed must be
+      // re-verified once the pin state changes — a confirmation that CONFLICTS
+      // with the embed has to flip it to unverified, not serve stale trust.
+      const pinNow = cached?.kind === 'verified' ? store.pinnedKey(cached.addr) : null;
+      if (!(cached?.kind === 'verified' && pinNow !== cached.pinnedAtVerify)) return cached;
+      embedCache.delete(msg.id);
+    }
     const parsed = parseWire(msg.text);
     let decision: BoostEmbed | undefined;
     if (parsed.boost && parsed.boostOrig) {
@@ -208,6 +216,9 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
       boostEmbed,
       embedAccount,
       bodyMentions,
+      // Key confirmation: computed FRESH (never cached — a pin can land any
+      // time) so an unpinned embed author renders marked.
+      boostEmbed?.kind === 'verified' && store.pinnedKey(boostEmbed.addr) === null,
     );
     // A verified embed's nested orig-<uuid> reblog: overlay uuid-keyed tallies
     // (embed-only interactions) so favourites/reactions on it render everywhere.
@@ -272,8 +283,18 @@ export const createStatusMapper = (store: Store, baseUrl: string): StatusMapper 
     // though they never held the post), addr-shell fallback — same as the embed.
     const account = await resolveEmbedAccount(transport, held.authorAddr);
     const threadSubscribed = store.isSubscribedToThread(uuid);
+    // Key confirmation: no pin for the author → marked unconfirmed.
+    const authorUnconfirmed = store.pinnedKey(held.authorAddr) === null;
     return withUuidTallies(
-      heldEnvelopeToStatus(held.env, held.authorAddr, baseUrl, inReplyToId, account, threadSubscribed),
+      heldEnvelopeToStatus(
+        held.env,
+        held.authorAddr,
+        baseUrl,
+        inReplyToId,
+        account,
+        threadSubscribed,
+        authorUnconfirmed,
+      ),
       uuid,
     );
   };

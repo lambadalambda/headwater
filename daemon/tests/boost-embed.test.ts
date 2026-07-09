@@ -256,3 +256,34 @@ describe('boost embed rendering ladder', () => {
     expect(status.reblog!.content).toBe('<p>hi</p>');
   });
 });
+
+describe('unconfirmed-author mark + pin-change recompute (key confirmation)', () => {
+  it('a verified embed from an UNPINNED author is marked author_unconfirmed', async () => {
+    const orig = alicePost('unconfirmed content');
+    const status = await createStatusMapper(store, BASE).toStatus(fakeTransport(), boostMsg(orig, { id: 70 }));
+    expect(status.reblog).not.toBeNull();
+    expect((status.reblog!.pleroma as any).deltanet?.author_unconfirmed).toBe(true);
+  });
+
+  it('a matching pin clears the mark', async () => {
+    const orig = alicePost('pinned content');
+    store.pinKey(ALICE, orig.pubkey!);
+    const status = await createStatusMapper(store, BASE).toStatus(fakeTransport(), boostMsg(orig, { id: 71 }));
+    expect(status.reblog).not.toBeNull();
+    expect((status.reblog!.pleroma as any).deltanet?.author_unconfirmed).toBeUndefined();
+  });
+
+  it('a CONFLICTING pin arriving after the cached verify flips the embed to unverified', async () => {
+    const orig = alicePost('later conflict');
+    const mapper = createStatusMapper(store, BASE);
+    const msg = boostMsg(orig, { id: 72 });
+    const first = await mapper.toStatus(fakeTransport(), msg);
+    expect(first.reblog).not.toBeNull();
+    // Key confirmation lands a pin that disagrees with the embed — the SAME
+    // mapper (with its verdict cache) must flip on the next render.
+    store.pinKey(ALICE, 'CONFLICTING_KEY');
+    const second = await mapper.toStatus(fakeTransport(), msg);
+    expect(second.reblog).toBeNull();
+    expect((second.pleroma as any).deltanet?.placeholder).toBe('boost-unverified');
+  });
+});

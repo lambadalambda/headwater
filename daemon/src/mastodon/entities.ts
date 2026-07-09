@@ -107,6 +107,13 @@ export type MastodonStatus = {
       placeholder?: 'boost' | 'boost-unverified';
       ref?: { key: string; addr: string };
       thread_subscribed?: boolean;
+      /**
+       * Key confirmation (meta/issues/key-confirmation.md): the author's
+       * signature verified but we hold NO pinned key for their address —
+       * attribution is self-certifying only, pending active confirmation.
+       * The UI renders a distinct "unconfirmed" treatment.
+       */
+      author_unconfirmed?: boolean;
     };
   };
 };
@@ -305,7 +312,18 @@ const embedMediaAttachments = (
  *    resolve, then the plain `'boost'` placeholder.
  */
 export type BoostEmbed =
-  | { kind: 'verified'; orig: Envelope; addr: string }
+  | {
+      kind: 'verified';
+      orig: Envelope;
+      addr: string;
+      /**
+       * The pin state SEEN at verification time (key confirmation): the mapper
+       * memoizes verdicts per boost msgId, but a pin landing later — exactly
+       * what a key confirmation does — must flip the render. The cache holder
+       * compares this against the CURRENT pin and re-verifies on change.
+       */
+      pinnedAtVerify: string | null;
+    }
   | { kind: 'unverified' };
 
 /**
@@ -343,6 +361,8 @@ export const verifiedEmbedToStatus = (
    * object enriches; the status identity below is unaffected.
    */
   account?: MastodonAccount,
+  /** No pinned key for the author yet (key confirmation) — render marked. */
+  authorUnconfirmed = false,
 ): MastodonStatus => {
   const id = `orig-${orig.uuid ?? 'unknown'}`;
   const createdAt = new Date(orig.ts ?? 0).toISOString();
@@ -382,6 +402,7 @@ export const verifiedEmbedToStatus = (
       quote: null,
       quote_id: null,
       quote_visible: false,
+      ...deltanetPleroma(null, false, authorUnconfirmed),
     },
   };
 };
@@ -409,6 +430,8 @@ export const heldEnvelopeToStatus = (
   inReplyToId: string | null,
   account?: MastodonAccount,
   threadSubscribed = false,
+  /** No pinned key for the author yet (key confirmation) — render marked. */
+  authorUnconfirmed = false,
 ): MastodonStatus => {
   const parsed = parseWire(env.text ?? '');
   const bodyText = env.type === 'boost' ? '' : (env.text ?? parsed.body);
@@ -450,7 +473,7 @@ export const heldEnvelopeToStatus = (
       quote: null,
       quote_id: null,
       quote_visible: false,
-      ...deltanetPleroma(null, threadSubscribed),
+      ...deltanetPleroma(null, threadSubscribed, authorUnconfirmed),
     },
   };
 };
@@ -556,6 +579,8 @@ export const messageToStatus = (
    * them, keeping this render sync. Deduped against the reply-parent mention.
    */
   bodyMentions?: MastodonMention[],
+  /** Key confirmation: the verified embed's author has no pinned key (computed fresh by the mapper). */
+  embedAuthorUnconfirmed = false,
 ): MastodonStatus => {
   const parsed = parseWire(msg.text);
   // `parsed.body` is the human text with all protocol structure removed (v2:
@@ -619,7 +644,7 @@ export const messageToStatus = (
     } else if (boostEmbed?.kind === 'verified') {
       // (b) verified embedded original — attributed via the recipient's real
       // contact (`embedAccount`) when held, else the addr shell.
-      reblog = verifiedEmbedToStatus(boostEmbed.orig, boostEmbed.addr, baseUrl, msg, embedAccount);
+      reblog = verifiedEmbedToStatus(boostEmbed.orig, boostEmbed.addr, baseUrl, msg, embedAccount, embedAuthorUnconfirmed);
     } else {
       // (c) placeholder — distinguish a failed-verification embed from an
       // absent/legacy one so the UI can flag tampering.
@@ -700,8 +725,9 @@ export const messageToStatus = (
 const deltanetPleroma = (
   boostPlaceholder: { placeholder: 'boost' | 'boost-unverified'; key: string; addr: string } | null,
   threadSubscribed: boolean,
+  authorUnconfirmed = false,
 ): { deltanet: NonNullable<MastodonStatus['pleroma']['deltanet']> } | {} => {
-  if (!boostPlaceholder && !threadSubscribed) return {};
+  if (!boostPlaceholder && !threadSubscribed && !authorUnconfirmed) return {};
   return {
     deltanet: {
       ...(boostPlaceholder
@@ -711,6 +737,7 @@ const deltanetPleroma = (
           }
         : {}),
       ...(threadSubscribed ? { thread_subscribed: true } : {}),
+      ...(authorUnconfirmed ? { author_unconfirmed: true } : {}),
     },
   };
 };

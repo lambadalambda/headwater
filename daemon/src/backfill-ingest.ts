@@ -25,6 +25,7 @@
  */
 
 import type { T } from '@deltachat/jsonrpc-client';
+import { verify } from './attest.js';
 import { parseEnvelope, type Envelope } from './envelope.js';
 import { danglingTargets, heldDanglingTargets, storableBundleItem } from './heldenvelopes.js';
 import { servableEnvelope, chunkBundles } from './bundle.js';
@@ -134,6 +135,13 @@ export const processBundle = (
     // item), never mis-attributes verified content.
     const authorAddr =
       backfiller.attributedAddr(storable.uuid) ?? attributedAddrFor(store, storable.uuid, from);
+    // Self-served-bundle pin rule (key confirmation, see
+    // ../meta/issues/key-confirmation.md): an item that verifies against the
+    // SENDER's OWN address is the author attesting their own envelope over a
+    // PGP-verified direct channel — pin it exactly like a direct content
+    // delivery would (first-wins; `pinKey` never overwrites). Relayed items
+    // (author != sender) still never pin.
+    if (storable.pubkey && verify(storable, from)) store.pinKey(from, storable.pubkey);
     const stored = store.addHeldEnvelope(storable, from, fromContactId, authorAddr, nowMs);
     // Whether freshly stored or already held, this uuid is now resolved for the
     // backfiller (release its in-flight lock + clear negative cache).

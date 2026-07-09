@@ -22,6 +22,7 @@ import { createMediaStore, isSupportedImageMime } from './media.js';
 import { parseCanonicalMid, type RefToken } from './protocol.js';
 import {
   buildBoostObject,
+  buildEnvelopeRequest,
   buildInviteGrantEnvelope,
   buildInviteRequestEnvelope,
   buildLockedInviteRequestEnvelope,
@@ -183,6 +184,57 @@ export const createApp = (
   const signEnvelope = (env: Envelope, addr: string, invite?: string | null): string => {
     const { ts, pubkey, sig } = attestor.sign(env, addr);
     return serializeEnvelope({ ...env, ...(invite ? { invite } : {}), ts, pubkey, sig });
+  };
+
+  /**
+   * Key confirmation (see ../meta/issues/key-confirmation.md): actively
+   * confirm an UNPINNED author's signing key when a thread render surfaces
+   * their held content. Introduce via the invite the envelope carries
+   * (checkQr-gated + post-join address check inside `introduceViaInvite`),
+   * then send an ordinary envelope-request for the post's uuid DIRECTLY to
+   * the author — they serve their own signed copy over the PGP-verified
+   * channel, and the self-served-bundle rule (backfill-ingest.ts) pins them.
+   * Background + best-effort (a securejoin is slow and must never delay the
+   * render); one attempt per addr per window so repeated renders never spam
+   * introductions. Skipped entirely once a pin exists.
+   */
+  const KEY_CONFIRM_RETRY_MS = 15 * 60 * 1000;
+  const keyConfirmAttempts = new Map<string, number>();
+  const scheduleKeyConfirm = (
+    transport: Transport,
+    authorAddr: string,
+    invite: string | null,
+    uuid: string,
+  ): void => {
+    const addr = authorAddr.toLowerCase();
+    if (store.pinnedKey(authorAddr) !== null) return;
+    const last = keyConfirmAttempts.get(addr) ?? 0;
+    if (Date.now() - last < KEY_CONFIRM_RETRY_MS) return;
+    keyConfirmAttempts.set(addr, Date.now());
+    void (async () => {
+      const contactId = await keyContactOrIntroduce(transport, authorAddr, invite);
+      if (contactId === null || contactId === DC_CONTACT_ID_SELF) return;
+      await transport.sendControlDm(contactId, buildEnvelopeRequest([{ u: uuid, addr: authorAddr }]));
+    })().catch((err) => console.error('key confirmation failed (non-fatal):', err));
+  };
+
+  /**
+   * `mapper.heldStatus` + the thread-view key-confirmation trigger: every
+   * held render is a thread/orig view (held content never enters timelines),
+   * so this wrapper IS the "confirm on thread view" seam. Rendered content
+   * from an unpinned author schedules a background confirmation.
+   */
+  const heldStatusConfirming = async (
+    transport: Transport,
+    uuid: string,
+    inReplyToId: string | null,
+  ): Promise<MastodonStatus | null> => {
+    const held = store.heldEnvelope(uuid);
+    const status = await mapper.heldStatus(transport, uuid, inReplyToId);
+    if (status && held && store.pinnedKey(held.authorAddr) === null) {
+      scheduleKeyConfirm(transport, held.authorAddr, held.env.invite ?? null, uuid);
+    }
+    return status;
   };
 
   /**
@@ -381,7 +433,7 @@ export const createApp = (
   ): Promise<{ env: Envelope; authorAddr: string } | null> => {
     const held = store.heldEnvelope(uuid);
     if (held) {
-      const status = await mapper.heldStatus(transport, uuid, null);
+      const status = await heldStatusConfirming(transport, uuid, null);
       return status ? { env: held.env, authorAddr: held.authorAddr } : null;
     }
     const embedId = `orig-${uuid}`;
@@ -414,7 +466,7 @@ export const createApp = (
     // through to the boost walk.
     const held = store.heldEnvelope(uuid);
     if (held) {
-      const heldStatus = await mapper.heldStatus(transport, uuid, heldReplyParentId(held.env));
+      const heldStatus = await heldStatusConfirming(transport, uuid, heldReplyParentId(held.env));
       if (heldStatus) return heldStatus;
     }
     const embedId = `orig-${uuid}`;
@@ -1025,7 +1077,7 @@ export const createApp = (
         if (seenKeys.has(uuid) || store.resolveKey(uuid) !== null) continue;
         const held = store.heldEnvelope(uuid);
         if (!held?.env.text || !held.env.text.toLowerCase().includes(needle)) continue;
-        const status = await mapper.heldStatus(transport, uuid, heldReplyParentId(held.env));
+        const status = await heldStatusConfirming(transport, uuid, heldReplyParentId(held.env));
         if (!status) continue;
         seenKeys.add(uuid);
         statuses.push(status);
@@ -1637,7 +1689,7 @@ export const createApp = (
       if (climbKey.includes('@')) break;
       const held = store.heldEnvelope(climbKey);
       if (!held) break;
-      const status = await mapper.heldStatus(transport, climbKey, heldReplyParentId(held.env));
+      const status = await heldStatusConfirming(transport, climbKey, heldReplyParentId(held.env));
       if (!status) break; // unverifiable held ancestor: render nothing, stop
       ancestors.unshift(status);
       const ref = held.env.ref;
@@ -1681,7 +1733,7 @@ export const createApp = (
         seenKeys.add(childUuid);
         const held = store.heldEnvelope(childUuid);
         const status = held
-          ? await mapper.heldStatus(transport, childUuid, heldReplyParentId(held.env))
+          ? await heldStatusConfirming(transport, childUuid, heldReplyParentId(held.env))
           : null;
         if (status) descendants.push({ status, sortTs: held!.env.ts ?? 0 });
         // Explore the held child's subtree regardless (its own held/local replies).
