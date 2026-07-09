@@ -1,5 +1,35 @@
 # deltanet devlog
 
+## 2026-07-09 — visibility part 2: leak prevention
+
+"Followers"-only is now enforced by machinery, not just by our own node
+(meta/issues/visibility-leak-prevention.md):
+
+- **Wire marker**: content envelopes carry an UNSIGNED
+  `visibility: 'private'` field (same trust argument as `invite` — it
+  rides outside the canonical payload; stripping it requires a peer who
+  could equally leak the content itself; the marker guards HONEST
+  machinery, not malicious holders). Tolerant parse drops junk values.
+- **Receiver honoring**: follower nodes render marked posts `private`
+  (boost button disabled in the UI, reblog endpoint 422s for numeric AND
+  held/embed targets), backfill serving refuses marked envelopes wherever
+  held (which also covers thread-so-far bundles — they build through the
+  same `buildServeBundles`), thread republication skips marked replies,
+  a thread-invite request for a locked/marked root is consumed without
+  granting, and the subscribe endpoint 422s private threads.
+- **Reply privacy inheritance, server-ENFORCED**: replying to a private
+  parent forces the reply onto the replier's OWN locked channel and marks
+  it — stricter than Mastodon's overridable default. Caveat documented:
+  the replier's locked audience is their followers, not the author's.
+- **Revocation**: `POST /api/v1/accounts/:id/remove_from_followers` pulls
+  a contact out of BOTH owned channels (future delivery only — the honest
+  limit: already-delivered posts stay on their device; none of this is
+  DRM, it keeps honest machinery honest).
+- Relay integration extension: the marker travels; a locked follower's
+  node renders it private, refuses to boost it, and their reply — even
+  requested public — inherits locked and never reaches a public-only
+  follower of theirs.
+
 ## 2026-07-08 — active key confirmation (closing the TOFU stranger window)
 
 Relayed content from a never-met author used to render fully attributed on

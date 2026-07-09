@@ -1,7 +1,6 @@
 # Open Issues
 
 - [ ] [Key-derived identity badge (color/glyph) next to names](issues/key-identity-badge.md)
-- [ ] [Visibility part 2: leak prevention across the sharing machinery](issues/visibility-leak-prevention.md)
 - [ ] [Verifiable reaction receipts](issues/reaction-receipts.md)
 - [ ] [Expanding the new-follower backfill (10 → N)](issues/join-backfill-expansion.md)
 - [ ] [Second-device pairing (backup-transfer QR)](issues/second-device-pairing.md)
