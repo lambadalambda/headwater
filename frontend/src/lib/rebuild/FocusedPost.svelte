@@ -7,6 +7,7 @@
 	import PostReactions from './PostReactions.svelte';
 	import QuotedPost from './QuotedPost.svelte';
 	import PetnameChip from './PetnameChip.svelte';
+	import UnconfirmedChip from './UnconfirmedChip.svelte';
 	import RichText from './RichText.svelte';
 	import { profileHref } from './profile-links';
 	import VaporBanner from './VaporBanner.svelte';
@@ -30,6 +31,7 @@
 		mentionNames?: Record<string, string>;
 		authName?: string;
 		petname?: string;
+		authorUnconfirmed?: boolean;
 		quotedPost?: Record<string, unknown>;
 		mentionAccts?: Record<string, string>;
 		reactions?: PleromaReactionView[];
@@ -120,6 +122,7 @@
 			<div class="focused-name">
 				<RichText text={post.petname ? (post.authName || post.name) : post.name} emojis={post.nameEmojis} linkMentions={false} />
 				{#if post.petname}<PetnameChip petname={post.petname} />{/if}
+				{#if post.authorUnconfirmed}<UnconfirmedChip />{/if}
 			</div>
 			{#if href}
 				<a class="focused-handle" href={href}>{post.handle}</a>

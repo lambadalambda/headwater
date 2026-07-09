@@ -129,6 +129,8 @@ export type PleromaStatus = {
 			ref?: { key: string; addr: string };
 			/** True iff this status is a thread root the user is subscribed to. */
 			thread_subscribed?: boolean;
+			/** Key confirmation: signature verified but NO pinned key for the author yet. */
+			author_unconfirmed?: boolean;
 		};
 		[key: string]: unknown;
 	};

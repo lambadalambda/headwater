@@ -3484,3 +3484,32 @@ test('composer autocomplete searches contacts and inserts a full-address mention
 		.poll(() => new URLSearchParams(createBody).get('status'))
 		.toContain('@zbie604yz@nine.testrun.org');
 });
+
+test('an unconfirmed-author status renders the unconfirmed chip', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [
+			{
+				...pleromaFixtures.status,
+				id: 'status-unconfirmed',
+				content: 'boosted stranger content',
+				pleroma: {
+					...pleromaFixtures.status.pleroma,
+					content: { 'text/plain': 'boosted stranger content' },
+					deltanet: { author_unconfirmed: true }
+				}
+			},
+			{ ...statusWithText('status-confirmed', 'ordinary post') }
+		]);
+	});
+
+	await setViewport(page, 'desktop');
+	await page.goto('/app/home');
+
+	const unconfirmed = page.locator('.post').filter({ hasText: 'boosted stranger content' }).first();
+	await expect(unconfirmed.getByTestId('unconfirmed-chip')).toContainText('unconfirmed');
+	await expect(unconfirmed.getByTestId('unconfirmed-chip')).toHaveAttribute('title', /not yet confirmed/);
+
+	const ordinary = page.locator('.post').filter({ hasText: 'ordinary post' }).first();
+	await expect(ordinary.getByTestId('unconfirmed-chip')).toHaveCount(0);
+});

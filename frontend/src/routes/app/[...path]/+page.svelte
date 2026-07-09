@@ -95,6 +95,7 @@
 		name: string;
 		authName?: string;
 		petname?: string;
+		authorUnconfirmed?: boolean;
 		nameEmojis?: SocialPost['nameEmojis'];
 		handle: string;
 		time: string;
@@ -609,6 +610,7 @@
 			nameEmojis: account?.emojis ?? post.nameEmojis,
 			authName: account?.authName ?? post.authName,
 			petname: account?.petname ?? post.petname,
+			authorUnconfirmed: post.authorUnconfirmed,
 			handle: account?.handle ?? post.handle,
 			time: post.time,
 			createdAt: post.createdAt,

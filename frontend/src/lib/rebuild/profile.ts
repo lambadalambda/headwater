@@ -22,6 +22,7 @@ export type ProfilePost = PostLike & {
 	mentionNames?: Record<string, string>;
 	authName?: string;
 	petname?: string;
+	authorUnconfirmed?: boolean;
 	attachments?: Attachment[];
 	replies: number;
 	boosts: number;

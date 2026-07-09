@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { CustomEmoji } from '$lib/social/types';
 	import PetnameChip from './PetnameChip.svelte';
+	import UnconfirmedChip from './UnconfirmedChip.svelte';
 	import RelativeTime from './RelativeTime.svelte';
 	import RichText from './RichText.svelte';
 	import { profileHref } from './profile-links';
@@ -13,10 +14,12 @@
 		handle?: string;
 		time?: string;
 		createdAt?: string;
-		post?: { name?: string; nameEmojis?: CustomEmoji[]; authName?: string; petname?: string; handle?: string; time?: string; createdAt?: string };
+		authorUnconfirmed?: boolean;
+		post?: { name?: string; nameEmojis?: CustomEmoji[]; authName?: string; petname?: string; authorUnconfirmed?: boolean; handle?: string; time?: string; createdAt?: string };
 	};
 
-	let { name, nameEmojis, authName, petname, handle, time, createdAt, post }: Props = $props();
+	let { name, nameEmojis, authName, petname, authorUnconfirmed, handle, time, createdAt, post }: Props = $props();
+	let unconfirmed = $derived(authorUnconfirmed ?? post?.authorUnconfirmed ?? false);
 	let n = $derived(name ?? post?.name);
 	let emojis = $derived(nameEmojis ?? post?.nameEmojis ?? []);
 	// Petnames (meta/issues/petnames.md): when I've set one, the main name shows
@@ -34,6 +37,7 @@
 <div class="post-head">
 	<span class="post-name" title={mainName}><RichText text={mainName} {emojis} linkMentions={false} /></span>
 	{#if pet}<PetnameChip petname={pet} />{/if}
+	{#if unconfirmed}<UnconfirmedChip />{/if}
 	{#if href}
 		<a class="post-handle" title={h} href={href}>{h}</a>
 	{:else}

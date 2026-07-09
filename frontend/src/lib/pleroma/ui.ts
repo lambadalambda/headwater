@@ -100,6 +100,8 @@ export type PleromaStatusView = TimelinePost & {
 	rebloggedBy?: PleromaAccountView;
 	/** deltanet thread-subscribe: true iff this status is a thread root the user subscribes to. */
 	threadSubscribed: boolean;
+	/** Key confirmation: the author's signature verified but no key is pinned yet. */
+	authorUnconfirmed: boolean;
 	pleroma: {
 		conversationId?: number;
 		local?: boolean;
@@ -907,6 +909,7 @@ export const adaptPleromaStatus = (status: PleromaStatus, options: AdaptPleromaS
 		bookmarked: source.bookmarked === true,
 		rebloggedBy: booster,
 		threadSubscribed: source.pleroma.deltanet?.thread_subscribed === true,
+		authorUnconfirmed: source.pleroma.deltanet?.author_unconfirmed === true,
 		pleroma: {
 			conversationId: source.pleroma.conversation_id,
 			local: source.pleroma.local,

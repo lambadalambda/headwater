@@ -155,6 +155,8 @@ export type SocialPost = {
 	mentionNames?: Record<string, string>;
 	/** The author's self-chosen name (deltanet petnames; name above prefers my petname). */
 	authName?: string;
+	/** Key confirmation: attribution is signature-only, no pinned key yet. */
+	authorUnconfirmed?: boolean;
 	/** My local key-bound petname for the author, when set. */
 	petname?: string;
 	boostedBy?: BoostAttributionView;
