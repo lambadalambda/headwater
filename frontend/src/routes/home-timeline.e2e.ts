@@ -606,7 +606,9 @@ test('home timeline composer attaches pasted and dropped files without editing t
 	});
 
 	await expect(page.getByText('dropped.png')).toBeVisible();
-	expect(uploadCount).toBe(2);
+	// Poll: the filename row renders before the upload POST necessarily lands;
+	// a sync assertion raced it on slow CI runners (flaked once, 2026-07-09).
+	await expect.poll(() => uploadCount).toBe(2);
 });
 
 test('home timeline composer autocompletes mentions and custom emoji before posting', async ({ page }) => {

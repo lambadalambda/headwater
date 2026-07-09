@@ -41,3 +41,4 @@
 - [x] [Search: users and posts we know about](issues/search.md)
 - [x] [Visibility tiers via multiple channels (public + locked) — part 1](issues/visibility-channels.md)
 - [x] [Active key confirmation for unpinned authors](issues/key-confirmation.md)
+- [x] Flaky e2e: composer paste/drop upload-count raced the second upload POST on slow runners (fixed inline: poll the counter, home-timeline.e2e.ts)
