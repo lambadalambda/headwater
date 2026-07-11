@@ -1,6 +1,7 @@
 import {
   createCipheriv,
   createDecipheriv,
+  createHash,
   randomBytes,
   scryptSync,
 } from 'node:crypto';
@@ -22,7 +23,9 @@ import {
  * secret material and may not travel in plaintext. The core tar section is
  * already passphrase-encrypted by core itself (same passphrase), so the GCM
  * tag doubles as an early, clean wrong-passphrase check before a core import
- * is ever attempted.
+ * is ever attempted. New writers include the core tar's SHA-256 inside the
+ * authenticated sidecar, binding the otherwise-separate tar bytes while old
+ * DNBK1 sidecars without that optional field remain readable.
  */
 
 export const BACKUP_MAGIC = 'DNBK1\n';
@@ -42,6 +45,8 @@ export type BackupSidecar = {
   store?: string;
 };
 
+type EncodedBackupSidecar = BackupSidecar & { coreTarSha256?: string };
+
 /** Anything wrong with a container a user handed us: bad magic, truncation, wrong passphrase. */
 export class BackupDecodeError extends Error {}
 
@@ -55,8 +60,12 @@ export const encodeBackupContainer = (
   const salt = randomBytes(SALT_LEN);
   const iv = randomBytes(IV_LEN);
   const cipher = createCipheriv('aes-256-gcm', deriveKey(passphrase, salt), iv);
+  const encodedSidecar: EncodedBackupSidecar = {
+    ...sidecar,
+    coreTarSha256: createHash('sha256').update(coreTar).digest('hex'),
+  };
   const ciphertext = Buffer.concat([
-    cipher.update(Buffer.from(JSON.stringify(sidecar), 'utf8')),
+    cipher.update(Buffer.from(JSON.stringify(encodedSidecar), 'utf8')),
     cipher.final(),
   ]);
   const block = Buffer.concat([salt, iv, cipher.getAuthTag(), ciphertext]);
@@ -95,8 +104,16 @@ export const decodeBackupContainer = (
     // GCM auth failure — wrong passphrase or corrupted sidecar; indistinguishable by design.
     throw new BackupDecodeError('wrong passphrase or corrupted backup file');
   }
-  const sidecar = JSON.parse(plaintext.toString('utf8')) as BackupSidecar;
-  return { sidecar, coreTar: container.subarray(blockEnd) };
+  const encodedSidecar = JSON.parse(plaintext.toString('utf8')) as EncodedBackupSidecar;
+  const coreTar = container.subarray(blockEnd);
+  if (
+    encodedSidecar.coreTarSha256 !== undefined &&
+    encodedSidecar.coreTarSha256 !== createHash('sha256').update(coreTar).digest('hex')
+  ) {
+    throw new BackupDecodeError('core tar hash mismatch');
+  }
+  const { coreTarSha256: _coreTarSha256, ...sidecar } = encodedSidecar;
+  return { sidecar, coreTar };
 };
 
 /** `deltanet-backup-<addr, filename-safe>-<utc date>.dnbk` for the download header. */

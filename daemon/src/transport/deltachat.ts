@@ -202,7 +202,13 @@ export type OpenTransportOptions = {
     mid: string | null,
     phase: IngestPhase,
   ) => void | Promise<void>;
+  /** Starts a caller-owned consistency barrier around core-to-store ingestion. */
+  beginExternalMutation?: () => () => void;
+  /** Restore-only: return an inert transport plus an explicit start handle. */
+  deferStart?: boolean;
 };
+
+type DeferredBackground = { start?: () => void };
 
 export const openTransport = async (
   dataDir: string,
@@ -218,7 +224,6 @@ export const openTransport = async (
 ): Promise<DeltaChatTransport> => {
   const dc = startDeltaChat(dataDir, { muteStdErr: true });
   const rpc = dc.rpc;
-
   const accountIds = await rpc.getAllAccountIds();
   const accountId = accountIds[0] ?? (await rpc.addAccount());
 
@@ -293,7 +298,11 @@ export const restoreTransport = async (
    * that structure.
    */
   beforeOpen?: () => void,
-): Promise<{ transport: DeltaChatTransport; creds: ChatmailCredentials }> => {
+): Promise<{
+  transport: DeltaChatTransport;
+  creds: ChatmailCredentials;
+  start(): Promise<void>;
+}> => {
   const dc = startDeltaChat(dataDir, { muteStdErr: true });
   const rpc = dc.rpc;
   try {
@@ -318,8 +327,17 @@ export const restoreTransport = async (
     // tar always points at the previous export (null for a first backup).
     await rpc.setConfig(accountId, LAST_BACKUP_AT_KEY, String(Date.now()));
     beforeOpen?.();
-    await rpc.startIo(accountId);
-    return { transport: buildTransport(dc, accountId, creds, options), creds };
+    const deferred: DeferredBackground = {};
+    const transport = buildTransport(dc, accountId, creds, options, deferred);
+    let started = false;
+    const start = async (): Promise<void> => {
+      if (started) return;
+      await rpc.startIo(accountId);
+      started = true;
+      deferred.start?.();
+    };
+    if (!options.deferStart) await start();
+    return { transport, creds, start };
   } catch (err) {
     dc.close();
     throw err;
@@ -336,8 +354,18 @@ const buildTransport = (
   accountId: number,
   creds: ChatmailCredentials,
   options: OpenTransportOptions,
+  deferredBackground?: DeferredBackground,
 ): DeltaChatTransport => {
   const rpc = dc.rpc;
+  let ingestionActive = deferredBackground === undefined;
+  const withExternalMutation = async <T>(operation: () => Promise<T>): Promise<T> => {
+    const release = options.beginExternalMutation?.();
+    try {
+      return await operation();
+    } finally {
+      release?.();
+    }
+  };
 
   // Reaction/reply control DMs from a node we don't yet have an accepted
   // 1:1 chat with land in a contact-request chat. Core suppresses
@@ -370,7 +398,10 @@ const buildTransport = (
     return mid;
   };
 
-  const notifyOnMessage = async (msg: T.Message, phase: IngestPhase = 'combined'): Promise<void> => {
+  const notifyOnMessage = async (
+    msg: T.Message,
+    phase: IngestPhase = 'combined',
+  ): Promise<void> => withExternalMutation(async () => {
     if (!shouldIngest(msg)) return;
     // Single getBasicChatInfo lookup, reused for both the contact-request
     // check and the FEED-vs-DM classification passed to onMessage — avoids
@@ -391,17 +422,19 @@ const buildTransport = (
     } catch (err) {
       console.error('onMessage ingestion failed (non-fatal):', err);
     }
-  };
+  });
 
   /** Load a message by id and pass it through `notifyOnMessage`, tagging errors with their source event. */
   const loadAndNotify = async (msgId: number, eventKind: string): Promise<void> => {
-    try {
-      const msg = await rpc.getMessage(accountId, msgId);
-      const displayname = await selfDisplayName();
-      await notifyOnMessage(withSelfDisplayName(msg, displayname));
-    } catch (err) {
-      console.error(`failed to load message from ${eventKind} for ingestion:`, err);
-    }
+    await withExternalMutation(async () => {
+      try {
+        const msg = await rpc.getMessage(accountId, msgId);
+        const displayname = await selfDisplayName();
+        await notifyOnMessage(withSelfDisplayName(msg, displayname));
+      } catch (err) {
+        console.error(`failed to load message from ${eventKind} for ingestion:`, err);
+      }
+    });
   };
 
   const feedChatIds = async (): Promise<number[]> => {
@@ -500,6 +533,7 @@ const buildTransport = (
   // copies to us) as soon as the core reports them.
   dc.on('IncomingMsg', (eventAccountId, event) => {
     if (eventAccountId !== accountId) return;
+    if (!ingestionActive) return;
     void loadAndNotify(event.msgId, 'IncomingMsg');
   });
 
@@ -515,6 +549,7 @@ const buildTransport = (
   // `ingestedMsgIds`), so double-delivery via both events is harmless.
   dc.on('MsgsChanged', (eventAccountId, event) => {
     if (eventAccountId !== accountId) return;
+    if (!ingestionActive) return;
     if (event.msgId === 0) return;
     void loadAndNotify(event.msgId, 'MsgsChanged');
   });
@@ -526,6 +561,7 @@ const buildTransport = (
   const followerHandlers = new Set<(contactId: number) => void>();
   dc.on('SecurejoinInviterProgress', (eventAccountId, event) => {
     if (eventAccountId !== accountId) return;
+    if (!ingestionActive) return;
     if (event.progress !== 1000) return;
     for (const handler of followerHandlers) handler(event.contactId);
   });
@@ -569,7 +605,7 @@ const buildTransport = (
    * time any message is derived, every backfilled message — regardless of
    * which chat or batch it came from — has already been indexed.
    */
-  const backfill = async (): Promise<void> => {
+  const backfill = async (): Promise<void> => withExternalMutation(async () => {
     const chatIds = await rpc.getChatlistEntries(accountId, null, null, null);
     const displayname = await selfDisplayName();
     const collected: T.Message[] = [];
@@ -592,10 +628,15 @@ const buildTransport = (
 
     for (const msg of collected) await notifyOnMessage(msg, 'index');
     for (const msg of collected) await notifyOnMessage(msg, 'derive');
-  };
+  });
 
-  // Fire-and-forget: must not delay openTransport's resolution.
-  void backfill().catch((err) => console.error('startup backfill failed (non-fatal):', err));
+  const startBackground = (): void => {
+    ingestionActive = true;
+    // Fire-and-forget: must not delay transport startup.
+    void backfill().catch((err) => console.error('startup backfill failed (non-fatal):', err));
+  };
+  if (deferredBackground) deferredBackground.start = startBackground;
+  else startBackground();
 
   return {
     accountId,

@@ -45,3 +45,4 @@
 - [x] [Visibility part 2: leak prevention across the sharing machinery](issues/visibility-leak-prevention.md)
 - [x] ["Direct" visibility: mentioned-people-only delivery](issues/direct-visibility-mentions.md)
 - [x] [Harden the local daemon API security boundary](issues/local-api-security-boundary.md)
+- [x] [Make persistent store writes atomic and corruption-safe](issues/atomic-store-persistence.md)

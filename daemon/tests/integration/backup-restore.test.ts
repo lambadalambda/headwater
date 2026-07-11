@@ -162,9 +162,18 @@ describe('backup & restore over the relay', () => {
           beforeOpen,
         );
         expect(creds.addr).toBe(aCreds.addr);
-        a2 = transport;
         transports.push(transport);
-        return transport;
+        let committed = false;
+        return {
+          transport,
+          commit: async () => {
+            a2 = transport;
+            committed = true;
+          },
+          abort: () => {
+            if (!committed) transport.close();
+          },
+        };
       },
     };
     const a2App = createUnsafeTestApp(restoreCtx, { baseUrl: 'http://localhost:4030', store: a2Store, dataDir: A_DATA });

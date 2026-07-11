@@ -67,7 +67,7 @@ export const threadChannelName = (rootUuid: string): string => `Thread ${rootUui
  *    1:1-reachable — their request just arrived);
  *  - DM the thread-so-far as chunked envelope-bundle(s).
  */
-export const handleThreadInviteRequest = async (
+const handleThreadInviteRequestWithinBarrier = async (
   store: Store,
   transport: Transport,
   msg: T.Message,
@@ -129,6 +129,20 @@ export const handleThreadInviteRequest = async (
       .catch((err) => console.error('thread-so-far bundle DM failed (non-fatal):', err));
   }
   return true;
+};
+
+export const handleThreadInviteRequest = async (
+  store: Store,
+  transport: Transport,
+  msg: T.Message,
+  isFeedMessage: boolean,
+): Promise<boolean> => {
+  const release = store.beginExternalMutation();
+  try {
+    return await handleThreadInviteRequestWithinBarrier(store, transport, msg, isFeedMessage);
+  } finally {
+    release();
+  }
 };
 
 /**

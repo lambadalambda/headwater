@@ -8,6 +8,7 @@ import {
   sha256Bytes,
   sha256File,
   openAttestor,
+  validateSigningKeySnapshot,
   verify,
   CANONICAL_PAYLOAD_VERSION,
   type CanonicalFields,
@@ -32,6 +33,36 @@ const fields = (over: Partial<CanonicalFields> = {}): CanonicalFields => ({
 
 /** The expected length-prefixed encoding of one field: `<utf8ByteLength>:<part>`. */
 const lp = (part: string): string => `${Buffer.byteLength(part, 'utf8')}:${part}`;
+
+describe('validateSigningKeySnapshot', () => {
+  it('accepts a persisted Ed25519 private/public key pair', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'signing-snapshot-'));
+    try {
+      const path = join(scratch, 'valid-key.json');
+      openAttestor(path).publicKeyBase64();
+      expect(() => validateSigningKeySnapshot(readFileSync(path, 'utf8'))).not.toThrow();
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects malformed private key material and a mismatched stored public key', () => {
+    expect(() => validateSigningKeySnapshot('{"privatePem":"nope","pubkey":"nope"}')).toThrow(
+      /signing key/i,
+    );
+    const scratch = mkdtempSync(join(tmpdir(), 'signing-snapshot-'));
+    try {
+      const path = join(scratch, 'mismatched-key.json');
+      openAttestor(path).publicKeyBase64();
+      const stored = JSON.parse(readFileSync(path, 'utf8'));
+      const otherPath = join(scratch, 'other-key.json');
+      stored.pubkey = openAttestor(otherPath).publicKeyBase64();
+      expect(() => validateSigningKeySnapshot(JSON.stringify(stored))).toThrow(/public key.*match/i);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('canonicalPayload', () => {
   it('is dn3: version-prefixed, length-prefixed, rootToken + rootAddr after refToken', () => {

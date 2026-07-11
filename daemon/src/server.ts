@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { Hono, type Context, type Next } from 'hono';
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { UpgradeWebSocket, WSEvents } from 'hono/ws';
@@ -49,12 +49,27 @@ import {
   encodeBackupContainer,
   type BackupSidecar,
 } from './backup.js';
-import { createStore, ephemeralStorePath, type Store } from './store.js';
+import {
+  createStore,
+  ephemeralStorePath,
+  StoreCorruptionError,
+  type Store,
+} from './store.js';
 import { deriveOnIngest } from './ingest.js';
 import { createStatusMapper, mapNotification } from './mapping.js';
 import { createStreamingEvents, type StreamingHub } from './streaming.js';
 import { republishReplyToThread } from './thread-subscribe.js';
 import { AuthError, type AuthSession, type AuthStore } from './auth.js';
+import {
+  beginSidecarRestore,
+  restoreJournalPathFor,
+} from './restore-journal.js';
+import {
+  SigningKeySnapshotError,
+  validateSigningKeySnapshot,
+} from './attest.js';
+import { readOptionalText } from './durable-file.js';
+import type { PreparedRestore } from './restore-lifecycle.js';
 
 const DC_CONTACT_ID_SELF = 1;
 const FAVOURITE_EMOJI = '❤';
@@ -101,6 +116,8 @@ export type ServerOptions = {
    * a daemon restart. Defaults to an ephemeral scratch dir (fine for tests).
    */
   dataDir?: string;
+  /** Production restore journal location and optional credential file transaction participant. */
+  restoreJournal?: { path: string; accountsPath?: string; accountName?: string };
 };
 
 /**
@@ -113,16 +130,21 @@ export type AppContext = {
   signup(displayName: string, relay: string): Promise<Transport>;
   /**
    * Restore-instead-of-signup (see ../meta/issues/backup-second-device.md):
-   * import a CORE backup tar into this node's data dir, open the transport,
-   * and persist the recovered credentials — main.ts's mirror of `signup`.
+   * import a CORE backup tar into this node's data dir and return an UNCOMMITTED
+   * opened transport. The server checks its core identity against sidecar.addr
+   * before invoking the prepared handle's credential/global commit.
    * `beforeOpen` MUST be invoked after the core import succeeded but before
    * IO/ingestion starts: it writes the `.dnbk` sidecar files (store + signing
    * key) into the data dir, which can't happen any earlier — core refuses to
    * initialize an accounts structure in a non-empty directory. Optional so
-   * test contexts without a real data dir stay minimal; the endpoint answers
+   * Test contexts without a real data dir stay minimal; the endpoint answers
    * 501 when absent.
    */
-  restore?(backupTarPath: string, passphrase: string, beforeOpen: () => void): Promise<Transport>;
+  restore?(
+    backupTarPath: string,
+    passphrase: string,
+    beforeOpen: () => void,
+  ): Promise<PreparedRestore>;
 };
 
 type AppEnv = { Variables: { transport: Transport; authSession: AuthSession } };
@@ -167,7 +189,16 @@ const contentTypeForPath = (path: string): string => {
 
 export const createApp = (
   ctx: AppContext,
-  { baseUrl, staticDir, store: injectedStore, upgradeWebSocket, hub, dataDir, security }: ServerOptions,
+  {
+    baseUrl,
+    staticDir,
+    store: injectedStore,
+    upgradeWebSocket,
+    hub,
+    dataDir,
+    restoreJournal,
+    security,
+  }: ServerOptions,
 ) => {
   const enabledSecurity = 'auth' in security ? security : null;
   const app = new Hono<AppEnv>();
@@ -183,6 +214,29 @@ export const createApp = (
   // to a scratch dir when no real data dir is provided (tests).
   const attestorKeyPath = join(profileDir, 'deltanet-signing-key.json');
   const attestor = openAttestor(attestorKeyPath);
+  const backgroundMutation = (
+    operation: () => Promise<void>,
+    onError: (error: unknown) => void,
+  ): void => {
+    const release = store.beginExternalMutation();
+    void operation().catch(onError).finally(release);
+  };
+
+  // Async API mutations can change core first and Store only after an await.
+  // Track that whole interval without taking the synchronous writer lock.
+  app.use('*', async (c, next) => {
+    const mutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.req.method);
+    if (
+      !mutating ||
+      c.req.path.replace(/\/$/, '') === '/api/deltanet/backup/export'
+    ) return next();
+    const release = store.beginExternalMutation();
+    try {
+      await next();
+    } finally {
+      release();
+    }
+  });
 
   /**
    * Attest a content envelope: stamp `{ ts, pubkey, sig }` over its canonical
@@ -221,11 +275,11 @@ export const createApp = (
     const last = keyConfirmAttempts.get(addr) ?? 0;
     if (Date.now() - last < KEY_CONFIRM_RETRY_MS) return;
     keyConfirmAttempts.set(addr, Date.now());
-    void (async () => {
+    backgroundMutation(async () => {
       const contactId = await keyContactOrIntroduce(transport, authorAddr, invite);
       if (contactId === null || contactId === DC_CONTACT_ID_SELF) return;
       await transport.sendControlDm(contactId, buildEnvelopeRequest([{ u: uuid, addr: authorAddr }]));
-    })().catch((err) => console.error('key confirmation failed (non-fatal):', err));
+    }, (err) => console.error('key confirmation failed (non-fatal):', err));
   };
 
   /**
@@ -876,6 +930,9 @@ export const createApp = (
     if (!passphrase) {
       return c.json({ error: "Validation failed: passphrase can't be blank" }, 422);
     }
+    if (store.mutationBarrierSnapshot().active > 0) {
+      return c.json({ error: 'store changed during backup export; retry' }, 409);
+    }
     const self = await transport.self();
     // Core writes its tar into a directory of our choosing; a scratch dir keeps
     // the (large, sensitive) intermediate out of the data dir and lets cleanup
@@ -883,17 +940,43 @@ export const createApp = (
     // dc.db is tens of MB; revisit with streaming if media makes this a problem.
     const scratch = mkdtempSync(join(tmpdir(), 'deltanet-export-'));
     try {
-      const tarPath = await transport.exportBackup(scratch, passphrase);
+      let tarPath: string | null = null;
+      let storeSnapshot: ReturnType<Store['readSnapshot']> = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const attemptDir = join(scratch, `attempt-${attempt}`);
+        mkdirSync(attemptDir, { mode: 0o700 });
+        const barrierBefore = store.mutationBarrierSnapshot();
+        if (barrierBefore.active > 0) {
+          return c.json({ error: 'store changed during backup export; retry' }, 409);
+        }
+        const before = store.readSnapshot();
+        const candidateTar = await transport.exportBackup(attemptDir, passphrase);
+        const after = store.readSnapshot();
+        const barrierAfter = store.mutationBarrierSnapshot();
+        if (
+          barrierAfter.active === 0 &&
+          barrierBefore.revision === barrierAfter.revision &&
+          before?.generation === after?.generation &&
+          before?.contents === after?.contents
+        ) {
+          tarPath = candidateTar;
+          storeSnapshot = after;
+          break;
+        }
+      }
+      if (tarPath === null) {
+        return c.json({ error: 'store changed during backup export; retry' }, 409);
+      }
       const exportedAt = Date.now();
+      const signingKey = readOptionalText(attestorKeyPath);
+      if (signingKey !== null) validateSigningKeySnapshot(signingKey);
       const sidecar: BackupSidecar = {
         addr: self.address,
         exportedAt,
         // Both are lazily created, so either may legitimately not exist yet
         // (a node that never signed / never persisted derived state).
-        ...(existsSync(attestorKeyPath)
-          ? { signingKey: readFileSync(attestorKeyPath, 'utf8') }
-          : {}),
-        ...(existsSync(store.filePath) ? { store: readFileSync(store.filePath, 'utf8') } : {}),
+        ...(signingKey !== null ? { signingKey } : {}),
+        ...(storeSnapshot !== null ? { store: storeSnapshot.contents } : {}),
       };
       const container = encodeBackupContainer(
         { sidecar, coreTar: readFileSync(tarPath) },
@@ -937,6 +1020,25 @@ export const createApp = (
       if (err instanceof BackupDecodeError) return c.json({ error: err.message }, 422);
       throw err;
     }
+    try {
+      if (sidecar.store !== undefined) store.validateSnapshot(sidecar.store);
+      if (sidecar.signingKey !== undefined) validateSigningKeySnapshot(sidecar.signingKey);
+    } catch (err) {
+      if (err instanceof StoreCorruptionError || err instanceof SigningKeySnapshotError) {
+        return c.json({ error: err.message }, 422);
+      }
+      throw err;
+    }
+
+    const journal = beginSidecarRestore({
+      journalPath: restoreJournal?.path ?? restoreJournalPathFor(profileDir),
+      store,
+      signingKeyPath: attestorKeyPath,
+      accountsPath: restoreJournal?.accountsPath,
+      accountName: restoreJournal?.accountName,
+      donorStore: sidecar.store,
+      donorSigningKey: sidecar.signingKey,
+    });
 
     // The sidecar files (store + signing key) are written by the `beforeOpen`
     // hook — i.e. INSIDE the restore, after the core import created the
@@ -947,24 +1049,13 @@ export const createApp = (
     // the same synchronous hook, so the running app serves the restored state
     // with no restart and no ingest race. Previous contents are snapshotted
     // so a failure after the hook rolls the node back to untouched.
-    const previous = new Map<string, string | null>();
-    const writeSidecarFile = (path: string, contents: string | undefined, secret: boolean) => {
-      if (contents === undefined) return;
-      previous.set(path, existsSync(path) ? readFileSync(path, 'utf8') : null);
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, contents, secret ? { mode: 0o600 } : {});
-    };
     const writeSidecarFiles = () => {
-      writeSidecarFile(store.filePath, sidecar.store, false);
-      writeSidecarFile(attestorKeyPath, sidecar.signingKey, true);
+      journal.install();
       store.reload();
       attestor.reload();
     };
     const rollbackSidecarFiles = () => {
-      for (const [path, contents] of previous) {
-        if (contents === null) rmSync(path, { force: true });
-        else writeFileSync(path, contents);
-      }
+      journal.rollback();
       store.reload();
       attestor.reload();
     };
@@ -973,15 +1064,37 @@ export const createApp = (
     try {
       const tarPath = join(scratch, 'core-backup.tar');
       writeFileSync(tarPath, coreTar);
-      let transport: Transport;
+      let prepared: PreparedRestore | null = null;
+      let committed = false;
       try {
-        transport = await ctx.restore(tarPath, passphrase, writeSidecarFiles);
+        prepared = await ctx.restore(
+          tarPath,
+          passphrase,
+          writeSidecarFiles,
+        );
+        const restoredSelf = await prepared.transport.self();
+        if (restoredSelf.address !== sidecar.addr) {
+          throw new Error('restored core address does not match backup sidecar');
+        }
+        await prepared.commit(journal.persistCredentials);
+        committed = true;
+        journal.finish();
+        return c.json({ account: contactToAccount(restoredSelf, baseUrl) });
       } catch (err) {
-        rollbackSidecarFiles();
+        if (journal.phase === 'committed') {
+          journal.finish();
+        } else {
+          if (!committed) {
+            try {
+              prepared?.abort();
+            } finally {
+              rollbackSidecarFiles();
+            }
+          }
+        }
         const message = err instanceof Error ? err.message : 'restore failed';
         return c.json({ error: message }, 422);
       }
-      return c.json({ account: contactToAccount(await transport.self(), baseUrl) });
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }
@@ -1808,7 +1921,7 @@ export const createApp = (
         // Parent-author DM copy + root copy, both key-contact-first with
         // in-band introduction, background + best-effort.
         const myAddr = (await mapper.ownAddr(transport)).toLowerCase();
-        void (async () => {
+        backgroundMutation(async () => {
           const parentId = await keyContactOrIntroduce(transport, orig.authorAddr, orig.env.invite ?? null);
           if (parentId !== null && parentId !== DC_CONTACT_ID_SELF) {
             await transport.sendControlDm(parentId, replyText);
@@ -1822,7 +1935,7 @@ export const createApp = (
               await transport.sendControlDm(rootId, replyText);
             }
           }
-        })().catch((err) => console.error('orig reply copies failed (non-fatal):', err));
+        }, (err) => console.error('orig reply copies failed (non-fatal):', err));
         await deliverMentionCopies(transport, replyText, text, [
           myAddr,
           orig.authorAddr,
@@ -1949,14 +2062,14 @@ export const createApp = (
         rootAddr.toLowerCase() !== myAddr
       ) {
         const rootUuidForInvite = root && 'u' in root ? root.u : null;
-        void (async () => {
+        backgroundMutation(async () => {
           const invite = rootUuidForInvite
             ? await rootPostInvite(transport, rootUuidForInvite)
             : null;
           const rootContactId = await keyContactOrIntroduce(transport, rootAddr, invite);
           if (rootContactId === null || rootContactId === DC_CONTACT_ID_SELF) return;
           await transport.sendControlDm(rootContactId, replyText);
-        })().catch((err) => {
+        }, (err) => {
           console.error('root copy (incl. introduction) failed (non-fatal):', err);
         });
       }
@@ -2194,10 +2307,10 @@ export const createApp = (
       const envRef: EnvelopeRef = { u: parsed.uuid, addr: orig.authorAddr };
       const text =
         action === 'react' ? buildReactEnvelope(emoji, envRef) : buildUnreactEnvelope(emoji, envRef);
-      void (async () => {
+      backgroundMutation(async () => {
         const id = await keyContactOrIntroduce(transport, orig.authorAddr, orig.env.invite ?? null);
         if (id !== null && id !== DC_CONTACT_ID_SELF) await transport.sendControlDm(id, text);
-      })().catch((err) => console.error('orig reaction DM failed (non-fatal):', err));
+      }, (err) => console.error('orig reaction DM failed (non-fatal):', err));
       const status = await resolveOrigStatus(transport, parsed.uuid);
       return status ? c.json(status) : c.json({ error: 'Record not found' }, 404);
     }

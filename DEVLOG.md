@@ -1,5 +1,71 @@
 # deltanet devlog
 
+## 2026-07-10 - atomic, corruption-safe store persistence
+
+`deltanet-store.json` now treats pins, held envelopes, pending requests,
+notifications, and thread bindings as recovery-critical state rather than a
+rebuildable cache (`meta/issues/atomic-store-persistence.md`):
+
+- Schema v10 adds a safe monotonic generation. Every mutation validates and
+  atomically writes the same mode-0600 generation to
+  `deltanet-store.json.recovery` first and then the primary. Startup validates
+  both, selects the highest generation, and heals the missing/older/corrupt
+  peer. Corrupt files are retained as timestamped quarantine files; read,
+  permission, and other I/O errors are distinct `StoreAccessError`s and never
+  trigger quarantine or rollback.
+- Store writes use unique same-directory temporary files and an immutable-ticket
+  process lock. Production acquires its mode-0700 daemon lock beside the core
+  data directory before journal recovery, credentials, auth, or transport open.
+  Dead predecessors are completed without deleting/replacing a live lock name;
+  a real child-process `SIGKILL` test covers automatic restart recovery. Live or
+  malformed predecessors fail closed. Generation CAS rejects stale Store
+  instances. Stat/probe checks classify only `ENOENT` as missing; `EACCES`,
+  `EIO`, and other failures remain fail-closed.
+- Validation is version-specific. Empty/schema-zero and sparse ambiguous legacy
+  objects are rejected; complete historical versionless stores and known schemas
+  with their required anchors migrate. Current files require every field and generation. Persisted
+  IDs are safe non-negative integers, notification types are enumerated, and
+  held envelopes require a usable content-envelope shape before non-derivable
+  state can survive migration.
+- Backup export brackets asynchronous core export with store generation/content
+  and an in-memory external-mutation barrier. Mutating API requests, background
+  API work, main ingest/events, backfill sends, and thread channel creation hold
+  the barrier across core-first awaits; export itself never acquires it. Export
+  retries completed generation changes in a fresh directory per attempt and
+  returns 409 for active work. New
+  containers also authenticate a SHA-256 binding of the core tar in the GCM
+  sidecar while retaining read compatibility for existing DNBK1 containers.
+- Restore writes a mode-0600, fsynced journal beside (not inside) the core data
+  directory before core import. The journal covers store, signing key, and the
+  account-credentials file: per-account compare-and-exchange preserves unrelated
+  daemon credentials, normal failures roll those roots back, committed credentials
+  complete donor roots, and startup replays an interrupted phase
+  before opening credentials/store/attestor/transport. Journal and signing-key
+  writes share atomic durable-file handling.
+- Signing-key snapshots are parsed as Ed25519 PKCS8, their public SPKI is derived
+  from the private key, and the exact stored base64 SPKI must match before core
+  restore or installation. Startup journal replay uses Store's same exclusive
+  writer lock and generation-safe replacement rather than raw file writes.
+- Restore returns an uncommitted opened transport. The server requires its core
+  self address to equal authenticated `sidecar.addr` before credentials, auth,
+  global transport, or journal commit. A prepared-restore lifecycle closes and
+  rolls back every post-import failure before publication. The encrypted
+  sidecar's authenticated core hash additionally rejects tar splicing.
+- The journal deliberately does not transact Delta Chat core import itself;
+  core requires an empty target directory and provides no rollback transaction.
+  A crash before credential commit can therefore leave an unreferenced imported
+  core directory, while sidecar roots and account credential selection still
+  roll back consistently.
+- File and supported directory fsync cover unique temp replacement, lock/journal
+  removal, and each newly-created parent level. Directory fsync errors known to
+  mean "unsupported" on the current platform are tolerated; other I/O errors
+  fail closed. Shared system temp itself is never chmodded.
+- TDD covered the initial persistence red plus focused re-review failures for
+  identity splicing, key mismatch, lock ownership/incarnation, probe errors,
+  journal races, and pending external mutations. Final verification: 1,412 daemon unit tests,
+  `pnpm check`, `git diff --check`, and the real relay
+  export-wipe-restore/attestation-key integration all pass.
+
 ## 2026-07-10 - local API security boundary
 
 The local Mastodon-compatible API now has an explicit authorization boundary

@@ -32,6 +32,11 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+const writeStoreFixture = (value: unknown): void => {
+  writeFileSync(filePath, JSON.stringify(value));
+  rmSync(`${filePath}.recovery`, { force: true });
+};
+
 /** A mid-targeting MsgRef (legacy targets keyed by mid). */
 const midRef = (mid: string, addr = 'author@example.org') => refFromToken({ kind: 'mid', mid }, addr);
 /**
@@ -828,8 +833,10 @@ describe('createStore: schema migration / re-index', () => {
   });
 
   it('drops derived indices but keeps notifications/dedupe/pending on an older-version load', () => {
-    // A pre-fix store: no schemaVersion, populated derived indices + notifications.
+    // A known v1 store with the required anchors populated.
     const legacy = {
+      schemaVersion: 1,
+      canonicalByMid: {},
       midToMsgId: { 'a@x': 1 },
       msgIdToMid: { 1: 'a@x' },
       replyChildren: { 'p@x': [2] },
@@ -845,7 +852,7 @@ describe('createStore: schema migration / re-index', () => {
       nextNotificationId: 2,
       pendingFollowRequests: { 'alice@x': 999 },
     };
-    writeFileSync(filePath, JSON.stringify(legacy));
+    writeStoreFixture(legacy);
 
     const store = createStore(filePath);
 
@@ -886,11 +893,12 @@ describe('createStore: schema migration / re-index', () => {
   });
 
   it('drops feed provenance from an older schema so the startup sweep rebuilds it', () => {
-    writeFileSync(filePath, JSON.stringify({
-      schemaVersion: STORE_SCHEMA_VERSION - 1,
-      feedMsgIds: [7],
-      ingestedMsgIds: [7],
-    }));
+    const seeded = createStore(filePath);
+    seeded.ingestMessage(makeMessage({ id: 7, text: 'old feed post' }), 'old@example.org', true);
+    const old = JSON.parse(readFileSync(filePath, 'utf8'));
+    old.schemaVersion = STORE_SCHEMA_VERSION - 1;
+    delete old.generation;
+    writeStoreFixture(old);
 
     const store = createStore(filePath);
     expect(store.isFeedMessage(7)).toBe(false);
@@ -920,7 +928,7 @@ describe('createStore: schema migration / re-index', () => {
       nextNotificationId: 2,
       pendingFollowRequests: {},
     };
-    writeFileSync(filePath, JSON.stringify(v1));
+    writeStoreFixture(v1);
 
     const store = createStore(filePath);
     // replyChildren dropped (re-index rebuilds it); notifications preserved.
@@ -956,7 +964,7 @@ describe('createStore: schema migration / re-index', () => {
       nextNotificationId: 2,
       pendingFollowRequests: {},
     };
-    writeFileSync(filePath, JSON.stringify(v2));
+    writeStoreFixture(v2);
 
     const store = createStore(filePath);
     expect(store.childrenCount('p@x')).toBe(0); // dropped; backfill re-derives with twin aliasing
@@ -995,7 +1003,7 @@ describe('createStore: schema migration / re-index', () => {
       nextNotificationId: 3,
       pendingFollowRequests: {},
     };
-    writeFileSync(filePath, JSON.stringify(v3));
+    writeStoreFixture(v3);
 
     const store = createStore(filePath);
     // Both historical notifications preserved (nothing lost).
@@ -1054,7 +1062,7 @@ describe('createStore: schema migration / re-index', () => {
       nextNotificationId: 3,
       pendingFollowRequests: {},
     };
-    writeFileSync(filePath, JSON.stringify(v4));
+    writeStoreFixture(v4);
 
     const store = createStore(filePath);
     // Both historical notifications preserved.
@@ -1273,8 +1281,9 @@ describe('createStore: TOFU key pins', () => {
     const store = createStore(filePath);
     store.pinKey(ALICE, 'KEY_A');
     const raw = JSON.parse(readFileSync(filePath, 'utf8'));
-    raw.schemaVersion = 0; // pre-current → triggers migrate on next load
-    writeFileSync(filePath, JSON.stringify(raw));
+    raw.schemaVersion = STORE_SCHEMA_VERSION - 1;
+    delete raw.generation;
+    writeStoreFixture(raw);
     expect(createStore(filePath).pinnedKey(ALICE)).toBe('KEY_A');
   });
 });
@@ -1289,9 +1298,7 @@ describe('reload (backup restore seam)', () => {
     const otherPath = join(dir, 'restored.json');
     const other = createStore(otherPath);
     other.markRepublished('uuid-restored');
-    writeFileSync(filePath, readFileSync(otherPath));
-
-    store.reload();
+    store.replaceSnapshot(other.readSnapshot()!.contents);
     expect(store.wasRepublished('uuid-restored')).toBe(true);
     expect(store.wasRepublished('uuid-before')).toBe(false);
   });
@@ -1300,8 +1307,9 @@ describe('reload (backup restore seam)', () => {
     const store = createStore(filePath);
     store.markRepublished('uuid-x');
     const raw = JSON.parse(readFileSync(filePath, 'utf8'));
-    raw.schemaVersion = 0;
-    writeFileSync(filePath, JSON.stringify(raw));
+    raw.schemaVersion = STORE_SCHEMA_VERSION - 1;
+    delete raw.generation;
+    writeStoreFixture(raw);
     store.reload();
     // Non-derivable state survives the migrate re-index, same as a fresh load.
     expect(store.wasRepublished('uuid-x')).toBe(true);
@@ -1323,8 +1331,9 @@ describe('locked posts (visibility channels)', () => {
     const uuid = mintPostUuid();
     store.markLockedPost(uuid);
     const raw = JSON.parse(readFileSync(filePath, 'utf8'));
-    raw.schemaVersion = 0;
-    writeFileSync(filePath, JSON.stringify(raw));
+    raw.schemaVersion = STORE_SCHEMA_VERSION - 1;
+    delete raw.generation;
+    writeStoreFixture(raw);
     expect(createStore(filePath).isLockedPost(uuid)).toBe(true);
   });
 });
@@ -1343,8 +1352,9 @@ describe('direct posts (mentioned-people-only visibility)', () => {
     const uuid = mintPostUuid();
     store.markDirectPost(uuid);
     const raw = JSON.parse(readFileSync(filePath, 'utf8'));
-    raw.schemaVersion = 0;
-    writeFileSync(filePath, JSON.stringify(raw));
+    raw.schemaVersion = STORE_SCHEMA_VERSION - 1;
+    delete raw.generation;
+    writeStoreFixture(raw);
     expect(createStore(filePath).isDirectPost(uuid)).toBe(true);
   });
 });

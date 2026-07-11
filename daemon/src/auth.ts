@@ -7,7 +7,6 @@ import {
 import {
   chmodSync,
   closeSync,
-  existsSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -17,6 +16,7 @@ import {
   writeSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { pathExists } from './durable-file.js';
 
 const AUTH_VERSION = 1;
 const RANDOM_BYTES = 32;
@@ -276,7 +276,7 @@ export const createAuthStore = (filePath: string, options: AuthStoreOptions = {}
   const maxClients = options.maxClients ?? DEFAULT_MAX_CLIENTS;
   const maxAuthorizationCodes = Math.max(1, options.maxAuthorizationCodes ?? DEFAULT_MAX_AUTHORIZATION_CODES);
   const invalidationListeners = new Set<(sessionId: string) => void>();
-  let data: AuthData = existsSync(filePath)
+  let data: AuthData = pathExists(filePath)
     ? readAuthData(filePath)
     : {
         version: AUTH_VERSION,

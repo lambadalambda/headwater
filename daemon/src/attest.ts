@@ -30,8 +30,8 @@ import {
   createPrivateKey,
   type KeyObject,
 } from 'node:crypto';
-import { createReadStream, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { createReadStream, readFileSync } from 'node:fs';
+import { atomicWriteText, pathExists } from './durable-file.js';
 import type { Envelope, EnvelopeRef } from './envelope.js';
 import { envelopeRefKeyString, isWellFormedRootRef } from './envelope.js';
 
@@ -217,6 +217,46 @@ type StoredKeyPair = {
 const pubkeyBase64 = (key: KeyObject): string =>
   key.export({ type: 'spki', format: 'der' }).toString('base64');
 
+export class SigningKeySnapshotError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'SigningKeySnapshotError';
+  }
+}
+
+/** Strictly validates persisted secret key material before restore or use. */
+export const validateSigningKeySnapshot = (contents: string): StoredKeyPair => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch (cause) {
+    throw new SigningKeySnapshotError('malformed signing key snapshot', { cause });
+  }
+  const stored = parsed as Partial<StoredKeyPair> | null;
+  if (!stored || typeof stored.privatePem !== 'string' || typeof stored.pubkey !== 'string') {
+    throw new SigningKeySnapshotError('malformed signing key snapshot');
+  }
+  try {
+    const privateKey = createPrivateKey({ key: stored.privatePem, format: 'pem', type: 'pkcs8' });
+    if (privateKey.asymmetricKeyType !== 'ed25519') {
+      throw new Error('private key is not Ed25519');
+    }
+    const storedPublicKey = publicKeyFromBase64(stored.pubkey);
+    if (storedPublicKey.asymmetricKeyType !== 'ed25519') {
+      throw new Error('public key is not Ed25519');
+    }
+    const canonicalStoredPublic = pubkeyBase64(storedPublicKey);
+    const derivedPublic = pubkeyBase64(createPublicKey(privateKey as any));
+    if (canonicalStoredPublic !== stored.pubkey || derivedPublic !== stored.pubkey) {
+      throw new SigningKeySnapshotError('signing key public key does not match private key');
+    }
+    return stored as StoredKeyPair;
+  } catch (cause) {
+    if (cause instanceof SigningKeySnapshotError) throw cause;
+    throw new SigningKeySnapshotError('invalid Ed25519 signing key snapshot', { cause });
+  }
+};
+
 /** Reconstruct a public KeyObject from the on-wire base64 SPKI DER. */
 const publicKeyFromBase64 = (pubkey: string): KeyObject =>
   createPublicKey({ key: Buffer.from(pubkey, 'base64'), type: 'spki', format: 'der' });
@@ -318,8 +358,8 @@ export const openAttestor = (keyPath: string): Attestor => {
 
   const ensureKeys = (): void => {
     if (priv && pubB64) return;
-    if (existsSync(keyPath)) {
-      const stored = JSON.parse(readFileSync(keyPath, 'utf8')) as StoredKeyPair;
+    if (pathExists(keyPath)) {
+      const stored = validateSigningKeySnapshot(readFileSync(keyPath, 'utf8'));
       priv = createPrivateKey({ key: stored.privatePem, format: 'pem', type: 'pkcs8' });
       pubB64 = stored.pubkey;
       return;
@@ -331,9 +371,8 @@ export const openAttestor = (keyPath: string): Attestor => {
       privatePem: priv.export({ type: 'pkcs8', format: 'pem' }).toString(),
       pubkey: pubB64,
     };
-    mkdirSync(dirname(keyPath), { recursive: true });
     // 0600: the private key is secret material; restrict to the owner.
-    writeFileSync(keyPath, JSON.stringify(stored) + '\n', { mode: 0o600 });
+    atomicWriteText(keyPath, JSON.stringify(stored) + '\n');
   };
 
   return {

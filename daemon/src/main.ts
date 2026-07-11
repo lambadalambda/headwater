@@ -34,6 +34,12 @@ import {
 import type { T } from '@deltachat/jsonrpc-client';
 import { createAuthStore } from './auth.js';
 import { resolveListenerConfig } from './listener.js';
+import {
+  recoverInterruptedSidecarRestore,
+  restoreJournalPathFor,
+} from './restore-journal.js';
+import { createPreparedRestore } from './restore-lifecycle.js';
+import { acquireProcessLifetimeInterprocessLock } from './interprocess-lock.js';
 
 const { hostname: HOSTNAME, port: PORT } = resolveListenerConfig(process.env);
 const ACCOUNT = process.env['DELTANET_ACCOUNT'] ?? 'main';
@@ -47,11 +53,23 @@ const ALLOWED_ORIGINS = (process.env['DELTANET_ALLOWED_ORIGINS'] ?? '')
   .filter(Boolean);
 const STATIC_DIR_CONFIG = process.env['DELTANET_STATIC'] ?? '../frontend/build';
 const STATIC_DIR = resolve(process.cwd(), STATIC_DIR_CONFIG);
+const DATA_PATH = resolve(process.cwd(), DATA_DIR);
+const ACCOUNTS_PATH = resolve(process.cwd(), ACCOUNTS_FILE);
+const RESTORE_JOURNAL = restoreJournalPathFor(DATA_PATH);
+const DAEMON_LOCK = `${DATA_PATH}.daemon.lock`;
+
+// Own the account before touching recovery, credentials, auth, or Delta Chat.
+// The lock is outside DATA_PATH because core restore requires a fresh target.
+acquireProcessLifetimeInterprocessLock(DAEMON_LOCK);
+
+// Replay a crashed sidecar restore before opening the store, attestor, account
+// credentials, or Delta Chat transport.
+recoverInterruptedSidecarRestore(RESTORE_JOURNAL);
 
 // One deltanet wire-convention store per account data dir, shared between
 // the transport's ingestion hook (timeline loads + IncomingMsg events) and
 // the API layer's mapping/context assembly.
-const store = createStore(join(DATA_DIR, 'deltanet-store.json'));
+const store = createStore(join(DATA_PATH, 'deltanet-store.json'), { lockPath: DAEMON_LOCK });
 const auth = createAuthStore(AUTH_FILE);
 
 // Streaming websocket hub (see ./streaming.ts) + the same status/notification
@@ -84,7 +102,22 @@ const sendBackfillRequest: SendRequest = async (_peer, peerContactId, refs: Enve
   if (peerContactId === 1) throw new Error('unroutable backfill peer');
   await t.sendControlDm(peerContactId, buildEnvelopeRequest(refs));
 };
-const backfiller = createBackfiller({ store, send: sendBackfillRequest });
+const withExternalMutation = async <T>(operation: () => Promise<T>): Promise<T> => {
+  const release = store.beginExternalMutation();
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+};
+const backfiller = createBackfiller({
+  store,
+  send: sendBackfillRequest,
+  runScheduled: withExternalMutation,
+});
+const flushBackfiller = async (): Promise<void> => {
+  await withExternalMutation(() => backfiller.flush());
+};
 
 // Per-peer serve-side response rate limiter (max bundle replies/min per
 // requester), so answering backfill requests never starves user actions.
@@ -160,7 +193,7 @@ let transport: Transport | null = null;
 // boosts); if `transport` hasn't been assigned yet (the same startup race the
 // `mid`-passing trick above works around for indexing) a live event is simply
 // not streamed — acceptable for a best-effort UI nicety, unlike indexing.
-const ingestOnMessage = async (
+const ingestOnMessageWithinBarrier = async (
   msg: T.Message,
   isFeedMessage: boolean,
   mid: string | null,
@@ -226,7 +259,7 @@ const ingestOnMessage = async (
       return false;
     });
     if (handled) {
-      void backfiller.flush();
+      void flushBackfiller();
       return;
     }
   }
@@ -241,7 +274,7 @@ const ingestOnMessage = async (
   if (phase === 'combined' && transport) {
     const t = transport;
     if (handleThreadChannelBundle(store, backfiller, msg, Date.now())) {
-      void backfiller.flush();
+      void flushBackfiller();
       return;
     }
     const handledThread = await (async () => {
@@ -297,26 +330,50 @@ const ingestOnMessage = async (
   }
 };
 
-/** New-follower notification: SecurejoinInviterProgress===1000 means someone just joined our feed broadcast. */
-const notifyFollower = async (contactId: number) => {
-  const t = transport;
-  if (!t) return;
-  const contact = await t.contact(contactId).catch(() => null);
-  if (!contact) return;
-  const notification = store.addNotification({
-    type: 'follow',
-    accountAddr: contact.address,
-    accountContactId: contactId,
-  });
-  if (!notification) return;
+const ingestOnMessage = async (
+  msg: T.Message,
+  isFeedMessage: boolean,
+  mid: string | null,
+  phase: IngestPhase,
+): Promise<void> => {
+  const release = store.beginExternalMutation();
   try {
-    hub.broadcastNotification(await mapNotification(notification, t, mapper, BASE_URL, () => null));
-  } catch (err) {
-    console.error('streaming: failed to map/broadcast follow notification (non-fatal):', err);
+    await ingestOnMessageWithinBarrier(msg, isFeedMessage, mid, phase);
+  } finally {
+    release();
   }
 };
 
-const creds = readAccounts(ACCOUNTS_FILE)[ACCOUNT];
+const openOptions = {
+  onMessage: ingestOnMessage,
+  beginExternalMutation: () => store.beginExternalMutation(),
+};
+
+/** New-follower notification: SecurejoinInviterProgress===1000 means someone just joined our feed broadcast. */
+const notifyFollower = async (contactId: number) => {
+  const release = store.beginExternalMutation();
+  try {
+    const t = transport;
+    if (!t) return;
+    const contact = await t.contact(contactId).catch(() => null);
+    if (!contact) return;
+    const notification = store.addNotification({
+      type: 'follow',
+      accountAddr: contact.address,
+      accountContactId: contactId,
+    });
+    if (!notification) return;
+    try {
+      hub.broadcastNotification(await mapNotification(notification, t, mapper, BASE_URL, () => null));
+    } catch (err) {
+      console.error('streaming: failed to map/broadcast follow notification (non-fatal):', err);
+    }
+  } finally {
+    release();
+  }
+};
+
+const creds = readAccounts(ACCOUNTS_PATH)[ACCOUNT];
 const printEnrollmentCode = () => {
   const enrollment = auth.createEnrollmentCode();
   console.log(`deltanet: one-time frontend enrollment code (10 minutes): ${enrollment.code}`);
@@ -325,7 +382,7 @@ auth.bindAccount(creds?.addr ?? null);
 printEnrollmentCode();
 if (creds) {
   console.log(`configuring ${creds.addr} (data: ${DATA_DIR}) ...`);
-  transport = await openTransport(DATA_DIR, creds, { onMessage: ingestOnMessage });
+  transport = await openTransport(DATA_DIR, creds, openOptions);
   transport.onFollower(notifyFollower);
   await announce(transport);
   // Thread auto-backfill startup seed: an existing store may already hold
@@ -334,7 +391,7 @@ if (creds) {
   // 'index' phase); this seeds held envelopes' own transitive refs. Capped burst;
   // the flush's global rate cap paces the actual sends.
   seedBackfillQueue(store, backfiller);
-  void backfiller.flush();
+  void flushBackfiller();
 } else {
   console.log(
     `no account "${ACCOUNT}" configured yet — POST /api/deltanet/signup to create one`,
@@ -346,8 +403,8 @@ const ctx: AppContext = {
   signup: async (displayName, relay) => {
     const { addr, password } = await registerAccount(relay);
     const newCreds: ChatmailCredentials = { addr, password, displayName };
-    writeAccount(ACCOUNTS_FILE, ACCOUNT, newCreds);
-    const opened = await openTransport(DATA_DIR, newCreds, { onMessage: ingestOnMessage });
+    writeAccount(ACCOUNTS_PATH, ACCOUNT, newCreds);
+    const opened = await openTransport(DATA_DIR, newCreds, openOptions);
     opened.onFollower(notifyFollower);
     auth.bindAccount(addr);
     printEnrollmentCode();
@@ -360,24 +417,32 @@ const ctx: AppContext = {
   // the core tar and boots the transport like a signup would, persisting the
   // recovered credentials so the next plain daemon start finds the account.
   restore: async (backupTarPath, passphrase, beforeOpen) => {
-    const { transport: opened, creds: restoredCreds } = await restoreTransport(
+    const { transport: opened, creds: restoredCreds, start } = await restoreTransport(
       DATA_DIR,
       backupTarPath,
       passphrase,
-      { onMessage: ingestOnMessage },
+      { ...openOptions, deferStart: true },
       beforeOpen,
     );
-    writeAccount(ACCOUNTS_FILE, ACCOUNT, restoredCreds);
-    opened.onFollower(notifyFollower);
-    auth.bindAccount(restoredCreds.addr);
-    printEnrollmentCode();
-    transport = opened;
-    await announce(opened);
-    // Same startup seeding a normal boot does: the restored store may carry
-    // dangling refs whose backfill the pre-wipe node never finished.
-    seedBackfillQueue(store, backfiller);
-    void backfiller.flush();
-    return opened;
+    return createPreparedRestore({
+      transport: opened,
+      prepareCommit: async (persistCredentials) => {
+        opened.onFollower(notifyFollower);
+        await announce(opened);
+        seedBackfillQueue(store, backfiller);
+        auth.bindAccount(restoredCreds.addr);
+        printEnrollmentCode();
+        persistCredentials(restoredCreds);
+      },
+      publish: () => { transport = opened; },
+      rollback: () => { auth.bindAccount(creds?.addr ?? null); },
+      close: () => { opened.close(); },
+      afterPublish: () => {
+        void start()
+          .then(() => flushBackfiller())
+          .catch((error) => console.error('restored transport startup failed (non-fatal):', error));
+      },
+    });
   },
 };
 
@@ -393,7 +458,8 @@ const app = createApp(ctx, {
   hub,
   // Profile-editing persists the uploaded avatar + SELF header banner here so
   // they survive restarts; resolved absolute since DATA_DIR may be relative.
-  dataDir: resolve(process.cwd(), DATA_DIR),
+  dataDir: DATA_PATH,
+  restoreJournal: { path: RESTORE_JOURNAL, accountsPath: ACCOUNTS_PATH, accountName: ACCOUNT },
 });
 
 // `@hono/node-server`'s v2 websocket support is just `serve({ ..., websocket:

@@ -161,6 +161,28 @@ describe('HOST: handleThreadInviteRequest', () => {
     expect(uuids).toContain(REPLY1);
   });
 
+  it('holds the external mutation barrier across pending channel creation and store binding', async () => {
+    const store = setupHost();
+    let resolveCreate!: (chatId: number) => void;
+    const pendingCreate = new Promise<number>((resolve) => { resolveCreate = resolve; });
+    const { transport } = fakeTransport({
+      createBroadcast: async () => pendingCreate,
+      message: async (id: number) =>
+        id === 1
+          ? makeMessage({ id: 1, text: serializeEnvelope(sign(buildPostObject('root', ROOT), ALICE)) })
+          : null,
+    });
+
+    const handling = handleThreadInviteRequest(store, transport, requestMsg(), false);
+    await Promise.resolve();
+    expect(store.mutationBarrierSnapshot().active).toBe(1);
+    expect(store.hostedThreadChatId(ROOT)).toBeNull();
+    resolveCreate(777);
+    await handling;
+    expect(store.hostedThreadChatId(ROOT)).toBe(777);
+    expect(store.mutationBarrierSnapshot().active).toBe(0);
+  });
+
   it('reuses the existing channel on a second subscriber (no re-create)', async () => {
     const store = setupHost();
     const { transport, created } = fakeTransport({

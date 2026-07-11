@@ -198,11 +198,13 @@ export const createBackfiller = (opts: {
   now?: () => number;
   schedule?: (fn: () => void, ms: number) => unknown;
   cancel?: (handle: unknown) => void;
+  runScheduled?: <T>(operation: () => Promise<T>) => Promise<T>;
 }): Backfiller => {
   const cfg: BackfillConfig = { ...DEFAULT_BACKFILL_CONFIG, ...opts.config };
   const now = opts.now ?? (() => Date.now());
   const schedule = opts.schedule ?? ((fn, ms) => setTimeout(fn, ms));
   const cancel = opts.cancel ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
+  const runScheduled = opts.runScheduled ?? ((operation) => operation());
 
   // Per-peer pending uuids (insertion-ordered, deduped). Refs move OUT of here
   // into `inFlight` only when actually sent, so a backed-off ref stays queued.
@@ -227,7 +229,7 @@ export const createBackfiller = (opts: {
     if (timer !== null) return;
     timer = schedule(() => {
       timer = null;
-      void flush();
+      void runScheduled(flush);
     }, cfg.flushDelayMs);
   };
 

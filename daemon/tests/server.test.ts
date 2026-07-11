@@ -2473,6 +2473,122 @@ describe('backup endpoints', () => {
     expect(typeof after.last_backup_at).toBe('number');
   });
 
+  it('retries core export when the store generation changes and emits one coherent snapshot', async () => {
+    const dir = scratchDir();
+    const store = createStore(join(dir, 'deltanet-store.json'));
+    store.pinKey('before@example.org', 'BEFORE');
+    const { transport } = makeFakeTransport();
+    const exportBackup = transport.exportBackup.bind(transport);
+    let calls = 0;
+    const destinations: string[] = [];
+    transport.exportBackup = async (destDir, passphrase) => {
+      destinations.push(destDir);
+      const result = await exportBackup(destDir, passphrase);
+      calls += 1;
+      if (calls === 1) store.pinKey('during@example.org', 'DURING');
+      return result;
+    };
+    const app = createUnsafeTestApp(makeConfiguredCtx(transport), { baseUrl: BASE, store, dataDir: dir });
+
+    const res = await app.request('/api/deltanet/backup/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase: 'pw' }),
+    });
+    expect(res.status).toBe(200);
+    expect(calls).toBe(2);
+    expect(new Set(destinations).size).toBe(2);
+    const { sidecar } = decodeBackupContainer(Buffer.from(await res.arrayBuffer()), 'pw');
+    expect(JSON.parse(sidecar.store!).pinnedKeys).toEqual({
+      'before@example.org': 'BEFORE',
+      'during@example.org': 'DURING',
+    });
+  });
+
+  it('returns a clear busy response when the store changes on every bounded export attempt', async () => {
+    const dir = scratchDir();
+    const store = createStore(join(dir, 'deltanet-store.json'));
+    const { transport } = makeFakeTransport();
+    const exportBackup = transport.exportBackup.bind(transport);
+    let calls = 0;
+    transport.exportBackup = async (destDir, passphrase) => {
+      const result = await exportBackup(destDir, passphrase);
+      store.pinKey(`during-${calls++}@example.org`, `KEY-${calls}`);
+      return result;
+    };
+    const app = createUnsafeTestApp(makeConfiguredCtx(transport), { baseUrl: BASE, store, dataDir: dir });
+
+    const res = await app.request('/api/deltanet/backup/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase: 'pw' }),
+    });
+    expect(res.status).toBe(409);
+    expect(calls).toBe(2);
+    expect(await res.json()).toEqual({ error: 'store changed during backup export; retry' });
+  });
+
+  it('refuses export without entering core while an external/core-first mutation is active', async () => {
+    const dir = scratchDir();
+    const store = createStore(join(dir, 'deltanet-store.json'));
+    const release = store.beginExternalMutation();
+    const { transport } = makeFakeTransport();
+    let exportCalls = 0;
+    const exportBackup = transport.exportBackup.bind(transport);
+    transport.exportBackup = async (...args) => {
+      exportCalls += 1;
+      return exportBackup(...args);
+    };
+    const app = createUnsafeTestApp(makeConfiguredCtx(transport), { baseUrl: BASE, store, dataDir: dir });
+
+    const res = await app.request('/api/deltanet/backup/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase: 'pw' }),
+    });
+    release();
+    expect(res.status).toBe(409);
+    expect(exportCalls).toBe(0);
+  });
+
+  it('keeps the API mutation barrier active while a core-first POST is pending', async () => {
+    const dir = scratchDir();
+    const store = createStore(join(dir, 'deltanet-store.json'));
+    const { transport } = makeFakeTransport();
+    let enteredPost!: () => void;
+    const postEntered = new Promise<void>((resolve) => { enteredPost = resolve; });
+    let finishPost!: () => void;
+    const postFinished = new Promise<void>((resolve) => { finishPost = resolve; });
+    transport.post = async (text) => {
+      enteredPost();
+      await postFinished;
+      return makeMessage({ id: 991, text });
+    };
+    let exportCalls = 0;
+    const exportBackup = transport.exportBackup.bind(transport);
+    transport.exportBackup = async (...args) => {
+      exportCalls += 1;
+      return exportBackup(...args);
+    };
+    const app = createUnsafeTestApp(makeConfiguredCtx(transport), { baseUrl: BASE, store, dataDir: dir });
+    const posting = app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'pending core post' }),
+    });
+    await postEntered;
+
+    const backup = await app.request('/api/deltanet/backup/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase: 'pw' }),
+    });
+    expect(backup.status).toBe(409);
+    expect(exportCalls).toBe(0);
+    finishPost();
+    expect((await posting).status).toBe(200);
+  });
+
   it('409s a restore when already configured', async () => {
     const res = await makeApp().request('/api/deltanet/restore', { method: 'POST' });
     expect(res.status).toBe(409);
@@ -2518,6 +2634,170 @@ describe('backup endpoints', () => {
     expect((await post(valid, 'wrong')).status).toBe(422);
     expect(restoreCalled).toBe(false);
     expect(existsSync(join(dir, 'deltanet-signing-key.json'))).toBe(false);
+  });
+
+  it('422s a malformed store sidecar before core restore or disk replacement', async () => {
+    const dir = scratchDir();
+    const store = createStore(join(dir, 'deltanet-store.json'));
+    store.markRepublished('existing-state');
+    const before = store.readSnapshot();
+    let restoreCalled = false;
+    const ctx: AppContext = {
+      getTransport: () => null,
+      signup: async () => {
+        throw new Error('unused');
+      },
+      restore: async () => {
+        restoreCalled = true;
+        throw new Error('unused');
+      },
+    };
+    const app = createUnsafeTestApp(ctx, { baseUrl: BASE, store, dataDir: dir });
+    const container = encodeBackupContainer(
+      {
+        sidecar: {
+          addr: 'a@b.c',
+          exportedAt: 1,
+          store: '{malformed',
+        },
+        coreTar: FAKE_CORE_TAR,
+      },
+      'pw',
+    );
+    const fd = new FormData();
+    fd.append('file', new File([new Uint8Array(container)], 'b.dnbk'));
+    fd.append('passphrase', 'pw');
+
+    const res = await app.request('/api/deltanet/restore', { method: 'POST', body: fd });
+    expect(res.status).toBe(422);
+    expect((await res.json()) as any).toEqual({
+      error: expect.stringMatching(/malformed or unreadable store/),
+    });
+    expect(restoreCalled).toBe(false);
+    expect(store.readSnapshot()).toEqual(before);
+  });
+
+  it.each(['malformed private key', 'mismatched public key'])(
+    '422s a %s sidecar before core restore or installation',
+    async (kind) => {
+      const dir = scratchDir();
+      const keyPath = join(dir, 'donor-key.json');
+      openAttestor(keyPath).publicKeyBase64();
+      const key = JSON.parse(readFileSync(keyPath, 'utf8'));
+      if (kind === 'malformed private key') key.privatePem = 'not a PKCS8 key';
+      else {
+        const otherPath = join(dir, 'other-key.json');
+        key.pubkey = openAttestor(otherPath).publicKeyBase64();
+      }
+      let restoreCalled = false;
+      const ctx: AppContext = {
+        getTransport: () => null,
+        signup: async () => { throw new Error('unused'); },
+        restore: (async () => {
+          restoreCalled = true;
+          throw new Error('unused');
+        }) as any,
+      };
+      const app = createUnsafeTestApp(ctx, { baseUrl: BASE, dataDir: join(dir, 'target') });
+      const container = encodeBackupContainer({
+        sidecar: {
+          addr: 'p6yalimhl@nine.testrun.org',
+          exportedAt: 1,
+          signingKey: JSON.stringify(key),
+        },
+        coreTar: FAKE_CORE_TAR,
+      }, 'pw');
+      const fd = new FormData();
+      fd.append('file', new File([new Uint8Array(container)], 'b.dnbk'));
+      fd.append('passphrase', 'pw');
+
+      const res = await app.request('/api/deltanet/restore', { method: 'POST', body: fd });
+      expect(res.status).toBe(422);
+      expect((await res.json()) as any).toEqual({ error: expect.stringMatching(/signing key/i) });
+      expect(restoreCalled).toBe(false);
+    },
+  );
+
+  it('rejects a same-passphrase core/sidecar identity splice before commit and rolls sidecars back', async () => {
+    const dir = scratchDir();
+    const store = createStore(join(dir, 'deltanet-store.json'));
+    store.markRepublished('target-state');
+    const before = store.readSnapshot();
+    const { transport } = makeFakeTransport();
+    let committed = false;
+    let aborted = false;
+    const ctx: AppContext = {
+      getTransport: () => null,
+      signup: async () => { throw new Error('unused'); },
+      restore: (async (_tarPath: string, _passphrase: string, beforeOpen: () => void) => {
+        beforeOpen();
+        return {
+          transport,
+          commit: async () => { committed = true; },
+          abort: () => { aborted = true; },
+        };
+      }) as any,
+    };
+    const app = createUnsafeTestApp(ctx, { baseUrl: BASE, store, dataDir: dir });
+    const container = encodeBackupContainer({
+      sidecar: { addr: 'spliced-other@example.org', exportedAt: 1 },
+      coreTar: FAKE_CORE_TAR,
+    }, 'pw');
+    const fd = new FormData();
+    fd.append('file', new File([new Uint8Array(container)], 'splice.dnbk'));
+    fd.append('passphrase', 'pw');
+
+    const res = await app.request('/api/deltanet/restore', { method: 'POST', body: fd });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: 'restored core address does not match backup sidecar' });
+    expect(committed).toBe(false);
+    expect(aborted).toBe(true);
+    expect(store.wasRepublished('target-state')).toBe(true);
+    expect(store.readSnapshot()!.generation).toBeGreaterThan(before!.generation);
+  });
+
+  it('atomically rolls the live store and its recovery copy back when restore fails after install', async () => {
+    const dir = scratchDir();
+    const storePath = join(dir, 'deltanet-store.json');
+    const store = createStore(storePath);
+    store.markRepublished('target-state');
+    const donorPath = join(scratchDir(), 'deltanet-store.json');
+    const donor = createStore(donorPath);
+    donor.markRepublished('donor-state');
+    const container = encodeBackupContainer(
+      {
+        sidecar: {
+          addr: 'a@b.c',
+          exportedAt: 1,
+          store: donor.readSnapshot()!.contents,
+        },
+        coreTar: FAKE_CORE_TAR,
+      },
+      'pw',
+    );
+    const ctx: AppContext = {
+      getTransport: () => null,
+      signup: async () => {
+        throw new Error('unused');
+      },
+      restore: async (_tarPath, _passphrase, beforeOpen) => {
+        beforeOpen();
+        expect(store.wasRepublished('donor-state')).toBe(true);
+        throw new Error('injected post-install restore failure');
+      },
+    };
+    const app = createUnsafeTestApp(ctx, { baseUrl: BASE, store, dataDir: dir });
+    const fd = new FormData();
+    fd.append('file', new File([new Uint8Array(container)], 'b.dnbk'));
+    fd.append('passphrase', 'pw');
+
+    const res = await app.request('/api/deltanet/restore', { method: 'POST', body: fd });
+    expect(res.status).toBe(422);
+    expect(store.wasRepublished('target-state')).toBe(true);
+    expect(store.wasRepublished('donor-state')).toBe(false);
+    expect(readFileSync(storePath, 'utf8')).toContain('target-state');
+    expect(readFileSync(`${storePath}.recovery`, 'utf8')).toContain('target-state');
+    expect(readFileSync(`${storePath}.recovery`, 'utf8')).not.toContain('donor-state');
   });
 
   it('422s when the file or passphrase is missing', async () => {
@@ -2578,8 +2858,17 @@ describe('backup endpoints', () => {
         // Mirror restoreTransport: the sidecar-writing hook runs after the
         // core import succeeded, before the transport goes live.
         beforeOpen();
-        live = transport;
-        return transport;
+        let committed = false;
+        return {
+          transport,
+          commit: async () => {
+            live = transport;
+            committed = true;
+          },
+          abort: () => {
+            if (!committed) live = null;
+          },
+        };
       },
     };
     const app = createUnsafeTestApp(ctx, { baseUrl: BASE, store, dataDir: dir });

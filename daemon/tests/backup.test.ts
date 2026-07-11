@@ -63,6 +63,13 @@ describe('backup container', () => {
     expect(() => decodeBackupContainer(tampered, 'hunter2')).toThrow(BackupDecodeError);
   });
 
+  it('rejects a spliced or tampered core tar using the authenticated sidecar hash', () => {
+    const container = encodeBackupContainer({ sidecar: SIDECAR, coreTar: CORE_TAR }, 'hunter2');
+    const tampered = Buffer.from(container);
+    tampered[tampered.length - 1] = tampered[tampered.length - 1]! ^ 0x01;
+    expect(() => decodeBackupContainer(tampered, 'hunter2')).toThrow(/core tar.*mismatch/i);
+  });
+
   it('tolerates sidecars without optional files (fresh node with no store yet)', () => {
     const bare: BackupSidecar = { addr: 'a@b.c', exportedAt: 1 };
     const container = encodeBackupContainer({ sidecar: bare, coreTar: CORE_TAR }, 'pw');

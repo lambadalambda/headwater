@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createBackfiller,
   nextEligibleAt,
@@ -78,6 +78,38 @@ describe('pure scheduling helpers', () => {
 });
 
 describe('enqueue + flush', () => {
+  it('runs timer-triggered flushes inside the injected mutation boundary', async () => {
+    const store = fakeStore();
+    let scheduled: (() => void) | null = null;
+    let releaseSend!: () => void;
+    const sendBlocked = new Promise<void>((resolve) => { releaseSend = resolve; });
+    const events: string[] = [];
+    const bf = createBackfiller({
+      store,
+      send: async () => {
+        events.push('send');
+        await sendBlocked;
+      },
+      schedule: (fn) => { scheduled = fn; return null; },
+      cancel: () => {},
+      runScheduled: async (operation) => {
+        events.push('begin');
+        try {
+          return await operation();
+        } finally {
+          events.push('end');
+        }
+      },
+    });
+
+    bf.enqueue({ uuid: uuidN(1), peer: PEER, peerContactId: 22, authorAddr: AUTHOR });
+    scheduled!();
+    await Promise.resolve();
+    expect(events).toEqual(['begin', 'send']);
+    releaseSend();
+    await vi.waitFor(() => expect(events).toEqual(['begin', 'send', 'end']));
+  });
+
   it('batches multiple refs to one peer into a single request DM', async () => {
     const { bf, sent } = makeBackfiller();
     bf.enqueue({ uuid: uuidN(1), peer: PEER, peerContactId: 22, authorAddr: AUTHOR });

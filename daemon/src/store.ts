@@ -1,11 +1,28 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import type { T } from '@deltachat/jsonrpc-client';
 import { parseCanonicalMid, parseMarkers } from './protocol.js';
 import { parseWire, parseWireUuid } from './wire.js';
 import type { Envelope } from './envelope.js';
+import {
+  acquireProcessLifetimeInterprocessLock,
+  InterprocessLockBusyError,
+  InterprocessLockError,
+} from './interprocess-lock.js';
 
 const DC_CONTACT_ID_SELF = 1;
 
@@ -68,12 +85,16 @@ const DC_CONTACT_ID_SELF = 1;
  * instead of their uuid (the uuid parse failed); the persisted text is clean,
  * so re-indexing with the tolerant parser re-keys them and their reaction
  * tallies line up again.
- * Version 9 adds positive local feed-message provenance (`feedMsgIds`). It is a
+  * Version 9 adds positive local feed-message provenance (`feedMsgIds`). It is a
  * derivable index rebuilt from each message's chat type during the startup
  * sweep, so migration drops it with the other indices. Anonymous public status
  * trees use it to distinguish feed-delivered content from DM-only local copies.
+ * Version 10 adds a monotonic `generation`. Primary and recovery files carry
+ * the same complete generation; recovery-first replacement plus generation
+ * selection heals a crash between the two renames without dropping the newest
+ * durable non-derivable mutation.
  */
-export const STORE_SCHEMA_VERSION = 9;
+export const STORE_SCHEMA_VERSION = 10;
 
 /**
  * Upper bound on stored held envelopes (thread auto-backfill). Held content is
@@ -175,6 +196,8 @@ export type BackfillAttempt = {
 type StoreData = {
   /** Store schema version; absent/older triggers a derived-index re-index on load. */
   schemaVersion: number;
+  /** Monotonic commit generation shared by primary and recovery files. */
+  generation: number;
   /**
    * Canonical-mid alias map: dmMid -> feedMid. The feed broadcast copy's mid is
    * a post's canonical identity; DM copies (and interactions that only ever
@@ -335,8 +358,284 @@ type StoreData = {
   pendingThreadRequests: Record<string, number>;
 };
 
+const STORE_RECORD_FIELDS: (keyof StoreData)[] = [
+  'canonicalByMid',
+  'feedTextToMid',
+  'dmPendingText',
+  'midToMsgId',
+  'msgIdToMid',
+  'msgIdToKey',
+  'uuidToMsgIds',
+  'uuidFeedMsgId',
+  'replyChildren',
+  'boostsByMid',
+  'ownBoosts',
+  'reactions',
+  'pendingFollowRequests',
+  'pinnedKeys',
+  'heldEnvelopes',
+  'backfillAttempts',
+  'hostedThreads',
+  'threadSubscriptions',
+  'republishedUuids',
+  'lockedPostUuids',
+  'directPostUuids',
+  'lockedFollowRequests',
+  'pendingThreadRequests',
+];
+
+const STORE_ARRAY_FIELDS: (keyof StoreData)[] = [
+  'ingestedMsgIds',
+  'feedMsgIds',
+  'ownMids',
+  'notifications',
+  'notificationDedupeKeys',
+];
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const recordValuesAre = (
+  value: unknown,
+  predicate: (entry: unknown) => boolean,
+): boolean => isRecord(value) && Object.values(value).every(predicate);
+
+const arrayValuesAre = (
+  value: unknown,
+  predicate: (entry: unknown) => boolean,
+): boolean => Array.isArray(value) && value.every(predicate);
+
+export class StoreCorruptionError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'StoreCorruptionError';
+  }
+}
+
+export class StoreAccessError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'StoreAccessError';
+  }
+}
+
+export class StoreBusyError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'StoreBusyError';
+  }
+}
+
+export class StoreConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StoreConflictError';
+  }
+}
+
+const isSafeNonNegativeInteger = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+
+const isSafePositiveInteger = (value: unknown): value is number =>
+  isSafeNonNegativeInteger(value) && value > 0;
+
+const recordKeysAreIds = (value: unknown): boolean =>
+  isRecord(value) && Object.keys(value).every((key) => /^\d+$/.test(key) && isSafeNonNegativeInteger(Number(key)));
+
+const isUsableEnvelopeRef = (value: unknown): boolean =>
+  isRecord(value) && (
+    (typeof value['u'] === 'string' && value['u'].length > 0) ||
+    (typeof value['mid'] === 'string' && value['mid'].length > 0 && typeof value['addr'] === 'string')
+  );
+
+const NOTIFICATION_TYPES = new Set<NotificationType>([
+  'follow',
+  'follow_request',
+  'mention',
+  'reblog',
+  'favourite',
+  'pleroma:emoji_reaction',
+]);
+
+const PRE_V1_REQUIRED_FIELDS: (keyof StoreData)[] = [
+  'midToMsgId',
+  'msgIdToMid',
+  'replyChildren',
+  'boostsByMid',
+  'ownBoosts',
+  'ingestedMsgIds',
+  'ownMids',
+  'reactions',
+  'notifications',
+  'notificationDedupeKeys',
+  'nextNotificationId',
+  'pendingFollowRequests',
+];
+
+const LEGACY_REQUIRED_FIELDS: (keyof StoreData)[] = [
+  'canonicalByMid',
+  'midToMsgId',
+  'msgIdToMid',
+  'replyChildren',
+  'boostsByMid',
+  'ownBoosts',
+  'ingestedMsgIds',
+  'ownMids',
+  'reactions',
+  'notifications',
+  'notificationDedupeKeys',
+  'nextNotificationId',
+  'pendingFollowRequests',
+];
+
+const requiredFieldsForVersion = (version: number | undefined): (keyof StoreData)[] => {
+  if (version === undefined) return PRE_V1_REQUIRED_FIELDS;
+  if (version === STORE_SCHEMA_VERSION) {
+    return ['generation', ...STORE_RECORD_FIELDS, ...STORE_ARRAY_FIELDS, 'nextNotificationId'];
+  }
+  const required = [...LEGACY_REQUIRED_FIELDS];
+  if (version >= 3) required.push('feedTextToMid', 'dmPendingText');
+  if (version >= 4) required.push('msgIdToKey', 'uuidToMsgIds', 'uuidFeedMsgId');
+  if (version >= 6) required.push('heldEnvelopes', 'backfillAttempts');
+  if (version >= 7) {
+    required.push('hostedThreads', 'threadSubscriptions', 'pendingThreadRequests', 'republishedUuids');
+  }
+  if (version >= 9) required.push('feedMsgIds');
+  return required;
+};
+
+const parseStoreData = (contents: string, path: string): Partial<StoreData> => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch (cause) {
+    throw new StoreCorruptionError(`malformed or unreadable store: ${path}`, { cause });
+  }
+  if (!isRecord(parsed)) {
+    throw new StoreCorruptionError(`malformed or unreadable store: ${path} (expected an object)`);
+  }
+  const rawVersion = parsed['schemaVersion'];
+  if (rawVersion !== undefined && (!isSafePositiveInteger(rawVersion) || rawVersion > STORE_SCHEMA_VERSION)) {
+    throw new StoreCorruptionError(`malformed or unreadable store: ${path} (unsupported schema version)`);
+  }
+  const version = rawVersion as number | undefined;
+  const generation = parsed['generation'];
+  if (generation !== undefined && !isSafeNonNegativeInteger(generation)) {
+    throw new StoreCorruptionError(`malformed or unreadable store: ${path} (invalid generation)`);
+  }
+  const nextNotificationId = parsed['nextNotificationId'];
+  if (nextNotificationId !== undefined && !isSafePositiveInteger(nextNotificationId)) {
+    throw new StoreCorruptionError(`malformed or unreadable store: ${path} (invalid nextNotificationId)`);
+  }
+  for (const field of STORE_RECORD_FIELDS) {
+    if (parsed[field] !== undefined && !isRecord(parsed[field])) {
+      throw new StoreCorruptionError(`malformed or unreadable store: ${path} (invalid ${field})`);
+    }
+  }
+  for (const field of STORE_ARRAY_FIELDS) {
+    if (parsed[field] !== undefined && !Array.isArray(parsed[field])) {
+      throw new StoreCorruptionError(`malformed or unreadable store: ${path} (invalid ${field})`);
+    }
+  }
+  for (const field of requiredFieldsForVersion(version)) {
+    if (parsed[field] === undefined) {
+      throw new StoreCorruptionError(`malformed or unreadable store: ${path} (missing ${field})`);
+    }
+  }
+  const validFields: Partial<Record<keyof StoreData, (value: unknown) => boolean>> = {
+    canonicalByMid: (value) => recordValuesAre(value, (entry) => typeof entry === 'string'),
+    feedTextToMid: (value) => recordValuesAre(value, (entry) => typeof entry === 'string'),
+    dmPendingText: (value) => recordValuesAre(value, (entry) => typeof entry === 'string'),
+    midToMsgId: (value) => recordValuesAre(value, isSafeNonNegativeInteger),
+    msgIdToMid: (value) => recordKeysAreIds(value) && recordValuesAre(value, (entry) => typeof entry === 'string'),
+    msgIdToKey: (value) => recordKeysAreIds(value) && recordValuesAre(value, (entry) => typeof entry === 'string'),
+    uuidToMsgIds: (value) => recordValuesAre(value, (entry) => arrayValuesAre(entry, isSafeNonNegativeInteger)),
+    uuidFeedMsgId: (value) => recordValuesAre(value, isSafeNonNegativeInteger),
+    // Schema v1 used numeric child msgIds; migration drops them before use.
+    replyChildren: (value) => recordValuesAre(
+      value,
+      (entry) => arrayValuesAre(
+        entry,
+        (child) => typeof child === 'string' || ((version === undefined || version === 1) && isSafeNonNegativeInteger(child)),
+      ),
+    ),
+    boostsByMid: (value) => recordValuesAre(value, (entry) => arrayValuesAre(entry, isSafeNonNegativeInteger)),
+    ownBoosts: (value) => recordValuesAre(value, isSafeNonNegativeInteger),
+    ingestedMsgIds: (value) => arrayValuesAre(value, isSafeNonNegativeInteger),
+    feedMsgIds: (value) => arrayValuesAre(value, isSafeNonNegativeInteger),
+    ownMids: (value) => arrayValuesAre(value, (entry) => typeof entry === 'string'),
+    reactions: (value) => recordValuesAre(
+      value,
+      (byReactor) => recordValuesAre(
+        byReactor,
+        (emojis) => arrayValuesAre(emojis, (emoji) => typeof emoji === 'string'),
+      ),
+    ),
+    notifications: (value) => arrayValuesAre(value, (entry) => {
+      if (!isRecord(entry)) return false;
+      return (
+        typeof entry['id'] === 'string' && /^\d+$/.test(entry['id']) &&
+        isSafePositiveInteger(Number(entry['id'])) &&
+        typeof entry['type'] === 'string' && NOTIFICATION_TYPES.has(entry['type'] as NotificationType) &&
+        typeof entry['createdAt'] === 'string' &&
+        typeof entry['accountAddr'] === 'string' &&
+        (entry['accountContactId'] === undefined || isSafeNonNegativeInteger(entry['accountContactId'])) &&
+        (entry['emoji'] === undefined || typeof entry['emoji'] === 'string') &&
+        (entry['statusMsgId'] === undefined || isSafeNonNegativeInteger(entry['statusMsgId']))
+      );
+    }),
+    notificationDedupeKeys: (value) => arrayValuesAre(value, (entry) => typeof entry === 'string'),
+    pendingFollowRequests: (value) => recordValuesAre(value, isSafeNonNegativeInteger),
+    pinnedKeys: (value) => recordValuesAre(value, (entry) => typeof entry === 'string'),
+    heldEnvelopes: (value) => recordValuesAre(value, (entry) => {
+      if (!isRecord(entry)) return false;
+      const env = entry['env'];
+      if (!isRecord(env)) return false;
+      const contentShape =
+        (env['type'] === 'post' && typeof env['text'] === 'string') ||
+        (env['type'] === 'reply' && typeof env['text'] === 'string' && isUsableEnvelopeRef(env['ref'])) ||
+        (env['type'] === 'boost' && isUsableEnvelopeRef(env['ref']));
+      return (
+        env['dn'] === 2 &&
+        contentShape &&
+        typeof env['uuid'] === 'string' && env['uuid'].length > 0 &&
+        typeof entry['from'] === 'string' && entry['from'].length > 0 &&
+        isSafeNonNegativeInteger(entry['fromContactId']) &&
+        typeof entry['authorAddr'] === 'string' && entry['authorAddr'].length > 0 &&
+        isSafeNonNegativeInteger(entry['receivedAt'])
+      );
+    }),
+    backfillAttempts: (value) => recordValuesAre(value, (entry) =>
+      isRecord(entry) && isSafeNonNegativeInteger(entry['attempts']) && isSafeNonNegativeInteger(entry['lastAttemptAt'])),
+    hostedThreads: (value) => recordValuesAre(value, isSafeNonNegativeInteger),
+    threadSubscriptions: (value) => recordValuesAre(value, isSafeNonNegativeInteger),
+    republishedUuids: (value) => recordValuesAre(value, (entry) => typeof entry === 'boolean'),
+    lockedPostUuids: (value) => recordValuesAre(value, (entry) => typeof entry === 'boolean'),
+    directPostUuids: (value) => recordValuesAre(value, (entry) => typeof entry === 'boolean'),
+    lockedFollowRequests: (value) => recordValuesAre(value, (entry) =>
+      isRecord(entry) && isSafeNonNegativeInteger(entry['contactId']) && isSafeNonNegativeInteger(entry['requestedAt'])),
+    pendingThreadRequests: (value) => recordValuesAre(value, isSafeNonNegativeInteger),
+  };
+  for (const [field, validate] of Object.entries(validFields)) {
+    const value = parsed[field];
+    if (value !== undefined && !validate!(value)) {
+      throw new StoreCorruptionError(`malformed or unreadable store: ${path} (invalid ${field})`);
+    }
+  }
+  if (
+    isRecord(parsed['heldEnvelopes']) &&
+    !Object.entries(parsed['heldEnvelopes']).every(
+      ([uuid, held]) => isRecord(held) && isRecord(held['env']) && held['env']['uuid'] === uuid,
+    )
+  ) {
+    throw new StoreCorruptionError(`malformed or unreadable store: ${path} (invalid heldEnvelopes key)`);
+  }
+  return parsed as Partial<StoreData>;
+};
+
 const emptyData = (): StoreData => ({
   schemaVersion: STORE_SCHEMA_VERSION,
+  generation: 0,
   canonicalByMid: {},
   feedTextToMid: {},
   dmPendingText: {},
@@ -416,7 +715,13 @@ const migrate = (old: StoreData): StoreData => ({
 
 export type ReactionTally = { emoji: string; count: number; reactors: string[] };
 
+export type StoreSnapshot = { generation: number; contents: string };
+
 export type Store = {
+  /** Mark async core/external work that may mutate the store after an await. */
+  beginExternalMutation(): () => void;
+  /** Snapshot used by backup export to detect active or completed external work. */
+  mutationBarrierSnapshot(): { active: number; revision: number };
   /**
    * `isFeedMessage` (default `true`, for back-compat with existing callers)
    * gates BOOST edge registration: only messages delivered in a FEED chat
@@ -589,8 +894,16 @@ export type Store = {
    * a fresh load if the restored file is an older schema.
    */
   reload(): void;
-  /** The JSON file backing this store — backup export reads it, restore overwrites it (then `reload()`s). */
+  /** A validated, committed snapshot for backup export, or null before the first persisted mutation. */
+  readSnapshot(): StoreSnapshot | null;
+  /** Validate an imported snapshot without touching disk (restore's pre-import fail-closed gate). */
+  validateSnapshot(snapshot: string): void;
+  /** Atomically install a validated snapshot, or remove it when rolling a fresh restore back. */
+  replaceSnapshot(snapshot: string | null): void;
+  /** The JSON file backing this store. Callers must use the snapshot methods rather than reading/writing it. */
   readonly filePath: string;
+  /** Process-lifetime writer lock, which production keeps outside the core data directory. */
+  readonly lockPath: string;
 
   /** Record that we SUBSCRIBE to thread `rootUuid` via joined chat `chatId`. Overwrites. */
   addThreadSubscription(rootUuid: string, chatId: number): void;
@@ -619,6 +932,52 @@ export type Store = {
 export const ephemeralStorePath = (): string =>
   join(tmpdir(), `deltanet-store-${randomUUID()}.json`);
 
+export type StoreFileOperations = {
+  /** Returns false only for ENOENT; every other stat/probe error must throw. */
+  probe(path: string): boolean;
+  read(path: string): string;
+  open(path: string, flags: string, mode?: number): number;
+  write(fd: number, contents: string): void;
+  sync(fd: number): void;
+  close(fd: number): void;
+  rename(from: string, to: string): void;
+  remove(path: string): void;
+  chmod(path: string, mode: number): void;
+  mkdir(path: string, mode: number): void;
+  list(path: string): string[];
+};
+
+export type StoreOptions = {
+  heldEnvelopeCap?: number;
+  lockPath?: string;
+  /** Narrow test seam for deterministic filesystem failure injection. */
+  fileOperations?: Partial<StoreFileOperations>;
+};
+
+const NODE_FILE_OPERATIONS: StoreFileOperations = {
+  probe: (path) => {
+    try {
+      statSync(path);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+  },
+  read: (path) => readFileSync(path, 'utf8'),
+  open: openSync,
+  write: (fd, contents) => {
+    writeFileSync(fd, contents, 'utf8');
+  },
+  sync: fsyncSync,
+  close: closeSync,
+  rename: renameSync,
+  remove: (path) => rmSync(path, { force: true }),
+  chmod: chmodSync,
+  mkdir: (path, mode) => mkdirSync(path, { recursive: true, mode }),
+  list: readdirSync,
+};
+
 const dedupeKey = (input: NotificationInput): string | null => {
   if (!input.dedupeMid) return null;
   const parts = [input.type, input.accountAddr, input.dedupeMid];
@@ -637,37 +996,294 @@ const dedupeKey = (input: NotificationInput): string | null => {
  */
 export const createStore = (
   filePath: string,
-  opts?: { heldEnvelopeCap?: number },
+  opts: StoreOptions = {},
 ): Store => {
-  const heldCap = opts?.heldEnvelopeCap ?? HELD_ENVELOPE_CAP;
+  const heldCap = opts.heldEnvelopeCap ?? HELD_ENVELOPE_CAP;
+  const files: StoreFileOperations = { ...NODE_FILE_OPERATIONS, ...opts.fileOperations };
+  const parent = dirname(filePath);
+  const sharedTempParent = resolvePath(parent) === resolvePath(tmpdir());
+  const recoveryPath = `${filePath}.recovery`;
+  const lockPath = opts.lockPath ?? `${filePath}.lock`;
+  const tempPrefix = (path: string): string => `.${basename(path)}.tmp-`;
   let data: StoreData | null = null;
+  let externalMutations = 0;
+  let externalMutationRevision = 0;
 
-  const load = (): StoreData => {
-    if (data) return data;
-    let loaded: StoreData = emptyData();
-    let needsSave = false;
-    if (existsSync(filePath)) {
+  const probe = (path: string): boolean => {
+    try {
+      return files.probe(path);
+    } catch (cause) {
+      throw new StoreAccessError(`cannot probe store path: ${path}`, { cause });
+    }
+  };
+
+  const parentExists = (): boolean => probe(parent);
+
+  const directorySyncUnsupported = (error: unknown): boolean => {
+    const code = (error as NodeJS.ErrnoException | null)?.code;
+    return code !== undefined && ['EBADF', 'EINVAL', 'EISDIR', 'ENOTSUP', 'EPERM'].includes(code);
+  };
+
+  const syncDirectory = (path: string): void => {
+    let fd: number | null = null;
+    let failure: unknown;
+    try {
+      fd = files.open(path, 'r');
+      files.sync(fd);
+    } catch (error) {
+      if (!directorySyncUnsupported(error)) failure = error;
+    }
+    if (fd !== null) {
       try {
-        const raw = JSON.parse(readFileSync(filePath, 'utf8'));
-        loaded = { ...emptyData(), ...raw };
-        if ((raw.schemaVersion ?? 0) < STORE_SCHEMA_VERSION) {
-          loaded = migrate(loaded);
-          needsSave = true;
-        }
-      } catch {
-        loaded = emptyData();
+        files.close(fd);
+      } catch (error) {
+        failure ??= error;
       }
     }
-    data = loaded;
-    // Persist a migrated store immediately so the version bump/drop is durable
-    // even if no mutation follows this load.
-    if (needsSave) save();
-    return data;
+    if (failure) throw failure;
+  };
+
+  const ensureParent = (): void => {
+    const existed = probe(parent);
+    if (!existed) {
+      const missing: string[] = [];
+      let cursor = parent;
+      while (!probe(cursor)) {
+        missing.push(cursor);
+        const next = dirname(cursor);
+        if (next === cursor) break;
+        cursor = next;
+      }
+      files.mkdir(parent, 0o700);
+      // Persist every newly-created parent entry from the first missing level
+      // downward, where directory fsync is supported.
+      for (const created of missing.reverse()) syncDirectory(dirname(created));
+    }
+    // Scratch stores live directly under the shared system temp directory;
+    // never chmod that. Real account directories are private to one daemon.
+    if (!sharedTempParent) files.chmod(parent, 0o700);
+  };
+
+  const atomicWrite = (path: string, contents: string): void => {
+    ensureParent();
+    const temporary = join(dirname(path), `${tempPrefix(path)}${process.pid}-${randomUUID()}`);
+    let fd: number | null = null;
+    const failures: unknown[] = [];
+    try {
+      fd = files.open(temporary, 'wx', 0o600);
+      files.write(fd, contents);
+      files.sync(fd);
+      files.close(fd);
+      fd = null;
+      files.rename(temporary, path);
+      files.chmod(path, 0o600);
+      syncDirectory(parent);
+    } catch (error) {
+      failures.push(error);
+    }
+    if (fd !== null) {
+      try {
+        files.close(fd);
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    try {
+      files.remove(temporary);
+    } catch (error) {
+      failures.push(error);
+    }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) {
+      const first = failures[0] instanceof Error ? failures[0].message : 'unknown failure';
+      throw new AggregateError(failures, `atomic write failed: ${first}`);
+    }
+  };
+
+  const cleanupTempsLocked = (): void => {
+    let names: string[];
+    try {
+      names = files.list(parent);
+    } catch (cause) {
+      throw new StoreAccessError(`cannot list store directory: ${parent}`, { cause });
+    }
+    const prefixes = [tempPrefix(filePath), tempPrefix(recoveryPath)];
+    for (const name of names) {
+      if (prefixes.some((prefix) => name.startsWith(prefix))) files.remove(join(parent, name));
+    }
+  };
+
+  const withLock = <T>(action: () => T): T => {
+    try {
+      ensureParent();
+      acquireProcessLifetimeInterprocessLock(lockPath);
+    } catch (error) {
+      if (error instanceof InterprocessLockBusyError || error instanceof InterprocessLockError) {
+        throw new StoreBusyError(`cannot acquire store writer lock: ${filePath}`, { cause: error });
+      }
+      throw error;
+    }
+    return action();
+  };
+
+  type DiskStore = { contents: string; raw: Partial<StoreData>; generation: number };
+  const readDiskStore = (path: string): DiskStore => {
+    let contents: string;
+    try {
+      contents = files.read(path);
+    } catch (cause) {
+      throw new StoreAccessError(`cannot read store file: ${path}`, { cause });
+    }
+    const raw = parseStoreData(contents, path);
+    try {
+      files.chmod(path, 0o600);
+    } catch (cause) {
+      throw new StoreAccessError(
+        `cannot secure store permissions: ${path}`,
+        { cause },
+      );
+    }
+    return { contents, raw, generation: raw.generation ?? 0 };
+  };
+
+  const quarantinePath = (path: string): string => {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    let candidate = `${path}.corrupt-${stamp}`;
+    let suffix = 1;
+    while (probe(candidate)) candidate = `${path}.corrupt-${stamp}-${suffix++}`;
+    return candidate;
+  };
+
+  type Candidate =
+    | { kind: 'missing'; path: string }
+    | { kind: 'corrupt'; path: string; error: StoreCorruptionError }
+    | { kind: 'valid'; path: string; store: DiskStore };
+
+  const candidate = (path: string): Candidate => {
+    if (!probe(path)) return { kind: 'missing', path };
+    try {
+      return { kind: 'valid', path, store: readDiskStore(path) };
+    } catch (error) {
+      if (error instanceof StoreAccessError) throw error;
+      if (error instanceof StoreCorruptionError) return { kind: 'corrupt', path, error };
+      throw error;
+    }
+  };
+
+  const quarantineLocked = (entry: Extract<Candidate, { kind: 'corrupt' }>): string => {
+    const quarantined = quarantinePath(entry.path);
+    try {
+      files.rename(entry.path, quarantined);
+      files.chmod(quarantined, 0o600);
+      syncDirectory(parent);
+      return quarantined;
+    } catch (cause) {
+      throw new StoreAccessError(`cannot quarantine corrupt store file: ${entry.path}`, { cause });
+    }
+  };
+
+  const committedStoreLocked = (): DiskStore | null => {
+    cleanupTempsLocked();
+    const primary = candidate(filePath);
+    const recovery = candidate(recoveryPath);
+    const valid = [primary, recovery].filter(
+      (entry): entry is Extract<Candidate, { kind: 'valid' }> => entry.kind === 'valid',
+    );
+    if (valid.length === 0) {
+      if (primary.kind === 'missing' && recovery.kind === 'missing') return null;
+      throw new StoreCorruptionError(
+        `no valid store generation: primary=${primary.kind}, recovery=${recovery.kind}`,
+      );
+    }
+    let selected = valid[0]!;
+    if (valid.length === 2) {
+      const other = valid[1]!;
+      if (other.store.generation > selected.store.generation) selected = other;
+      else if (
+        other.store.generation === selected.store.generation &&
+        other.store.contents !== selected.store.contents
+      ) {
+        throw new StoreCorruptionError(
+          `ambiguous store generation ${selected.store.generation}: primary and recovery differ`,
+        );
+      }
+    }
+    for (const entry of [primary, recovery]) {
+      if (entry.kind === 'valid' && entry.store.contents === selected.store.contents) continue;
+      let diagnostic: string;
+      if (entry.kind === 'corrupt') {
+        const quarantined = quarantineLocked(entry);
+        diagnostic = `quarantined ${entry.path} as ${quarantined}`;
+      } else {
+        diagnostic = `${entry.path} was ${entry.kind === 'missing' ? 'missing' : 'an older generation'}`;
+      }
+      atomicWrite(entry.path, selected.store.contents);
+      console.error(`Store recovery: ${diagnostic}; healed from generation ${selected.store.generation}`);
+    }
+    return selected.store;
+  };
+
+  const commitLocked = (next: StoreData, expectedGeneration: number): StoreData => {
+    const current = committedStoreLocked();
+    const currentGeneration = current?.generation ?? 0;
+    if (currentGeneration !== expectedGeneration) {
+      throw new StoreConflictError(
+        `store generation changed from ${expectedGeneration} to ${currentGeneration}`,
+      );
+    }
+    if (!Number.isSafeInteger(currentGeneration + 1)) {
+      throw new StoreConflictError('store generation exhausted');
+    }
+    const committed: StoreData = {
+      ...next,
+      schemaVersion: STORE_SCHEMA_VERSION,
+      generation: currentGeneration + 1,
+    };
+    const contents = `${JSON.stringify(committed, null, 2)}\n`;
+    parseStoreData(contents, filePath);
+    // Recovery first: a crash before primary rename is healed from this newer
+    // generation; a crash before recovery rename leaves both old generations.
+    atomicWrite(recoveryPath, contents);
+    atomicWrite(filePath, contents);
+    return committed;
   };
 
   const save = (): void => {
     if (!data) return;
-    writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n');
+    const pending = data;
+    try {
+      data = withLock(() => commitLocked(pending, pending.generation));
+    } catch (error) {
+      data = null;
+      throw error;
+    }
+  };
+
+  const load = (): StoreData => {
+    if (data) return data;
+    // A read of a never-created store must not create DATA_DIR: restore core
+    // requires that directory to remain absent/empty until import. The first
+    // mutation still acquires the writer lock and creates durable parents.
+    if (!parentExists()) {
+      data = emptyData();
+      return data;
+    }
+    return withLock(() => {
+      const disk = committedStoreLocked();
+      if (!disk) {
+        data = emptyData();
+        return data;
+      }
+      let loaded = { ...emptyData(), ...disk.raw, generation: disk.generation } as StoreData;
+      if ((disk.raw.schemaVersion ?? 0) < STORE_SCHEMA_VERSION) {
+        loaded = migrate(loaded);
+        loaded.generation = disk.generation;
+        data = commitLocked(loaded, disk.generation);
+      } else {
+        data = loaded;
+      }
+      return data;
+    });
   };
 
   const ingestedSet = (): Set<number> => new Set(load().ingestedMsgIds);
@@ -836,6 +1452,23 @@ export const createStore = (
 
   return {
     filePath,
+    lockPath,
+
+    beginExternalMutation: () => {
+      externalMutations += 1;
+      externalMutationRevision += 1;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        externalMutations -= 1;
+        externalMutationRevision += 1;
+      };
+    },
+    mutationBarrierSnapshot: () => ({
+      active: externalMutations,
+      revision: externalMutationRevision,
+    }),
 
     ingestMessage: (msg, mid, isFeedMessage = true) => {
       const d = load();
@@ -1204,6 +1837,54 @@ export const createStore = (
     reload: () => {
       data = null;
       load();
+    },
+
+    readSnapshot: () => {
+      if (!parentExists()) {
+        data ??= emptyData();
+        return null;
+      }
+      load();
+      return withLock(() => {
+        const committed = committedStoreLocked();
+        return committed
+          ? { generation: committed.generation, contents: committed.contents }
+          : null;
+      });
+    },
+
+    validateSnapshot: (snapshot) => {
+      parseStoreData(snapshot, 'backup store snapshot');
+    },
+
+    replaceSnapshot: (snapshot) => {
+      if (snapshot === null) {
+        if (!parentExists()) {
+          data = null;
+          return;
+        }
+        withLock(() => {
+          cleanupTempsLocked();
+          files.remove(filePath);
+          files.remove(recoveryPath);
+          syncDirectory(parent);
+          data = null;
+        });
+        return;
+      }
+      const raw = parseStoreData(snapshot, 'backup store snapshot');
+      try {
+        data = withLock(() => {
+          const current = committedStoreLocked();
+          let imported = { ...emptyData(), ...raw, generation: current?.generation ?? 0 } as StoreData;
+          if (raw.schemaVersion! < STORE_SCHEMA_VERSION) imported = migrate(imported);
+          imported.generation = current?.generation ?? 0;
+          return commitLocked(imported, current?.generation ?? 0);
+        });
+      } catch (error) {
+        data = null;
+        throw error;
+      }
     },
 
     addThreadSubscription: (rootUuid, chatId) => {
