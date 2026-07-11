@@ -57,7 +57,17 @@
 		return /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 	})());
 	const continueDisabled = $derived(!instance.trim() || (!reusableClient && !enrollmentCode.trim()));
-	const signupDisabled = $derived(!displayName.trim() || signupPending);
+	const isDefaultRelay = (value: string) => {
+		if (!value.trim()) return true;
+		try {
+			const url = new URL(value.trim());
+			return url.origin === DELTANET_DEFAULT_RELAY && url.pathname === '/' && !url.search && !url.hash && !url.username && !url.password;
+		} catch {
+			return false;
+		}
+	};
+	const customRelaySelected = $derived(!isDefaultRelay(relay));
+	const signupDisabled = $derived(!displayName.trim() || signupPending || (customRelaySelected && !enrollmentCode.trim()));
 
 	const selectMode = (nextMode: AuthMode) => {
 		mode = nextMode;
@@ -189,6 +199,7 @@
 				instanceUrl: selectedInstanceUrl,
 				displayName: displayName.trim(),
 				relay: relay.trim() || undefined,
+				enrollmentCode: customRelaySelected ? enrollmentCode.trim() : undefined,
 				fetch: window.fetch.bind(window)
 			});
 			signupAddress = result.acct;
@@ -357,6 +368,15 @@
 								</div>
 								<p class="so-hint">This is the mail relay hosting your address.</p>
 							</div>
+							{#if customRelaySelected}
+								<div class="so-field">
+									<label for="signup-relay-enrollment-code">One-time enrollment code</label>
+									<div class="so-input-wrap">
+										<input id="signup-relay-enrollment-code" aria-label="Custom relay enrollment code" autocomplete="one-time-code" spellcheck="false" value={enrollmentCode} oninput={(event) => (enrollmentCode = event.currentTarget.value)} placeholder="Printed in the daemon terminal" />
+									</div>
+									<p class="so-hint">Custom relays require terminal proof so remote callers cannot make this node contact arbitrary services.</p>
+								</div>
+							{/if}
 							<div class="so-field">
 								<label for="signup-instance">Your home server</label>
 								<div class="so-input-wrap">

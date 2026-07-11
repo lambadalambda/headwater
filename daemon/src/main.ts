@@ -51,6 +51,10 @@ const ALLOWED_ORIGINS = (process.env['DELTANET_ALLOWED_ORIGINS'] ?? '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const SIGNUP_RELAYS = (process.env['DELTANET_SIGNUP_RELAYS'] ?? '')
+  .split(',')
+  .map((relay) => relay.trim())
+  .filter(Boolean);
 const STATIC_DIR_CONFIG = process.env['DELTANET_STATIC'] ?? '../frontend/build';
 const STATIC_DIR = resolve(process.cwd(), STATIC_DIR_CONFIG);
 const DATA_PATH = resolve(process.cwd(), DATA_DIR);
@@ -452,6 +456,7 @@ if (staticDir) console.log(`serving static frontend from ${staticDir}`);
 const app = createApp(ctx, {
   baseUrl: BASE_URL,
   security: { auth, trustedOrigins: ALLOWED_ORIGINS },
+  signupRelays: SIGNUP_RELAYS,
   staticDir,
   store,
   upgradeWebSocket,

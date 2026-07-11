@@ -2305,19 +2305,53 @@ describe('POST /api/deltanet/signup', () => {
     expect(verify.acct).toBe('p6yalimhl@nine.testrun.org');
   });
 
-  it('passes a custom relay through to signup', async () => {
-    let requestedRelay: string | undefined;
-    const ctx = makeUnconfiguredCtx(async (_displayName, relay) => {
-      requestedRelay = relay;
-      return makeFakeTransport().transport;
+  it('requires production enrollment proof for an explicitly configured custom relay', async () => {
+    const signup = vi.fn(async () => makeFakeTransport().transport);
+    const ctx = makeUnconfiguredCtx(signup);
+    const app = createUnsafeTestApp(ctx, {
+      baseUrl: BASE,
+      signupRelays: ['https://example.org'],
     });
-    const app = createUnsafeTestApp(ctx, { baseUrl: BASE });
-    await app.request('/api/deltanet/signup', {
+    const res = await app.request('/api/deltanet/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_name: 'alice', relay: 'https://example.org' }),
+      body: JSON.stringify({ display_name: 'alice', relay: 'https://EXAMPLE.org:443/' }),
     });
-    expect(requestedRelay).toBe('https://example.org');
+    expect(res.status).toBe(403);
+    expect(signup).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'https://unconfigured.example',
+    'http://127.0.0.1:8080',
+    'https://user:password@example.org',
+    'https://example.org/path',
+  ])('rejects an unconfigured or invalid relay before signup: %s', async (relay) => {
+    const signup = vi.fn(async () => makeFakeTransport().transport);
+    const app = createUnsafeTestApp(makeUnconfiguredCtx(signup), { baseUrl: BASE });
+    const res = await app.request('/api/deltanet/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: 'alice', relay }),
+    });
+    expect(res.status).toBe(422);
+    expect(signup).not.toHaveBeenCalled();
+  });
+
+  it('does not expose an explicitly configured private relay in unsafe mode', async () => {
+    const signup = vi.fn(async () => makeFakeTransport().transport);
+    const ctx = makeUnconfiguredCtx(signup);
+    const app = createUnsafeTestApp(ctx, {
+      baseUrl: BASE,
+      signupRelays: ['https://127.0.0.1:8443'],
+    });
+    const res = await app.request('/api/deltanet/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: 'alice', relay: 'https://127.0.0.1:8443' }),
+    });
+    expect(res.status).toBe(403);
+    expect(signup).not.toHaveBeenCalled();
   });
 
   it('422s when display_name is missing', async () => {

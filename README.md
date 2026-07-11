@@ -97,6 +97,16 @@ make Bearer tokens safe on an untrusted LAN; use an HTTPS-authenticated reverse
 proxy, set `DELTANET_BASE_URL` to its real origin, and restrict
 `DELTANET_ALLOWED_ORIGINS` when intentionally exposing the listener.
 
+Signup uses `https://nine.testrun.org` by default. Custom relay selection is an
+operator-controlled capability: add exact HTTPS origins to the comma-separated
+`DELTANET_SIGNUP_RELAYS` setting before starting the daemon. Relay URLs with
+credentials, paths, queries, or fragments are rejected, and an API caller
+cannot choose an origin outside that allowlist. Selecting any non-default relay
+also requires the current one-time enrollment code printed by the daemon.
+Private and loopback relays use the same explicit setting and must present a valid TLS certificate. The
+self-signed podman relay is enabled only inside the isolated integration-test
+worker, which relaxes certificate verification for that worker process.
+
 ## Running two nodes locally (testing federation)
 
 One checkout can run any number of nodes — each is just a port + an account

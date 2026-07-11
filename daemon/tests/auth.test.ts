@@ -226,6 +226,16 @@ describe('persisted local auth store', () => {
     expect(() => auth.registerClient(input, { enrollmentCode: thirdEnrollment.code })).toThrow(/client limit/i);
   });
 
+  it('validates current terminal enrollment proof without consuming it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'deltanet-auth-proof-'));
+    const auth = createAuthStore(join(dir, 'auth.json'));
+    const enrollment = auth.createEnrollmentCode();
+    expect(auth.validateEnrollmentCode(enrollment.code)).toBe(true);
+    expect(auth.validateEnrollmentCode('incorrect')).toBe(false);
+    expect(auth.validateEnrollmentCode(enrollment.code)).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('issues hash-only one-use stream tickets bound to a live session', () => {
     let now = 40_000;
     const path = authPath();

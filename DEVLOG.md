@@ -1,5 +1,33 @@
 # deltanet devlog
 
+## 2026-07-11 - constrained signup relay registration
+
+Signup no longer turns its caller-provided relay field into an arbitrary
+server-side request (`meta/issues/signup-relay-validation.md`):
+
+- Relay values must be bare HTTPS origins. Lexical checks reject credentials,
+  paths (including normalized dot segments), queries, fragments, backslashes,
+  whitespace, malformed DNS labels, and ambiguous authority syntax before URL
+  canonicalization.
+- The default relay remains available for ordinary onboarding. Other origins
+  must be listed by the node operator in `DELTANET_SIGNUP_RELAYS`, and selecting
+  one also requires the current unexpired terminal enrollment code. The proof
+  is validated without consuming it; account binding invalidates it and prints
+  the fresh post-signup code used for browser enrollment.
+- Registration POSTs disable redirects, abort after 10 seconds, cap response
+  bodies at 16 KiB using both declared and streamed byte counts, and cancel
+  rejected or stalled streams. Upstream bodies are never included in errors.
+- Relay responses are parsed only after the bounds checks and must contain a
+  structurally valid dot-atom mailbox address and a non-empty bounded password
+  before credentials can reach persistence or transport opening.
+- Private and loopback relays use the same explicit operator allowlist and
+  enrollment proof. TLS remains mandatory; only the isolated integration-test
+  worker relaxes certificate verification for its disposable self-signed
+  podman relay.
+- Two independent security review passes were completed. Final verification
+  passed all 1,501 daemon unit tests, all 350 frontend Playwright tests, both
+  TypeScript/Svelte checks, and `git diff --check`.
+
 ## 2026-07-11 - protected account credential persistence
 
 `accounts.local.json` now has credential-specific filesystem defenses in

@@ -305,6 +305,41 @@ describe('fail-closed route matrix', () => {
 });
 
 describe('onboarding configuration lock', () => {
+  it('requires terminal enrollment proof before selecting an operator-approved custom relay', async () => {
+    const base = fixture();
+    let current: Transport | null = null;
+    let selectedRelay: string | null = null;
+    const ctx: AppContext = {
+      getTransport: () => current,
+      signup: async (_displayName, relay) => {
+        selectedRelay = relay;
+        current = base.transport;
+        return current;
+      },
+    };
+    const app = createApp(ctx, {
+      baseUrl: BASE,
+      security: { auth: base.auth, trustedOrigins: [TRUSTED] },
+      signupRelays: ['https://127.0.0.1:8443'],
+    });
+    const request = (enrollmentCode?: string) => app.request('/api/deltanet/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        display_name: 'Alice',
+        relay: 'https://127.0.0.1:8443/',
+        ...(enrollmentCode ? { enrollment_code: enrollmentCode } : {}),
+      }),
+    });
+
+    expect((await request()).status).toBe(403);
+    expect((await request('incorrect')).status).toBe(403);
+    expect(selectedRelay).toBeNull();
+    const enrollment = base.auth.createEnrollmentCode();
+    expect((await request(enrollment.code)).status).toBe(200);
+    expect(selectedRelay).toBe('https://127.0.0.1:8443');
+  });
+
   it('allows only one signup/restore configuration operation at a time', async () => {
     const base = fixture();
     let current: Transport | null = null;

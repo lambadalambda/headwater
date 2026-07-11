@@ -82,6 +82,7 @@ import {
 } from './attest.js';
 import { readOptionalText } from './durable-file.js';
 import type { PreparedRestore } from './restore-lifecycle.js';
+import { normalizeRelayUrl } from './signup.js';
 import {
   formatByteLimit,
   requestBodyLimitFor,
@@ -141,6 +142,8 @@ export type ServerOptions = {
   resourceLimits?: Partial<ResourceLimits>;
   /** Staged-upload directory override for tests and managed deployments. */
   mediaUploadDir?: string;
+  /** Operator-approved signup relay origins in addition to the public default. */
+  signupRelays?: string[];
 };
 
 /**
@@ -238,10 +241,14 @@ export const createApp = (
     restoreJournal,
     resourceLimits,
     mediaUploadDir,
+    signupRelays,
     security,
   }: ServerOptions,
 ) => {
   const enabledSecurity = 'auth' in security ? security : null;
+  const allowedSignupRelays = new Set(
+    [DEFAULT_RELAY, ...(signupRelays ?? [])].map(normalizeRelayUrl),
+  );
   const app = new Hono<AppEnv>();
   const limits = resolveResourceLimits(resourceLimits);
   const requestBudget = createResourceBudget(limits.maxInFlightRequestBytes);
@@ -1017,12 +1024,32 @@ export const createApp = (
     if (configuring) return c.json({ error: 'configuration already in progress' }, 409);
     configuring = true;
     try {
-      const body = await c.req.json<{ display_name?: string; relay?: string }>().catch(() => ({}) as any);
+      const body = await c.req.json<{
+        display_name?: string;
+        relay?: string;
+        enrollment_code?: string;
+      }>().catch(() => ({}) as any);
       const displayName = String(body.display_name ?? '').trim();
       if (!displayName) {
         return c.json({ error: "Validation failed: display_name can't be blank" }, 422);
       }
-      const relay = body.relay ?? DEFAULT_RELAY;
+      let relay: string;
+      try {
+        relay = body.relay === undefined
+          ? DEFAULT_RELAY
+          : normalizeRelayUrl(typeof body.relay === 'string' ? body.relay : '');
+      } catch {
+        return c.json({ error: 'Validation failed: relay is invalid' }, 422);
+      }
+      if (!allowedSignupRelays.has(relay)) {
+        return c.json({ error: 'Validation failed: relay is not configured for this node' }, 422);
+      }
+      if (
+        relay !== DEFAULT_RELAY &&
+        (!enabledSecurity || !enabledSecurity.auth.validateEnrollmentCode(String(body.enrollment_code ?? '')))
+      ) {
+        return c.json({ error: 'valid terminal enrollment proof is required for a custom relay' }, 403);
+      }
       const transport = await ctx.signup(displayName, relay);
       return c.json({ account: contactToAccount(await transport.self(), baseUrl) });
     } finally {

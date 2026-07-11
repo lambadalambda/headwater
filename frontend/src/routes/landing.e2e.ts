@@ -160,8 +160,29 @@ test('signup lets the relay be changed behind an advanced affordance, defaulting
 	await page.goto('/');
 
 	await page.getByRole('button', { name: /advanced/i }).click();
-	await expect(page.getByRole('textbox', { name: /relay/i })).toHaveValue('https://nine.testrun.org');
+	const relay = page.getByRole('textbox', { name: 'Relay', exact: true });
+	await expect(relay).toHaveValue('https://nine.testrun.org');
 	await expect(page.getByText(/mail relay hosting your address/i)).toBeVisible();
+	await relay.fill('https://NINE.TESTRUN.ORG:443/');
+	await expect(page.getByRole('textbox', { name: 'Custom relay enrollment code' })).toHaveCount(0);
+
+	await relay.fill('https://relay.example');
+	await expect(page.getByRole('textbox', { name: 'Custom relay enrollment code' })).toBeVisible();
+	await page.getByRole('textbox', { name: 'Display name' }).fill('Quiet Fox');
+	await expect(page.getByRole('button', { name: 'Create account' })).toBeDisabled();
+
+	let signupBody: Record<string, unknown> = {};
+	await page.route('**/api/deltanet/signup', async (route) => {
+		signupBody = JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>;
+		await fulfillJson(route, { account: { acct: 'quietfox@relay.example' } });
+	});
+	await page.getByRole('textbox', { name: 'Custom relay enrollment code' }).fill('terminal-proof');
+	await page.getByRole('button', { name: 'Create account' }).click();
+	expect(signupBody).toMatchObject({
+		display_name: 'Quiet Fox',
+		relay: 'https://relay.example',
+		enrollment_code: 'terminal-proof'
+	});
 });
 
 test('signup 409 tells the user this node already has an account and switches to sign in', async ({ page }) => {

@@ -102,6 +102,7 @@ export type AuthStore = {
   filePath: string;
   bindAccount(accountIdentity: string | null): boolean;
   createEnrollmentCode(): { code: string; expiresAt: number };
+  validateEnrollmentCode(code: string): boolean;
   registerClient(
     input: { name: string; redirectUri: string; scope: string },
     proof: { enrollmentCode?: string; accessToken?: string },
@@ -358,17 +359,13 @@ export const createAuthStore = (filePath: string, options: AuthStoreOptions = {}
     return { code, expiresAt };
   };
 
+  const validateEnrollmentCode = (code: string): boolean => {
+    if (!code || !data.enrollmentCode || data.enrollmentCode.expiresAt <= now()) return false;
+    return equalHash(data.enrollmentCode.codeHash, secretHash('enrollment', code));
+  };
+
   const registerClient: AuthStore['registerClient'] = ({ name, redirectUri, scope }, proof) => {
-    const timestamp = now();
-    const enrollmentHash = proof.enrollmentCode
-      ? secretHash('enrollment', proof.enrollmentCode)
-      : null;
-    const enrollmentValid = Boolean(
-      enrollmentHash &&
-      data.enrollmentCode &&
-      data.enrollmentCode.expiresAt > timestamp &&
-      equalHash(data.enrollmentCode.codeHash, enrollmentHash),
-    );
+    const enrollmentValid = Boolean(proof.enrollmentCode && validateEnrollmentCode(proof.enrollmentCode));
     const sessionValid = Boolean(proof.accessToken && validateAccessToken(proof.accessToken));
     if (!enrollmentValid && !sessionValid) {
       throw new AuthError('invalid_enrollment', 'valid enrollment proof is required');
@@ -585,6 +582,7 @@ export const createAuthStore = (filePath: string, options: AuthStoreOptions = {}
     filePath,
     bindAccount,
     createEnrollmentCode,
+    validateEnrollmentCode,
     registerClient,
     client: (clientId) => {
       const record = clientRecord(clientId);

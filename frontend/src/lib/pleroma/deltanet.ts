@@ -1,7 +1,7 @@
 import type { FetchLike } from './http';
 
 export type DeltanetStatus = { configured: boolean; address: string | null };
-export type DeltanetSignupInput = { displayName: string; relay?: string };
+export type DeltanetSignupInput = { displayName: string; relay?: string; enrollmentCode?: string };
 export type DeltanetSignupResult = { acct: string };
 export type DeltanetSignupError =
 	| { kind: 'conflict'; message: string }
@@ -72,6 +72,7 @@ export const signupDeltanet = async ({
 	instanceUrl,
 	displayName,
 	relay,
+	enrollmentCode,
 	fetch: fetchImpl
 }: {
 	instanceUrl: string;
@@ -85,7 +86,11 @@ export const signupDeltanet = async ({
 		response = await requestFetch(new URL('/api/deltanet/signup', instanceUrl).toString(), {
 			method: 'POST',
 			headers: { accept: 'application/json', 'content-type': 'application/json' },
-			body: JSON.stringify({ display_name: displayName, ...(relay ? { relay } : {}) })
+			body: JSON.stringify({
+				display_name: displayName,
+				...(relay ? { relay } : {}),
+				...(enrollmentCode ? { enrollment_code: enrollmentCode } : {})
+			})
 		});
 	} catch (cause) {
 		throw {
