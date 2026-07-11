@@ -37,3 +37,20 @@ can fail or imply state the daemon cannot preserve.
 - Current references: `frontend/src/routes/app/[...path]/+page.svelte:1151-1264`,
   `frontend/src/routes/app/[...path]/+page.svelte:1669`, and
   `daemon/src/server.ts:2055-2069`.
+- Implemented `configuration.deltanet.capabilities` and the complete production
+  inventory in `meta/frontend-daemon-capabilities.md`. DeltaNet enables media
+  description updates and disables bookmarks, deletion, moderation, chats,
+  polls, unlisted visibility, content warnings, and extended profile fields.
+- Unsupported mutations are absent/404; unsupported status/profile fields fail
+  closed with 422. Bookmark and chat collection stubs were removed. Messages
+  and Bookmarks show unavailable copy without issuing API calls.
+- Granular post-menu gates preserve implemented thread subscription while hiding
+  bookmark/delete/mute/block. MIME pickers follow instance metadata, polls are
+  read-only, and both alt-text editors follow the media-description capability.
+- Deferred capabilities were split into focused open issues for bookmarks,
+  deletion, moderation, chats, polls, unlisted visibility, content warnings,
+  extended profiles, and richer media.
+- Two independent reviews were completed. The final review reported no merge
+  blockers and all acceptance criteria met.
+- Final verification: 1,452 daemon unit tests, all 350 frontend Playwright
+  tests, daemon/frontend type checks, and `git diff --check` pass.

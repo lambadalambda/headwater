@@ -15,6 +15,7 @@
 	import { normalizeRenderableAttachments, openLightbox } from './attachments';
 	import type { BannerVariant, PostLike } from './attachments';
 	import type { PleromaReactionView } from '$lib/pleroma/ui';
+	import type { PostManagementCapabilities } from './post-capabilities';
 
 	type FocusedThreadPost = PostLike & {
 		id?: string | number;
@@ -61,9 +62,14 @@
 		onReact?: (id: string | number | undefined, anchor: HTMLElement) => void;
 		onVote?: (id: string | number | undefined, pollId: string | undefined, choice: string | string[]) => void;
 		canManage?: boolean;
+		managementCapabilities?: PostManagementCapabilities;
 	};
 
-	let { post, continuesAbove = false, replyExpanded, replyControlsId, onAction, onReact, onVote, canManage = false }: Props = $props();
+	let { post, continuesAbove = false, replyExpanded, replyControlsId, onAction, onReact, onVote, canManage = false, managementCapabilities }: Props = $props();
+	let canSubscribe = $derived(managementCapabilities?.threadSubscription ?? canManage);
+	let canDelete = $derived(managementCapabilities?.deletion ?? canManage);
+	let canModerate = $derived(managementCapabilities?.moderation ?? canManage);
+	let canBookmark = $derived(managementCapabilities?.bookmarks ?? canManage);
 	let href = $derived(profileHref(post.handle));
 	let menuOpen = $state(false);
 	let confirmDelete = $state(false);
@@ -138,21 +144,21 @@
 					{#if post.statusUrl}
 						<button type="button" role="menuitem" onclick={() => runMenuAction('copy-link')}>Copy link to post</button>
 					{/if}
-					{#if canManage}
+					{#if canSubscribe}
 						{#if post.threadSubscribed}
 							<button type="button" role="menuitem" data-testid="thread-unsubscribe" onclick={() => runMenuAction('unsubscribe')}>Unsubscribe from thread</button>
 						{:else}
 							<button type="button" role="menuitem" data-testid="thread-subscribe" onclick={() => runMenuAction('subscribe')}>Subscribe to thread</button>
 						{/if}
 					{/if}
-					{#if canManage && post.own}
+					{#if canDelete && post.own}
 						{#if confirmDelete}
 							<button type="button" role="menuitem" class="menu-danger" onclick={() => runMenuAction('delete')}>Confirm delete</button>
 							<button type="button" role="menuitem" onclick={() => (confirmDelete = false)}>Cancel</button>
 						{:else}
 							<button type="button" role="menuitem" class="menu-danger" onclick={() => (confirmDelete = true)}>Delete post</button>
 						{/if}
-					{:else if canManage && post.authorHandle}
+					{:else if canModerate && post.authorHandle}
 						<button type="button" role="menuitem" onclick={() => runMenuAction('mute')}>Mute {post.authorHandle}</button>
 						<button type="button" role="menuitem" class="menu-danger" onclick={() => runMenuAction('block')}>Block {post.authorHandle}</button>
 					{/if}
@@ -208,7 +214,7 @@
 				<span>React</span>
 			</button>
 		{/if}
-		<button type="button" class="focused-action {post.bookmarked ? 'on' : ''}" aria-pressed={post.bookmarked ? 'true' : 'false'} aria-label={post.bookmarked ? 'Remove bookmark' : 'Save'} disabled={!canManage} onclick={() => onAction?.(post.id, 'bookmark')}>
+		<button type="button" class="focused-action {post.bookmarked ? 'on' : ''}" aria-pressed={post.bookmarked ? 'true' : 'false'} aria-label={post.bookmarked ? 'Remove bookmark' : 'Save'} disabled={!canBookmark} onclick={() => onAction?.(post.id, 'bookmark')}>
 			<Icon name="bookmark" fill={post.bookmarked ? 'currentColor' : 'none'} />
 			<span>{post.bookmarked ? 'Saved' : 'Save'}</span>
 		</button>

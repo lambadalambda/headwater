@@ -808,7 +808,12 @@ export const profileSettingsFromAccount = (account: PleromaAccount): PleromaProf
 	};
 };
 
-export const profileUpdateFromSettings = (settings: PleromaProfileSettingsView, account: PleromaAccount | null | undefined): ProfileUpdate => {
+export const profileUpdateFromSettings = (
+	settings: PleromaProfileSettingsView,
+	account: PleromaAccount | null | undefined,
+	options: { extended?: boolean } = {}
+): ProfileUpdate => {
+	if (options.extended === false) return { displayName: settings.displayName, note: settings.bio };
 	const fields = plainAccountFields(account).filter((field) => !isReservedProfileField(field.name));
 	if (settings.website.trim()) fields.push({ name: 'Website', value: settings.website.trim() });
 	if (settings.location.trim()) fields.push({ name: 'Location', value: settings.location.trim() });

@@ -12,6 +12,7 @@
 	import { normalizeRenderableAttachments, openLightbox } from './attachments';
 	import type { CustomEmoji } from '$lib/social/types';
 	import type { PleromaReactionView } from '$lib/pleroma/ui';
+	import type { PostManagementCapabilities } from './post-capabilities';
 
 	type Props = {
 		post: PostLike & {
@@ -49,13 +50,14 @@
 		replyExpanded?: boolean;
 		replyControlsId?: string;
 		canManage?: boolean;
+		managementCapabilities?: PostManagementCapabilities;
 		onAction?: (key: string) => void;
 		onReact?: (anchor: HTMLElement) => void;
 		onVote?: (pollId: string | undefined, choice: string | string[]) => void;
 		onOpen?: () => void;
 	};
 
-	let { post, replyExpanded, replyControlsId, canManage = false, onAction, onReact, onVote, onOpen }: Props = $props();
+	let { post, replyExpanded, replyControlsId, canManage = false, managementCapabilities, onAction, onReact, onVote, onOpen }: Props = $props();
 
 	const handleLightbox = (idx: number) => {
 		const attachments = normalizeRenderableAttachments(post);
@@ -80,7 +82,7 @@
 			<PostMedia post={post} onOpen={handleLightbox} onVote={onVote} />
 		</PostCW>
 		<PostReactions reactions={post.reactions} onToggle={onAction ? (reaction) => onAction(`reaction:${reaction.name}`) : undefined} onAdd={onReact} />
-		<PostActions post={post} disabledActions={{ boost: post.visibility === 'private' || post.visibility === 'direct' }} replyExpanded={replyExpanded} replyControlsId={replyControlsId} canManage={canManage} onAction={onAction} onReact={onReact} />
+		<PostActions post={post} disabledActions={{ boost: post.visibility === 'private' || post.visibility === 'direct' }} replyExpanded={replyExpanded} replyControlsId={replyControlsId} canManage={canManage} {managementCapabilities} onAction={onAction} onReact={onReact} />
 	</div>
 {/snippet}
 

@@ -10,6 +10,7 @@
 	import QuotedPost from './QuotedPost.svelte';
 	import type { CustomEmoji } from '$lib/social/types';
 	import type { PleromaReactionView } from '$lib/pleroma/ui';
+	import type { PostManagementCapabilities } from './post-capabilities';
 	import { normalizeRenderableAttachments, openLightbox } from './attachments';
 	import type { BannerVariant, PostLike } from './attachments';
 
@@ -51,9 +52,10 @@
 		onReact?: (id: string | number | undefined, anchor: HTMLElement) => void;
 		onVote?: (id: string | number | undefined, pollId: string | undefined, choice: string | string[]) => void;
 		canManage?: boolean;
+		managementCapabilities?: PostManagementCapabilities;
 	};
 
-	let { post, replyExpanded, replyControlsId, onAction, onReact, onVote, canManage = false }: Props = $props();
+	let { post, replyExpanded, replyControlsId, onAction, onReact, onVote, canManage = false, managementCapabilities }: Props = $props();
 
 	const handleLightbox = (idx: number) => {
 		const attachments = normalizeRenderableAttachments(post);
@@ -81,7 +83,7 @@
 				<PostMedia post={post} onOpen={handleLightbox} onVote={onVote ? (pollId, choice) => onVote(post.id, pollId, choice) : undefined} />
 			</PostCW>
 			<PostReactions reactions={post.reactions} onToggle={onAction ? (reaction) => onAction(post.id, `reaction:${reaction.name}`) : undefined} onAdd={onReact ? (anchor) => onReact(post.id, anchor) : undefined} />
-			<PostActions post={post} disabledActions={{ boost: post.visibility === 'private' || post.visibility === 'direct' }} replyExpanded={replyExpanded} replyControlsId={replyControlsId} onAction={(key) => onAction?.(post.id, key)} onReact={onReact ? (anchor) => onReact(post.id, anchor) : undefined} canManage={canManage} />
+			<PostActions post={post} disabledActions={{ boost: post.visibility === 'private' || post.visibility === 'direct' }} replyExpanded={replyExpanded} replyControlsId={replyControlsId} onAction={(key) => onAction?.(post.id, key)} onReact={onReact ? (anchor) => onReact(post.id, anchor) : undefined} canManage={canManage} {managementCapabilities} />
 		</div>
 	</div>
 </PostBoost>

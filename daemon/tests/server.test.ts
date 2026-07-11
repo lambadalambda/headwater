@@ -361,6 +361,35 @@ describe('instance metadata', () => {
     expect(instance.configuration.statuses.max_characters).toBeGreaterThan(0);
   });
 
+  it('advertises the bundled frontend capability contract explicitly', async () => {
+    const instance = await (await makeApp().request('/api/v2/instance')).json() as any;
+    expect(instance.configuration.deltanet.capabilities).toEqual({
+      bookmarks: false,
+      status_deletion: false,
+      account_moderation: false,
+      media_description: true,
+      chats: false,
+      polls: false,
+      unlisted_visibility: false,
+      content_warnings: false,
+      extended_profile: false,
+    });
+  });
+
+  it.each([
+    ['POST', '/api/v1/statuses/10/bookmark'],
+    ['POST', '/api/v1/statuses/10/unbookmark'],
+    ['DELETE', '/api/v1/statuses/10'],
+    ['POST', '/api/v1/accounts/11/mute'],
+    ['POST', '/api/v1/accounts/11/block'],
+    ['POST', '/api/v1/polls/poll-1/votes'],
+    ['POST', '/api/v1/pleroma/chats/by-account-id/11'],
+    ['GET', '/api/v1/bookmarks'],
+    ['GET', '/api/v2/pleroma/chats'],
+  ])('does not fake unsupported mutable capability: %s %s', async (method, path) => {
+    expect((await makeApp().request(path, { method })).status).toBe(404);
+  });
+
   it('serves v2 instance metadata even when unconfigured', async () => {
     const app = createUnsafeTestApp(makeUnconfiguredCtx(), { baseUrl: BASE });
     const res = await app.request('/api/v2/instance');
@@ -751,6 +780,19 @@ describe('media uploads', () => {
     expect(res.status).toBe(422);
   });
 
+  it('rejects unsupported extended profile fields instead of reporting a false save', async () => {
+    const response = await makeApp().request('/api/v1/accounts/update_credentials', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: 'kept', discoverable: false }),
+    });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      error: 'Extended profile fields are not supported by this DeltaNet node',
+      code: 'unsupported_capability',
+    });
+  });
+
   it('accepts exact-limit avatar and header files in one bounded request', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'deltanet-profile-limits-'));
     const app = createUnsafeTestApp(makeConfiguredCtx(makeFakeTransport().transport), {
@@ -855,12 +897,28 @@ describe('media uploads', () => {
       body: JSON.stringify({ description: 'ninebytes' }),
     });
     expect(tooLarge.status).toBe(422);
+    expect(await tooLarge.json()).toEqual({ error: 'Media description exceeds the 8 bytes limit', code: 'description_too_large' });
     const updated = await app.request(`/api/v1/media/${media.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description: 'new alt' }),
     });
     expect(updated.status).toBe(200);
+    expect(await updated.json()).toEqual({
+      id: media.id,
+      type: 'image',
+      url: '',
+      preview_url: '',
+      description: 'new alt',
+    });
+
+    const missing = await app.request('/api/v1/media/missing', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: 'alt' }),
+    });
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({ error: 'Record not found' });
 
     const status = new URLSearchParams({ status: 'updated alt' });
     status.append('media_ids[]', media.id);
@@ -2170,13 +2228,11 @@ describe('GET /api/v1/notifications', () => {
   });
 });
 
-describe('stub endpoints pleromanet polls', () => {
+describe('intentionally empty read-only endpoints', () => {
   it.each([
     '/api/v1/custom_emojis',
     '/api/v1/trends/tags',
     '/api/v2/suggestions',
-    '/api/v1/bookmarks',
-    '/api/v2/pleroma/chats',
     '/api/v1/filters',
   ])('%s returns an empty list', async (path) => {
     const res = await makeApp().request(path);
@@ -3545,10 +3601,10 @@ describe('visibility channels: posting + invites', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('public/unlisted/default go to the public feed and render public', async () => {
+  it('public/default go to the public feed while unlisted fails closed', async () => {
     const { transport, posts } = makeFakeTransport();
     const app = createUnsafeTestApp(makeConfiguredCtx(transport), { baseUrl: BASE });
-    for (const body of [{ status: 'plain' }, { status: 'pub', visibility: 'public' }, { status: 'unl', visibility: 'unlisted' }]) {
+    for (const body of [{ status: 'plain' }, { status: 'pub', visibility: 'public' }]) {
       const res = await app.request('/api/v1/statuses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3557,7 +3613,31 @@ describe('visibility channels: posting + invites', () => {
       expect(res.status).toBe(200);
       expect(((await res.json()) as any).visibility).toBe('public');
     }
+    const unlisted = await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'unlisted', visibility: 'unlisted' }),
+    });
+    expect(unlisted.status).toBe(422);
+    expect((await unlisted.json() as any).code).toBe('unsupported_capability');
+    expect(posts).toHaveLength(2);
     expect(posts.every((p) => p.channel !== 'locked')).toBe(true);
+  });
+
+  it.each([
+    { status: 'cw', spoiler_text: 'warning' },
+    { status: 'poll', 'poll[options][]': ['one', 'two'], 'poll[expires_in]': '3600' },
+  ])('rejects unsupported composer fields instead of silently dropping them: %o', async (body) => {
+    const { transport, posts } = makeFakeTransport();
+    const app = createUnsafeTestApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+    const response = await app.request('/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(422);
+    expect((await response.json() as any).code).toBe('unsupported_capability');
+    expect(posts).toEqual([]);
   });
 
   it('a private reply goes to the locked channel too', async () => {

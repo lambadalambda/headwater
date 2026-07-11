@@ -8,6 +8,7 @@
 	import { profileHref } from './profile-links';
 	import type { PleromaProfileFollowState, PleromaProfileView } from '$lib/pleroma/ui';
 	import type { ProfileMediaItem, ProfilePost } from './profile';
+	import type { PostManagementCapabilities } from './post-capabilities';
 
 	type ProfileTab = 'posts' | 'replies' | 'media';
 	type Props = {
@@ -25,6 +26,7 @@
 		onPostReact?: (post: ProfilePost, anchor: HTMLElement) => void;
 		onPostVote?: (post: ProfilePost, pollId: string | undefined, choice: string | string[]) => void;
 		canManage?: boolean;
+		managementCapabilities?: PostManagementCapabilities;
 		onEditProfile?: () => void;
 		onFollowToggle?: () => void;
 		onSignIn?: () => void;
@@ -37,7 +39,7 @@
 		lockedRequestState?: 'idle' | 'pending' | 'requested';
 	};
 
-	let { profile, posts = [], replies = [], pinned = [], media = [], timelineLoading = false, followPending = false, followError = null, signedOut = false, onPostOpen, onPostAction, onPostReact, onPostVote, canManage = false, onEditProfile, onFollowToggle, onSignIn, onSetPetname, petnamePending = false, petnameError = null, onRequestLocked, lockedRequestState = 'idle' }: Props = $props();
+	let { profile, posts = [], replies = [], pinned = [], media = [], timelineLoading = false, followPending = false, followError = null, signedOut = false, onPostOpen, onPostAction, onPostReact, onPostVote, canManage = false, managementCapabilities, onEditProfile, onFollowToggle, onSignIn, onSetPetname, petnamePending = false, petnameError = null, onRequestLocked, lockedRequestState = 'idle' }: Props = $props();
 	let tab = $state<ProfileTab>('posts');
 	let pinnedExpanded = $state(false);
 	let petnameEditorOpen = $state(false);
@@ -174,7 +176,7 @@
 				</div>
 				<div>
 					{#each visiblePinned as post (post.id)}
-						<Post {post} onOpen={() => onPostOpen?.(post)} onAction={(key) => onPostAction?.(post, key)} onReact={onPostReact ? (anchor) => onPostReact(post, anchor) : undefined} onVote={onPostVote ? (pollId, choice) => onPostVote(post, pollId, choice) : undefined} canManage={canManage} />
+						<Post {post} onOpen={() => onPostOpen?.(post)} onAction={(key) => onPostAction?.(post, key)} onReact={onPostReact ? (anchor) => onPostReact(post, anchor) : undefined} onVote={onPostVote ? (pollId, choice) => onPostVote(post, pollId, choice) : undefined} canManage={canManage} {managementCapabilities} />
 					{/each}
 				</div>
 			</div>
@@ -231,7 +233,7 @@
 		{:else}
 			<div data-testid="profile-posts">
 				{#each tabPosts as post (post.id)}
-					<Post {post} onOpen={() => onPostOpen?.(post)} onAction={(key) => onPostAction?.(post, key)} onReact={onPostReact ? (anchor) => onPostReact(post, anchor) : undefined} onVote={onPostVote ? (pollId, choice) => onPostVote(post, pollId, choice) : undefined} canManage={canManage} />
+					<Post {post} onOpen={() => onPostOpen?.(post)} onAction={(key) => onPostAction?.(post, key)} onReact={onPostReact ? (anchor) => onPostReact(post, anchor) : undefined} onVote={onPostVote ? (pollId, choice) => onPostVote(post, pollId, choice) : undefined} canManage={canManage} {managementCapabilities} />
 				{/each}
 			</div>
 		{/if}

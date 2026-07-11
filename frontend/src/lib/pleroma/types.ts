@@ -191,6 +191,24 @@ export type PleromaInstance = {
 			max_characters?: number | string;
 			[key: string]: unknown;
 		};
+		media_attachments?: {
+			supported_mime_types?: string[];
+			[key: string]: unknown;
+		};
+		deltanet?: {
+			capabilities?: {
+				bookmarks?: boolean;
+				status_deletion?: boolean;
+				account_moderation?: boolean;
+				media_description?: boolean;
+				chats?: boolean;
+				polls?: boolean;
+				unlisted_visibility?: boolean;
+				content_warnings?: boolean;
+				extended_profile?: boolean;
+			};
+			[key: string]: unknown;
+		};
 		[key: string]: unknown;
 	};
 	pleroma: {

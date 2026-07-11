@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createPleromaClient, parseTimelinePaginationLinkHeader } from './client';
+import { capabilitiesForInstance, NO_MUTABLE_CAPABILITIES } from './capabilities';
 import { pleromaFixtures } from './fixtures';
 import { normalizeInstanceUrl } from './http';
 import {
@@ -177,6 +178,22 @@ test('Pleroma client explicitly discards staged media', async () => {
 	expect(requests).toHaveLength(1);
 	expect(requests[0].method).toBe('DELETE');
 	expectPath(requests[0], '/api/v1/media/media%20staged%2F1');
+});
+
+test('instance capabilities are conservative until loaded and explicit for DeltaNet', () => {
+	expect(capabilitiesForInstance(null)).toEqual(NO_MUTABLE_CAPABILITIES);
+	expect(capabilitiesForInstance(pleromaFixtures.instance)).toMatchObject({ bookmarks: true, chats: true, polls: true });
+	expect(capabilitiesForInstance({
+		...pleromaFixtures.instance,
+		configuration: {
+			...pleromaFixtures.instance.configuration,
+			deltanet: { capabilities: { bookmarks: false, status_deletion: false, account_moderation: false, media_description: true, chats: false, polls: false, unlisted_visibility: false, content_warnings: false, extended_profile: false } }
+		}
+	})).toEqual({ bookmarks: false, statusDeletion: false, accountModeration: false, mediaDescription: true, chats: false, polls: false, unlistedVisibility: false, contentWarnings: false, extendedProfile: false });
+	expect(capabilitiesForInstance({
+		...pleromaFixtures.instance,
+		configuration: { deltanet: { capabilities: { bookmarks: true } } }
+	})).toEqual({ bookmarks: true, statusDeletion: false, accountModeration: false, mediaDescription: false, chats: false, polls: false, unlistedVisibility: false, contentWarnings: false, extendedProfile: false });
 });
 
 test('Pleroma client converts timeline Link headers into cursor data', async () => {

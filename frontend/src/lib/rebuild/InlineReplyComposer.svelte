@@ -30,6 +30,7 @@
 		accounts?: ComposerMentionAccount[];
 		emojis?: ComposerEmoji[];
 		uploads?: ComposerUpload[];
+		acceptedMediaTypes?: string;
 		onMentionQuery?: (query: string) => void;
 		onFiles?: (files: FileList | File[]) => void;
 		onRemoveUpload?: (localId: string) => void;
@@ -65,6 +66,7 @@
 		accounts = [],
 		emojis = [],
 		uploads = [],
+		acceptedMediaTypes = 'image/*,audio/*,video/*',
 		onMentionQuery,
 		onFiles,
 		onRemoveUpload,
@@ -104,7 +106,7 @@
 	});
 	let uploadsPending = $derived(uploads.some((upload) => upload.status === 'uploading'));
 	let hasUploadedMedia = $derived(uploads.some((upload) => upload.status === 'uploaded'));
-	let mediaEnabled = $derived(Boolean(onFiles));
+	let mediaEnabled = $derived(Boolean(onFiles) && Boolean(acceptedMediaTypes));
 	let canSubmit = $derived((Boolean(draft.trim()) || hasUploadedMedia) && remaining >= 0 && (!poll || pollValid) && !submitting && !uploadsPending);
 
 	const pickFiles = () => {
@@ -188,7 +190,7 @@
 			onSubmit={onSubmit}
 		/>
 		{#if mediaEnabled}
-			<input bind:this={fileInput} class="sr-only" type="file" multiple tabindex="-1" aria-label="Attach reply media" accept="image/*,audio/*,video/*" onchange={handleFileChange} />
+			<input bind:this={fileInput} class="sr-only" type="file" tabindex="-1" aria-label="Attach reply media" accept={acceptedMediaTypes} onchange={handleFileChange} />
 		{/if}
 		{#if uploads.length > 0}
 			<div class="composer-uploads thread-inline-reply-uploads" aria-live="polite">
@@ -225,8 +227,8 @@
 		<div class="thread-inline-reply-row">
 			<button type="button" class="thread-inline-reply-tool" title="Image" aria-label="Image" disabled={!mediaEnabled || submitting} onclick={pickFiles}><Icon name="image" width={16} height={16} /></button>
 			<button type="button" class="thread-inline-reply-tool" class:active={emojiPickerOpen} title="Emoji" aria-label="Emoji" aria-haspopup="dialog" aria-expanded={emojiPickerOpen} aria-pressed={emojiPickerOpen} disabled={submitting} data-emoji-trigger onclick={toggleEmojiPicker}><Icon name="smile" width={16} height={16} /></button>
-			<button type="button" class="thread-inline-reply-tool" class:active={Boolean(poll)} title="Poll" aria-label="Poll" aria-pressed={Boolean(poll)} disabled={!onPollToggle || submitting} onclick={() => onPollToggle?.()}><Icon name="poll" width={16} height={16} /></button>
-			<button type="button" class="thread-inline-reply-cw" class:active={spoilerActive} aria-label="Content warning" aria-pressed={spoilerActive} disabled={!onSpoilerToggle || submitting} onclick={() => onSpoilerToggle?.()}>CW</button>
+			{#if onPollToggle}<button type="button" class="thread-inline-reply-tool" class:active={Boolean(poll)} title="Poll" aria-label="Poll" aria-pressed={Boolean(poll)} disabled={submitting} onclick={() => onPollToggle?.()}><Icon name="poll" width={16} height={16} /></button>{/if}
+			{#if onSpoilerToggle}<button type="button" class="thread-inline-reply-cw" class:active={spoilerActive} aria-label="Content warning" aria-pressed={spoilerActive} disabled={submitting} onclick={() => onSpoilerToggle?.()}>CW</button>{/if}
 			<span class="thread-inline-reply-spacer"></span>
 			<button type="button" class="thread-inline-reply-cancel" disabled={submitting} onclick={onCancel}>Cancel</button>
 			<span class="thread-inline-reply-count" class:over-limit={remaining < 0}>{remaining}</span>

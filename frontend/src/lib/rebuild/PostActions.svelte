@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
+	import type { PostManagementCapabilities } from './post-capabilities';
 
 	type Props = {
 		post: {
@@ -17,11 +18,15 @@
 		replyExpanded?: boolean;
 		replyControlsId?: string;
 		canManage?: boolean;
+		managementCapabilities?: PostManagementCapabilities;
 		onAction?: (key: string) => void;
 		onReact?: (anchor: HTMLElement) => void;
 	};
 
-	let { post, disabledActions = {}, replyExpanded, replyControlsId, canManage = false, onAction, onReact }: Props = $props();
+	let { post, disabledActions = {}, replyExpanded, replyControlsId, canManage = false, managementCapabilities, onAction, onReact }: Props = $props();
+	let canBookmark = $derived(managementCapabilities?.bookmarks ?? canManage);
+	let canDelete = $derived(managementCapabilities?.deletion ?? canManage);
+	let canModerate = $derived(managementCapabilities?.moderation ?? canManage);
 	let menuOpen = $state(false);
 	let confirmDelete = $state(false);
 	let copyStatus = $state('');
@@ -151,21 +156,21 @@
 		</button>
 		{#if menuOpen}
 			<div class="post-action-menu" role="menu" style={menuStyle}>
-				{#if canManage && post.bookmarked !== undefined}
+				{#if canBookmark && post.bookmarked !== undefined}
 					<button type="button" role="menuitem" onclick={() => runAction('bookmark')}>{post.bookmarked ? 'Remove bookmark' : 'Bookmark'}</button>
 				{/if}
 				{#if post.statusUrl}
 					<button type="button" role="menuitem" onclick={() => runAction('copy-link')}>Copy link to post</button>
 				{/if}
 				<button type="button" role="menuitem" onclick={copyPostJson}>Copy post JSON</button>
-				{#if canManage && post.own}
+				{#if canDelete && post.own}
 					{#if confirmDelete}
 						<button type="button" role="menuitem" class="menu-danger" onclick={() => runAction('delete')}>Confirm delete</button>
 						<button type="button" role="menuitem" onclick={() => (confirmDelete = false)}>Cancel</button>
 					{:else}
 						<button type="button" role="menuitem" class="menu-danger" onclick={() => (confirmDelete = true)}>Delete post</button>
 					{/if}
-				{:else if canManage && post.authorHandle}
+				{:else if canModerate && post.authorHandle}
 					<button type="button" role="menuitem" onclick={() => runAction('mute')}>Mute {post.authorHandle}</button>
 					<button type="button" role="menuitem" class="menu-danger" onclick={() => runAction('block')}>Block {post.authorHandle}</button>
 				{/if}

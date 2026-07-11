@@ -1,5 +1,36 @@
 # deltanet devlog
 
+## 2026-07-11 - honest frontend-daemon capability contract
+
+The bundled UI now derives mutable feature availability from
+`GET /api/v2/instance` instead of assuming every broad Pleroma client method has
+a DeltaNet implementation (`meta/issues/frontend-daemon-capability-contract.md`):
+
+- `configuration.deltanet.capabilities` explicitly advertises bookmarks,
+  deletion, account moderation, media-description updates, chats, polls,
+  unlisted visibility, content warnings, and extended profile fields. Unknown
+  metadata is conservative while loading or after failure; generic non-DeltaNet
+  Pleroma instances retain their ordinary feature set.
+- The bundled daemon advertises only media-description updates from that set.
+  Bookmark/delete/mute/block controls are independently gated while the working
+  thread-subscription control stays available. Messages and Bookmarks retain
+  useful routes with unavailable-state copy and make no unsupported requests,
+  including direct chat deep links. Received polls remain read-only.
+- Poll/CW composition and unlisted visibility are hidden. The daemon also
+  rejects unsupported poll fields, warning text, extended profile fields, and
+  unknown visibility with a stable 422 rather than silently dropping fields or
+  broadening audience. Website/location/privacy settings are replaced with
+  explicit unavailable copy while name, bio, avatar, and header remain editable.
+- Upload controls consume the advertised MIME list. DeltaNet advertises one
+  PNG/JPEG/WebP/GIF image, so audio/video are rejected before upload and stale
+  generic "add another" affordances are gone. Alt-text controls appear in both
+  composers only when media-description updates are supported.
+- Success-shaped bookmark/chat stubs and the duplicate follow-request stub were
+  removed. Remaining empty endpoints are read-only discovery surfaces. The full
+  reachable API inventory and request/response/persistence/federation decisions
+  live in `meta/frontend-daemon-capabilities.md`; deferred capabilities each have
+  focused issues.
+
 ## 2026-07-11 - bounded media and backup resources
 
 Upload and backup paths now have daemon-enforced, process-wide bounds

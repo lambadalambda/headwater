@@ -14,6 +14,7 @@
 	import type { PleromaReactionView } from '$lib/pleroma/ui';
 	import { normalizeRenderableAttachments, openLightbox } from './attachments';
 	import type { BannerVariant, PostLike } from './attachments';
+	import type { PostManagementCapabilities } from './post-capabilities';
 
 	type ThreadReply = PostLike & {
 		id?: string | number;
@@ -58,6 +59,7 @@
 		onReact?: (id: string | number | undefined, anchor: HTMLElement) => void;
 		onVote?: (id: string | number | undefined, pollId: string | undefined, choice: string | string[]) => void;
 		canManage?: boolean;
+		managementCapabilities?: PostManagementCapabilities;
 		inlineReply?: InlineReplyBinding | null;
 		expandedReplyIds?: Record<string, boolean>;
 		onShowNested?: (id: string | number | undefined) => void;
@@ -71,6 +73,7 @@
 		onReact,
 		onVote,
 		canManage = false,
+		managementCapabilities,
 		inlineReply = null,
 		expandedReplyIds = {},
 		onShowNested
@@ -107,7 +110,7 @@
 				<PostMedia post={post} onOpen={(idx) => handleLightbox(post, idx)} onVote={onVote ? (pollId, choice) => onVote(post.id, pollId, choice) : undefined} />
 			</PostCW>
 			<PostReactions reactions={post.reactions} onToggle={onAction ? (reaction) => onAction(post.id, `reaction:${reaction.name}`) : undefined} onAdd={onReact ? (anchor) => onReact(post.id, anchor) : undefined} />
-			<PostActions post={post} disabledActions={{ boost: post.visibility === 'private' || post.visibility === 'direct' }} replyExpanded={inlineReplyOpenFor(post)} replyControlsId={inlineReplyOpenFor(post) ? inlineReplyComposerId(post) : undefined} onAction={(key) => onAction?.(post.id, key)} onReact={onReact ? (anchor) => onReact(post.id, anchor) : undefined} canManage={canManage} />
+			<PostActions post={post} disabledActions={{ boost: post.visibility === 'private' || post.visibility === 'direct' }} replyExpanded={inlineReplyOpenFor(post)} replyControlsId={inlineReplyOpenFor(post) ? inlineReplyComposerId(post) : undefined} onAction={(key) => onAction?.(post.id, key)} onReact={onReact ? (anchor) => onReact(post.id, anchor) : undefined} canManage={canManage} {managementCapabilities} />
 			{#if nestedReplies.length > 0 && !nestedRepliesOpenFor(post)}
 				<button type="button" class="show-replies" onclick={() => onShowNested?.(post.id)}>
 					<span class="show-replies-line"></span>
@@ -135,6 +138,7 @@
 				onReact={onReact}
 				onVote={onVote}
 				canManage={canManage}
+				{managementCapabilities}
 				inlineReply={inlineReply}
 				expandedReplyIds={expandedReplyIds}
 				onShowNested={onShowNested}

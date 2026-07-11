@@ -35,6 +35,9 @@ const updatedAccount = {
 };
 
 const authenticate = async (page: Page) => {
+	await page.route('https://pleroma.example/api/v2/instance', async (route) => {
+		await fulfillJson(route, pleromaFixtures.instance);
+	});
 	await page.addInitScript((storedSession) => {
 		window.localStorage.setItem('deltanet.session', JSON.stringify(storedSession));
 	}, session);

@@ -47,3 +47,4 @@
 - [x] [Harden the local daemon API security boundary](issues/local-api-security-boundary.md)
 - [x] [Make persistent store writes atomic and corruption-safe](issues/atomic-store-persistence.md)
 - [x] [Enforce media and backup resource limits](issues/media-backup-resource-limits.md)
+- [x] [Align exposed frontend controls with daemon capabilities](issues/frontend-daemon-capability-contract.md)

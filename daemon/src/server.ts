@@ -1507,7 +1507,20 @@ export const createApp = (
     registrations: { enabled: false, approval_required: false },
     configuration: {
       statuses: { max_characters: MAX_POST_CHARS, max_media_attachments: 1 },
-      media_attachments: { supported_mime_types: ['image/png', 'image/jpeg', 'image/webp'] },
+      media_attachments: { supported_mime_types: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] },
+      deltanet: {
+        capabilities: {
+          bookmarks: false,
+          status_deletion: false,
+          account_moderation: false,
+          media_description: true,
+          chats: false,
+          polls: false,
+          unlisted_visibility: false,
+          content_warnings: false,
+          extended_profile: false,
+        },
+      },
     },
     max_toot_chars: MAX_POST_CHARS,
     pleroma: { metadata: { features: [], max_toot_chars: MAX_POST_CHARS } },
@@ -1547,6 +1560,12 @@ export const createApp = (
     const body = contentType.includes('json')
       ? ((await c.req.json().catch(() => ({}))) as Record<string, unknown>)
       : ((await c.req.parseBody()) as Record<string, unknown>);
+
+    if (Object.keys(body).some((key) =>
+      key === 'discoverable' || key === 'hide_followers_count' || key.startsWith('fields_attributes'),
+    )) {
+      return c.json({ error: 'Extended profile fields are not supported by this DeltaNet node', code: 'unsupported_capability' }, 422);
+    }
 
     const updates: Parameters<Transport['updateProfile']>[0] = {};
 
@@ -2033,6 +2052,16 @@ export const createApp = (
     const body = contentType.includes('json')
       ? await c.req.json()
       : await c.req.parseBody({ all: true });
+    const requestedVisibilityValue = String(body['visibility'] ?? '');
+    if (!['', 'public', 'private', 'direct'].includes(requestedVisibilityValue)) {
+      return c.json({ error: `Unsupported visibility: ${requestedVisibilityValue}`, code: 'unsupported_capability' }, 422);
+    }
+    if (String(body['spoiler_text'] ?? '').trim()) {
+      return c.json({ error: 'Content warnings are not supported by this DeltaNet node', code: 'unsupported_capability' }, 422);
+    }
+    if (Object.keys(body).some((key) => key === 'poll' || key.startsWith('poll['))) {
+      return c.json({ error: 'Polls are not supported by this DeltaNet node', code: 'unsupported_capability' }, 422);
+    }
     const text = String(body['status'] ?? '').trim();
     const submittedMediaIds = mediaIds(body as Record<string, unknown>);
     if (submittedMediaIds.length > 1) {
@@ -2054,7 +2083,7 @@ export const createApp = (
     // Visibility delivery: direct bypasses owned broadcasts entirely and uses
     // pre-resolved 1:1 content DMs; private uses the locked channel; everything
     // else uses public. Reply inheritance below can force a stricter tier.
-    const requestedVisibility = String(body['visibility'] ?? '');
+    const requestedVisibility = requestedVisibilityValue;
     let direct = requestedVisibility === 'direct';
     let channel: OwnChannel = requestedVisibility === 'private' ? 'locked' : 'public';
     /** Unsigned honest-machinery marker; the signed body/refs remain unchanged. */
@@ -3029,7 +3058,7 @@ export const createApp = (
     return c.json(mapped);
   });
 
-  // --- Stubs PleromaNet polls; empty is a valid, honest answer ------------
+  // --- Intentionally empty read-only discovery surfaces -------------------
   // These work whether or not the daemon is configured yet.
 
   const emptyList = (path: string) => app.get(path, (c) => c.json([]));
@@ -3038,10 +3067,7 @@ export const createApp = (
   emptyList('/api/v1/trends');
   emptyList('/api/v2/suggestions');
   emptyList('/api/v1/suggestions');
-  emptyList('/api/v1/bookmarks');
-  emptyList('/api/v2/pleroma/chats');
   emptyList('/api/v1/filters');
-  emptyList('/api/v1/follow_requests');
   app.get('/api/v1/markers', (c) => c.json({}));
   app.get('/api/v1/preferences', (c) => c.json({}));
 

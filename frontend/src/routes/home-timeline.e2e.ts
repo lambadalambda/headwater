@@ -16,8 +16,9 @@ const instanceUrl = 'https://pleroma.example/api/v2/instance';
 const accountSearchUrl = 'https://pleroma.example/api/v1/accounts/search**';
 const customEmojisUrl = 'https://pleroma.example/api/v1/custom_emojis';
 
-const authenticate = async (page: Page) => {
+const authenticate = async (page: Page, instance = pleromaFixtures.instance) => {
 	await mockRightRailApis(page);
+	await mockInstance(page, instance);
 	let streamTicket = 0;
 	await page.route('https://pleroma.example/api/deltanet/streaming/token', async (route) => {
 		expect(route.request().headers().authorization).toMatch(/^Bearer .+-token$/);
@@ -69,6 +70,7 @@ const authenticate = async (page: Page) => {
 
 const authenticateWithThrowingWebSocket = async (page: Page) => {
 	await mockRightRailApis(page);
+	await mockInstance(page);
 	await page.route('https://pleroma.example/api/deltanet/streaming/token', async (route) => {
 		await fulfillHome(route, { ticket: 'stream-ticket', expires_at: Date.now() + 30_000 });
 	});
@@ -302,6 +304,136 @@ test('home timeline composer uses the instance status character limit', async ({
 	await expect(page.locator('.composer-count')).toHaveText('5000');
 	await page.getByRole('textbox', { name: 'Post text' }).fill('hello from a long-post instance');
 	await expect(page.locator('.composer-count')).toHaveText('4969');
+});
+
+test('DeltaNet capabilities hide unsupported mutations and retain honest unavailable routes', async ({ page }) => {
+	await authenticate(page, {
+		...pleromaFixtures.instance,
+		configuration: {
+			...pleromaFixtures.instance.configuration,
+			media_attachments: { supported_mime_types: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] },
+			deltanet: { capabilities: { bookmarks: false, status_deletion: false, account_moderation: false, media_description: true, chats: false, polls: false, unlisted_visibility: false, content_warnings: false, extended_profile: false } }
+		}
+	});
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [{
+			...statusWithText('capability-post', 'capability contract post'),
+			poll: {
+				id: 'unsupported-poll',
+				options: [{ title: 'one', votes_count: 1 }, { title: 'two', votes_count: 0 }],
+				votes_count: 1,
+				multiple: false,
+				expired: false,
+				own_votes: []
+			}
+		}]);
+	});
+	let bookmarkReads = 0;
+	let chatReads = 0;
+	let chatThreadReads = 0;
+	let mediaUploads = 0;
+	await page.route('https://pleroma.example/api/v1/bookmarks**', async (route) => {
+		bookmarkReads += 1;
+		await fulfillHome(route, []);
+	});
+	await page.route('https://pleroma.example/api/v2/pleroma/chats**', async (route) => {
+		chatReads += 1;
+		await fulfillHome(route, []);
+	});
+	await page.route('https://pleroma.example/api/v1/pleroma/chats/**', async (route) => {
+		chatThreadReads += 1;
+		await fulfillHome(route, []);
+	});
+	await page.route('https://pleroma.example/api/v1/media', async (route) => {
+		mediaUploads += 1;
+		await fulfillHome(route, { id: 'cap-media', type: 'image', url: '', preview_url: '', description: null });
+	});
+
+	await page.goto('/app/home');
+	await expect(page.getByRole('button', { name: 'Poll', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Content warning' })).toHaveCount(0);
+	await page.getByRole('button', { name: 'Privacy: Public' }).click();
+	await expect(page.getByRole('menuitemradio', { name: /Unlisted/ })).toHaveCount(0);
+	await page.getByRole('button', { name: 'Privacy: Public' }).click();
+	await expect(page.getByText('Voting is unavailable in this view')).toBeVisible();
+	await expect(page.getByRole('radio', { name: 'one' })).toBeDisabled();
+	const post = page.locator('[data-status-id="capability-post"]');
+	await post.getByRole('button', { name: 'More post actions' }).click();
+	await expect(post.getByRole('menuitem', { name: /Bookmark|Delete|Mute|Block/ })).toHaveCount(0);
+	await page.getByLabel('Attach media').setInputFiles({ name: 'alt.png', mimeType: 'image/png', buffer: Buffer.from('image') });
+	await expect(page.getByLabel('Alt text for alt.png')).toBeVisible();
+	await page.getByRole('button', { name: 'Remove alt.png' }).click();
+	await page.getByLabel('Attach media').setInputFiles({ name: 'clip.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('audio') });
+	await expect(page.getByText('Could not attach clip.mp3 · unsupported media type on this node.')).toBeVisible();
+	expect(mediaUploads).toBe(1);
+
+	await page.goto('/app/bookmarks');
+	await expect(page.getByTestId('bookmarks-unavailable')).toContainText('cannot persist saved posts yet');
+	await page.goto('/app/messages/chat-1');
+	await expect(page.getByTestId('messages-unavailable')).toContainText('does not yet provide persistent chat threads');
+	await page.goto('/app/settings');
+	await expect(page.getByLabel('Display name')).toBeVisible();
+	await expect(page.getByLabel('Bio')).toBeVisible();
+	await expect(page.getByTestId('extended-profile-unavailable')).toBeVisible();
+	await expect(page.getByLabel('Website')).toHaveCount(0);
+	expect(bookmarkReads).toBe(0);
+	expect(chatReads).toBe(0);
+	expect(chatThreadReads).toBe(0);
+});
+
+test('capability metadata failure stays conservative and offers retry instead of loading forever', async ({ page }) => {
+	await authenticate(page);
+	await page.unroute(instanceUrl);
+	let instanceRequests = 0;
+	await page.route(instanceUrl, async (route) => {
+		instanceRequests += 1;
+		await fulfillHome(route, { error: 'metadata unavailable' }, 503);
+	});
+	let bookmarkReads = 0;
+	await page.route('https://pleroma.example/api/v1/bookmarks**', async (route) => {
+		bookmarkReads += 1;
+		await fulfillHome(route, []);
+	});
+
+	await page.goto('/app/bookmarks');
+	await expect(page.getByRole('heading', { name: 'Could not check bookmark support' })).toBeVisible();
+	await page.getByRole('button', { name: 'Retry request' }).click();
+	await expect.poll(() => instanceRequests).toBe(2);
+	expect(bookmarkReads).toBe(0);
+});
+
+test('media-description capability gates both home and inline-reply alt controls', async ({ page }) => {
+	await authenticate(page, {
+		...pleromaFixtures.instance,
+		configuration: {
+			...pleromaFixtures.instance.configuration,
+			media_attachments: { supported_mime_types: ['image/png'] },
+			deltanet: { capabilities: { bookmarks: false, status_deletion: false, account_moderation: false, media_description: false, chats: false, polls: false, unlisted_visibility: false, content_warnings: false, extended_profile: false } }
+		}
+	});
+	await mockHomeTimeline(page, async (route) => { await fulfillHome(route, [statusWithText('no-alt-post', 'reply target')]); });
+	let upload = 0;
+	let mediaUpdates = 0;
+	await page.route('https://pleroma.example/api/v1/media', async (route) => {
+		upload += 1;
+		await fulfillHome(route, { id: `no-alt-${upload}`, type: 'image', url: '', preview_url: '', description: null });
+	});
+	await page.route('https://pleroma.example/api/v1/media/**', async (route) => {
+		if (route.request().method() === 'PUT') mediaUpdates += 1;
+		await fulfillHome(route, { error: 'must not update' }, 500);
+	});
+
+	await page.goto('/app/home');
+	await page.getByLabel('Attach media').setInputFiles({ name: 'home.png', mimeType: 'image/png', buffer: Buffer.from('image') });
+	await expect(page.getByText('100%')).toBeVisible();
+	await expect(page.getByLabel('Alt text for home.png')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Remove home.png' }).click();
+	await page.locator('[data-status-id="no-alt-post"]').getByRole('button', { name: /Reply/ }).click();
+	const reply = page.getByRole('form', { name: /Inline reply/ });
+	await reply.getByLabel('Attach reply media').setInputFiles({ name: 'reply.png', mimeType: 'image/png', buffer: Buffer.from('image') });
+	await expect(reply.getByText('100%')).toBeVisible();
+	await expect(reply.getByLabel('Alt text for reply.png')).toHaveCount(0);
+	expect(mediaUpdates).toBe(0);
 });
 
 test('home timeline composer creates statuses through Pleroma', async ({ page }) => {

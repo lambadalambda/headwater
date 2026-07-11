@@ -107,6 +107,7 @@
 						type={poll.multi ? 'checkbox' : 'radio'}
 						name={inputName}
 						checked={picked.has(choice.id)}
+						disabled={!canVote}
 						onchange={() => toggle(choice.id)}
 					/>
 					<span class={poll.multi ? 'post-poll-check' : 'post-poll-radio'} aria-hidden="true"></span>
@@ -126,6 +127,7 @@
 			</button>
 			<button type="button" class="post-poll-results-link" onclick={() => (forceResults = true)}>View results -&gt;</button>
 			<span class="post-poll-foot-meta">{poll.endsIn ? `${poll.endsIn} left · ` : ''}{total} {total === 1 ? 'vote' : 'votes'}</span>
+			{#if !canVote}<span class="post-poll-foot-meta">Voting is unavailable in this view</span>{/if}
 		</div>
 	{/if}
 </div>

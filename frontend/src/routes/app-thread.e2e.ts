@@ -107,9 +107,9 @@ const fulfillJson = async (route: Route, body: unknown, status = 200) => {
 	});
 };
 
-const mockInstance = async (page: Page) => {
+const mockInstance = async (page: Page, instance = pleromaFixtures.instance) => {
 	await page.route('https://pleroma.example/api/v2/instance', async (route) => {
-		await fulfillJson(route, pleromaFixtures.instance);
+		await fulfillJson(route, instance);
 	});
 };
 
@@ -123,9 +123,10 @@ const mockThread = async (
 	page: Page,
 	focusedStatus: PleromaStatus = threadStatus,
 	descendants: PleromaStatus[] = [threadReply, nestedThreadReply, secondThreadReply],
-	ancestors: PleromaStatus[] = [threadAncestor]
+	ancestors: PleromaStatus[] = [threadAncestor],
+	instance = pleromaFixtures.instance
 ) => {
-	await mockInstance(page);
+	await mockInstance(page, instance);
 	await page.route('https://pleroma.example/api/v1/statuses/status-1', async (route) => {
 		await fulfillJson(route, focusedStatus);
 	});
@@ -1228,7 +1229,13 @@ test('thread root: subscribe to thread flips the menu to Unsubscribe', async ({ 
 			deltanet: { thread_subscribed: false }
 		}
 	});
-	await mockThread(page, root, []);
+	await mockThread(page, root, [], [threadAncestor], {
+		...pleromaFixtures.instance,
+		configuration: {
+			...pleromaFixtures.instance.configuration,
+			deltanet: { capabilities: { bookmarks: false, status_deletion: false, account_moderation: false, media_description: true, chats: false, polls: false, unlisted_visibility: false, content_warnings: false, extended_profile: false } }
+		}
+	});
 	// The subscribe endpoint returns the root now flagged subscribed.
 	await page.route('https://pleroma.example/api/v1/pleroma/statuses/status-1/subscribe', async (route) => {
 		expect(route.request().method()).toBe('POST');
@@ -1242,6 +1249,7 @@ test('thread root: subscribe to thread flips the menu to Unsubscribe', async ({ 
 
 	const focused = page.getByTestId('focused-post');
 	await focused.getByRole('button', { name: 'More post actions' }).click();
+	await expect(focused.getByRole('menuitem', { name: /Delete|Mute|Block/ })).toHaveCount(0);
 	await focused.getByTestId('thread-subscribe').click();
 	await expect(page.getByText('Subscribed to thread')).toBeVisible();
 	// Reopen the menu — it now offers Unsubscribe.

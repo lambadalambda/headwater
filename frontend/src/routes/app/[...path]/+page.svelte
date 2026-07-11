@@ -12,6 +12,7 @@
 	import FocusedPost from '$lib/rebuild/FocusedPost.svelte';
 	import Icon from '$lib/rebuild/Icon.svelte';
 	import InlineReplyComposer, { type InlineReplyComposerProps } from '$lib/rebuild/InlineReplyComposer.svelte';
+	import type { PostManagementCapabilities } from '$lib/rebuild/post-capabilities';
 	import ChatRow from '$lib/rebuild/ChatRow.svelte';
 	import ChatThread from '$lib/rebuild/ChatThread.svelte';
 	import NotifRow from '$lib/rebuild/NotifRow.svelte';
@@ -27,6 +28,7 @@
 	import TimelineNewPostsIndicator from '$lib/rebuild/TimelineNewPostsIndicator.svelte';
 	import { accountsFromPleromaNotifications, accountsFromPleromaStatus, accountsFromPleromaStatuses, createPleromaAccountCache, getCachedPleromaAccount, upsertPleromaAccounts } from '$lib/pleroma/account-cache';
 	import { createPleromaClient } from '$lib/pleroma/client';
+	import { capabilitiesForInstance, mediaTypesForInstance, NO_MUTABLE_CAPABILITIES, supportsMediaType, type InstanceCapabilities } from '$lib/pleroma/capabilities';
 	import {
 		backupNagState,
 		exportDeltanetBackup,
@@ -348,6 +350,17 @@
 	let headerSearchPointerActivated = false;
 	let searchFollowPending = $state<Record<string, boolean>>({});
 	let composerCharacterLimit = $state(DEFAULT_STATUS_CHARACTER_LIMIT);
+	let loadedInstanceCapabilities = $state<InstanceCapabilities | null>(null);
+	let loadedMediaTypes = $state<string[]>([]);
+	let instanceCapabilitiesStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	let instanceCapabilities = $derived(loadedInstanceCapabilities ?? NO_MUTABLE_CAPABILITIES);
+	let acceptedMediaTypes = $derived(loadedMediaTypes.join(','));
+	let postManagementCapabilities = $derived<PostManagementCapabilities>({
+		bookmarks: Boolean(currentSession) && instanceCapabilities.bookmarks,
+		deletion: Boolean(currentSession) && instanceCapabilities.statusDeletion,
+		moderation: Boolean(currentSession) && instanceCapabilities.accountModeration,
+		threadSubscription: Boolean(currentSession)
+	});
 	const sessionKey = (session: PleromaSession | null) => session ? `${session.instanceUrl}\n${session.accessToken}\n${session.createdAt}` : '';
 	const resetAccountCache = () => {
 		accountCache = createPleromaAccountCache();
@@ -504,6 +517,9 @@
 		instanceConfigRequestId += 1;
 		loadedInstanceConfigKey = '';
 		composerCharacterLimit = DEFAULT_STATUS_CHARACTER_LIMIT;
+		loadedInstanceCapabilities = null;
+		loadedMediaTypes = [];
+		instanceCapabilitiesStatus = 'idle';
 	};
 	const invalidateSuggestionsRequests = () => {
 		suggestionsRequestId += 1;
@@ -1087,6 +1103,7 @@
 	const replacePollInAttachments = (attachments: PostLike['attachments'], pollId: string, nextPoll: PostAttachment) =>
 		(attachments ?? []).map((attachment) => attachment.kind === 'poll' && attachment.id === pollId ? nextPoll : attachment);
 	const votePollForPost = (post: { id?: string | number; actionStatusId?: string }, pollId: string | undefined, choice: string | string[], originRoute: StatusActionOrigin) => {
+		if (!instanceCapabilities.polls) return;
 		const session = currentSession;
 		const targetId = statusActionTargetId(post);
 		if (!session || !pollId || !targetId) return;
@@ -1167,6 +1184,7 @@
 		}
 	};
 	const mutateBookmark = (targetId: string, previouslyBookmarked: boolean, originRoute: StatusActionOrigin) => {
+		if (!instanceCapabilities.bookmarks) return;
 		const session = currentSession;
 		if (!session) return;
 		const actionKey = 'bookmark';
@@ -1235,6 +1253,7 @@
 		}
 	};
 	const deleteStatusEverywhere = (targetId: string, originRoute: StatusActionOrigin) => {
+		if (!instanceCapabilities.statusDeletion) return;
 		const session = currentSession;
 		if (!session) return;
 		const requestSessionKey = sessionKey(session);
@@ -1266,6 +1285,7 @@
 		})();
 	};
 	const mutateAuthorRelationship = (accountId: string, handle: string, action: 'mute' | 'block') => {
+		if (!instanceCapabilities.accountModeration) return;
 		const session = currentSession;
 		if (!session || !accountId) return;
 		const requestSessionKey = sessionKey(session);
@@ -1338,6 +1358,7 @@
 			return true;
 		}
 		if (key === 'bookmark') {
+			if (!instanceCapabilities.bookmarks) return true;
 			const targetId = statusActionTargetId(post);
 			if (targetId) mutateBookmark(targetId, post.bookmarked === true, originRoute);
 			return true;
@@ -1347,11 +1368,13 @@
 			return true;
 		}
 		if (key === 'delete') {
+			if (!instanceCapabilities.statusDeletion) return true;
 			const targetId = statusActionTargetId(post);
 			if (targetId && post.own) deleteStatusEverywhere(targetId, originRoute);
 			return true;
 		}
 		if (key === 'mute' || key === 'block') {
+			if (!instanceCapabilities.accountModeration) return true;
 			if (post.authorId && post.authorHandle) mutateAuthorRelationship(post.authorId, post.authorHandle, key);
 			return true;
 		}
@@ -1391,6 +1414,7 @@
 		{ value: 'private', label: 'Followers', icon: 'users', description: 'Only your followers can see this post.' },
 		{ value: 'direct', label: 'Direct', icon: 'msg', description: 'Only people mentioned in the post can see it.' }
 	];
+	const availableComposerVisibilities = $derived(COMPOSER_VISIBILITIES.filter((option) => option.value !== 'unlisted' || instanceCapabilities.unlistedVisibility));
 	const composerVisibilityOption = $derived(COMPOSER_VISIBILITIES.find((option) => option.value === composerVisibility) ?? COMPOSER_VISIBILITIES[0]);
 	const selectComposerVisibility = (value: StatusVisibility) => {
 		composerVisibility = value;
@@ -1399,15 +1423,15 @@
 	};
 	const composerRemaining = $derived(composerCharacterLimit - composerText.length);
 	const inlineReplyRemaining = $derived(composerCharacterLimit - inlineReplyDraft.length);
-	const preparedComposerPoll = $derived(composerPoll ? composerPollPayload(composerPoll) : undefined);
-	const preparedInlineReplyPoll = $derived(inlineReplyPoll ? composerPollPayload(inlineReplyPoll) : undefined);
+	const preparedComposerPoll = $derived(instanceCapabilities.polls && composerPoll ? composerPollPayload(composerPoll) : undefined);
+	const preparedInlineReplyPoll = $derived(instanceCapabilities.polls && inlineReplyPoll ? composerPollPayload(inlineReplyPoll) : undefined);
 	const composerUploadedMediaIds = $derived(getComposerUploadedMediaIds(composerUploads));
 	const composerUploadsPending = $derived(hasComposerUploadsPending(composerUploads));
 	const inlineReplyUploadedMediaIds = $derived(getComposerUploadedMediaIds(inlineReplyUploads));
 	const inlineReplyUploadsPending = $derived(hasComposerUploadsPending(inlineReplyUploads));
 	const composerHasPostContent = $derived(Boolean(composerText.trim()) || composerUploadedMediaIds.length > 0);
 	const composerHasDirectRecipient = $derived(composerVisibility !== 'direct' || hasComposerAddressMention(composerText));
-	const canSubmitHomePost = $derived(composerHasPostContent && composerHasDirectRecipient && composerRemaining >= 0 && (!composerPoll || Boolean(preparedComposerPoll)) && !composerUploadsPending && homePostSubmitState !== 'submitting');
+	const canSubmitHomePost = $derived(composerHasPostContent && composerHasDirectRecipient && composerRemaining >= 0 && (!instanceCapabilities.polls || !composerPoll || Boolean(preparedComposerPoll)) && !composerUploadsPending && homePostSubmitState !== 'submitting');
 	const timelinePosts = $derived([
 		...localHomePosts,
 		...(homeTimelineState.status === 'success' ? homeTimelineState.data.map(postForRebuild) : [])
@@ -1576,7 +1600,7 @@
 				fetch: window.fetch.bind(window)
 			});
 			const rawAccount = await client.updateAccountProfile(
-				profileUpdateFromSettings(profile, session.account),
+				profileUpdateFromSettings(profile, session.account, { extended: instanceCapabilities.extendedProfile }),
 				{ avatar: pendingAvatarFile, header: pendingHeaderFile }
 			);
 			if (requestId !== settingsSaveRequestId || !isCurrentSessionRequest(requestSessionKey)) return;
@@ -1626,6 +1650,7 @@
 		const accepted: File[] = [];
 		for (const file of incoming) {
 			if (!isComposerUploadType(file)) rejected.push(composerUploadError(file, `Could not attach ${file.name} · only photos, audio, and video.`));
+			else if (!supportsMediaType(file.type, loadedMediaTypes)) rejected.push(composerUploadError(file, `Could not attach ${file.name} · unsupported media type on this node.`));
 			else if (file.size > COMPOSER_MAX_UPLOAD_BYTES) rejected.push(composerUploadError(file, `Could not attach ${file.name} · 40 MB limit per file.`));
 			else if (accepted.length >= slots) rejected.push(composerUploadError(file, `Could not attach ${file.name} · ${COMPOSER_MAX_UPLOADS} file limit.`));
 			else accepted.push(file);
@@ -1688,6 +1713,7 @@
 		inlineReplyUploads = inlineReplyUploads.filter((upload) => upload.localId !== localId);
 	};
 	const saveUploadAltText = (getUploads: () => ComposerUpload[], updateUploads: (updater: (uploads: ComposerUpload[]) => ComposerUpload[]) => void, localId: string, description: string) => {
+		if (!instanceCapabilities.mediaDescription) return;
 		const session = currentSession;
 		const upload = getUploads().find((candidate) => candidate.localId === localId);
 		if (!session || !upload || upload.status !== 'uploaded' || !upload.media.id) return;
@@ -1765,11 +1791,11 @@
 	};
 	const submitHomePost = async () => {
 		const body = composerText.trim();
-		const spoilerText = composerSpoilerActive ? composerSpoilerText.trim() : '';
-		const pollPayload = composerPoll ? preparedComposerPoll : undefined;
+		const spoilerText = instanceCapabilities.contentWarnings && composerSpoilerActive ? composerSpoilerText.trim() : '';
+		const pollPayload = instanceCapabilities.polls && composerPoll ? preparedComposerPoll : undefined;
 		const poll = pollPayload ?? undefined;
 		const session = currentSession;
-		if ((!body && composerUploadedMediaIds.length === 0) || (composerVisibility === 'direct' && !hasComposerAddressMention(body)) || composerText.length > composerCharacterLimit || (composerPoll && !pollPayload) || composerUploadsPending || homePostSubmitState === 'submitting' || !session) return;
+		if ((!body && composerUploadedMediaIds.length === 0) || (composerVisibility === 'direct' && !hasComposerAddressMention(body)) || composerText.length > composerCharacterLimit || (instanceCapabilities.polls && composerPoll && !pollPayload) || composerUploadsPending || homePostSubmitState === 'submitting' || !session) return;
 
 		const requestSessionKey = sessionKey(session);
 		const requestId = homePostSubmitRequestId + 1;
@@ -1844,6 +1870,7 @@
 		composerSpoilerActive = true;
 	};
 	const toggleComposerPoll = () => {
+		if (!instanceCapabilities.polls) return;
 		composerPoll = composerPoll ? null : createComposerPollDraft();
 	};
 	// Petnames (meta/issues/petnames.md): save my local name for the viewed
@@ -1951,6 +1978,7 @@
 		inlineReplySpoilerActive = true;
 	};
 	const toggleInlineReplyPoll = () => {
+		if (!instanceCapabilities.polls) return;
 		inlineReplyPoll = inlineReplyPoll ? null : createComposerPollDraft();
 	};
 	const inlineReplyOpenFor = (targetRoute: StatusActionOrigin, post: { id?: string | number }) => inlineReplyTarget?.route === targetRoute && inlineReplyTarget.renderId === String(post.id);
@@ -1961,11 +1989,11 @@
 	const submitInlineReply = async () => {
 		const target = inlineReplyTarget;
 		const body = inlineReplyDraft.trim();
-		const spoilerText = inlineReplySpoilerActive ? inlineReplySpoilerText.trim() : '';
-		const pollPayload = inlineReplyPoll ? preparedInlineReplyPoll : undefined;
+		const spoilerText = instanceCapabilities.contentWarnings && inlineReplySpoilerActive ? inlineReplySpoilerText.trim() : '';
+		const pollPayload = instanceCapabilities.polls && inlineReplyPoll ? preparedInlineReplyPoll : undefined;
 		const poll = pollPayload ?? undefined;
 		const session = currentSession;
-		if (!target || (!body && inlineReplyUploadedMediaIds.length === 0) || inlineReplyRemaining < 0 || (inlineReplyPoll && !pollPayload) || inlineReplyUploadsPending || inlineReplySubmitState === 'submitting' || !session) return;
+		if (!target || (!body && inlineReplyUploadedMediaIds.length === 0) || inlineReplyRemaining < 0 || (instanceCapabilities.polls && inlineReplyPoll && !pollPayload) || inlineReplyUploadsPending || inlineReplySubmitState === 'submitting' || !session) return;
 
 		const requestSessionKey = sessionKey(session);
 		const requestId = inlineReplyRequestId + 1;
@@ -2237,6 +2265,7 @@
 		const requestSessionKey = sessionKey(session);
 		const requestId = instanceConfigRequestId + 1;
 		instanceConfigRequestId = requestId;
+		instanceCapabilitiesStatus = 'loading';
 
 		try {
 			const client = createPleromaClient({
@@ -2248,8 +2277,27 @@
 			if (requestId !== instanceConfigRequestId || !isCurrentSessionRequest(requestSessionKey)) return;
 
 			composerCharacterLimit = statusCharacterLimit(instance);
+			const capabilities = capabilitiesForInstance(instance);
+			loadedInstanceCapabilities = capabilities;
+			loadedMediaTypes = mediaTypesForInstance(instance);
+			instanceCapabilitiesStatus = 'ready';
+			if (!capabilities.polls) {
+				composerPoll = null;
+				inlineReplyPoll = null;
+			}
+			if (!capabilities.contentWarnings) {
+				composerSpoilerActive = false;
+				composerSpoilerText = '';
+				inlineReplySpoilerActive = false;
+				inlineReplySpoilerText = '';
+			}
+			if (!capabilities.unlistedVisibility && composerVisibility === 'unlisted') composerVisibility = 'public';
 		} catch {
+			if (requestId !== instanceConfigRequestId || !isCurrentSessionRequest(requestSessionKey)) return;
 			// Character limits are best-effort; keep the conservative default if instance metadata is unavailable.
+			loadedInstanceCapabilities = null;
+			loadedMediaTypes = [];
+			instanceCapabilitiesStatus = 'error';
 		}
 	};
 	const ensureInstanceConfig = (session: PleromaSession) => {
@@ -2258,6 +2306,11 @@
 
 		loadedInstanceConfigKey = requestSessionKey;
 		void loadInstanceConfig(session);
+	};
+	const retryInstanceCapabilities = () => {
+		if (!currentSession) return;
+		loadedInstanceConfigKey = '';
+		ensureInstanceConfig(currentSession);
 	};
 	const suggestionAccountView = (account: PleromaAccount, currentAccountId?: string): SuggestionAccountView => {
 		const view = adaptPleromaAccount(account);
@@ -2433,6 +2486,7 @@
 		createPleromaClient({ instanceUrl: session.instanceUrl, accessToken: session.accessToken, fetch: window.fetch.bind(window) });
 	const chatExcerpt = (text: string) => (text.length > 160 ? `${text.slice(0, 157).trimEnd()}...` : text);
 	const loadChats = async (session: PleromaSession) => {
+		if (!instanceCapabilities.chats) return;
 		const requestSessionKey = sessionKey(session);
 		const requestId = chatsRequestId + 1;
 		chatsRequestId = requestId;
@@ -2477,6 +2531,7 @@
 		}
 	};
 	const loadChatThread = async (session: PleromaSession, chatId: string) => {
+		if (!instanceCapabilities.chats) return;
 		const requestSessionKey = sessionKey(session);
 		const requestId = chatThreadRequestId + 1;
 		chatThreadRequestId = requestId;
@@ -2515,6 +2570,7 @@
 		void loadChatThread(session, chatId);
 	};
 	const sendChatDraft = () => {
+		if (!instanceCapabilities.chats) return;
 		const session = currentSession;
 		const chatId = messagesChatId;
 		const content = chatDraft.trim();
@@ -2555,6 +2611,7 @@
 		})();
 	};
 	const deleteChatThreadMessage = (messageId: string) => {
+		if (!instanceCapabilities.chats) return;
 		const session = currentSession;
 		const chatId = messagesChatId;
 		if (!session || !chatId) return;
@@ -3167,19 +3224,20 @@
 		error: inlineReplySubmitError,
 		spoilerActive: inlineReplySpoilerActive,
 		spoilerText: inlineReplySpoilerText,
-		poll: inlineReplyPoll,
+		poll: instanceCapabilities.polls ? inlineReplyPoll : null,
 		pollValid: Boolean(preparedInlineReplyPoll),
 		accounts: composerMentionAccounts,
 		emojis: composerCustomEmojis,
 		uploads: inlineReplyUploads,
+		acceptedMediaTypes,
 		onMentionQuery: searchComposerMentionAccounts,
 		onFiles: queueInlineReplyFiles,
 		onRemoveUpload: removeInlineReplyUpload,
-		onAltText: saveInlineReplyUploadAlt,
-		onSpoilerToggle: toggleInlineReplySpoiler,
-		onSpoilerInput: (value: string) => (inlineReplySpoilerText = value),
-		onSpoilerRemove: clearInlineReplySpoiler,
-		onPollToggle: toggleInlineReplyPoll,
+		onAltText: instanceCapabilities.mediaDescription ? saveInlineReplyUploadAlt : undefined,
+		onSpoilerToggle: instanceCapabilities.contentWarnings ? toggleInlineReplySpoiler : undefined,
+		onSpoilerInput: instanceCapabilities.contentWarnings ? (value: string) => (inlineReplySpoilerText = value) : undefined,
+		onSpoilerRemove: instanceCapabilities.contentWarnings ? clearInlineReplySpoiler : undefined,
+		onPollToggle: instanceCapabilities.polls ? toggleInlineReplyPoll : undefined,
 		onPollChange: (poll: ComposerPollDraft) => (inlineReplyPoll = poll),
 		onPollRemove: () => (inlineReplyPoll = null),
 		onDraftInput: (value: string) => (inlineReplyDraft = value),
@@ -4001,27 +4059,27 @@
 		const session = readSessionOrRedirect({ optional: route === 'profile' });
 		if (!session && route !== 'profile') return;
 		if (session) {
+			ensureInstanceConfig(session);
 			ensureProfileAccount(session);
 			if (session.account) {
 				if (route === 'notifications') ensureForegroundNotifications(session);
 				else ensureNotifications(session);
 				connectNotificationStreaming(session);
-				ensureChats(session);
+				if (instanceCapabilities.chats) ensureChats(session);
 				ensureInvite(session);
-				if (route === 'messages') {
+				if (route === 'messages' && instanceCapabilities.chats) {
 					const chatId = pathname.split('/')[3] || null;
 					if (chatId) ensureChatThread(session, chatId);
 				}
 			}
 			else if (route === 'notifications' && profileAccountLoadError) notificationState = { status: 'error', error: profileAccountLoadError };
 			if (isTimelineRoute(route)) {
-				ensureInstanceConfig(session);
 				ensureTrends(session);
 				ensureSuggestions(session);
 				ensureComposerCustomEmojis(session);
 			}
 			if (route === 'search') ensureSearch(session, searchQuery);
-			if (route === 'bookmarks') ensureBookmarks(session);
+			if (route === 'bookmarks' && instanceCapabilities.bookmarks) ensureBookmarks(session);
 			if (route === 'settings') ensureBackupInfo(session);
 			if (route === 'thread' || route === 'profile') ensureComposerCustomEmojis(session);
 		}
@@ -4430,7 +4488,7 @@
 									insertRequest={composerInsertRequest}
 									onSubmit={submitHomePost}
 								/>
-								<input bind:this={composerFileInput} class="sr-only" type="file" multiple tabindex="-1" aria-label="Attach media" accept="image/*,audio/*,video/*" onchange={handleComposerFileChange} />
+							<input bind:this={composerFileInput} class="sr-only" type="file" multiple tabindex="-1" aria-label="Attach media" accept={acceptedMediaTypes} disabled={instanceCapabilitiesStatus !== 'ready'} onchange={handleComposerFileChange} />
 								{#if composerUploads.length > 0}
 									<div class="composer-uploads" aria-live="polite">
 										{#each composerUploads as upload (upload.localId)}
@@ -4443,7 +4501,7 @@
 														<span class="composer-upload-pct">{upload.status === 'error' ? 'Error' : `${upload.progress}%`}</span>
 													</div>
 													{#if upload.error}<div class="composer-upload-error">{upload.error}</div>{/if}
-													{#if upload.status === 'uploaded'}
+											{#if upload.status === 'uploaded' && instanceCapabilities.mediaDescription}
 														<input class="composer-upload-alt" type="text" placeholder="Alt text (describe for screen readers)" aria-label={`Alt text for ${upload.name}`} value={upload.media.description ?? ''} onchange={(event) => saveComposerUploadAlt(upload.localId, event.currentTarget.value)} />
 													{/if}
 												</div>
@@ -4452,25 +4510,24 @@
 										{/each}
 									</div>
 								{/if}
-								{#if composerSpoilerActive}
+							{#if composerSpoilerActive && instanceCapabilities.contentWarnings}
 									<ComposerCWPanel value={composerSpoilerText} onInput={(value) => (composerSpoilerText = value)} onRemove={clearComposerSpoiler} focusOnMount />
 								{/if}
-								{#if composerPoll}
+								{#if composerPoll && instanceCapabilities.polls}
 									<ComposerPollPanel poll={composerPoll} onPollChange={(poll) => (composerPoll = poll)} onRemove={() => (composerPoll = null)} focusOnMount idPrefix="home-composer-poll" />
 								{/if}
 								<div class="composer-row">
 									<button type="button" class="composer-tool" title="Image" aria-label="Image" onclick={pickComposerFiles}><Icon name="image" width={18} height={18} /></button>
-									{#if composerUploads.length > 0}<button type="button" class="composer-tool" title="Add another" aria-label="Add another attachment" onclick={pickComposerFiles}><Icon name="plus" width={14} height={14} /></button>{/if}
-									<button type="button" class="composer-tool" class:active={Boolean(composerPoll)} title="Poll" aria-label="Poll" aria-pressed={Boolean(composerPoll)} onclick={toggleComposerPoll}><Icon name="poll" width={18} height={18} /></button>
+									{#if instanceCapabilities.polls}<button type="button" class="composer-tool" class:active={Boolean(composerPoll)} title="Poll" aria-label="Poll" aria-pressed={Boolean(composerPoll)} onclick={toggleComposerPoll}><Icon name="poll" width={18} height={18} /></button>{/if}
 									<button type="button" class="composer-tool" class:active={composerEmojiPickerOpen} title="Emoji" aria-label="Emoji" aria-pressed={composerEmojiPickerOpen} data-emoji-trigger onclick={toggleComposerEmojiPicker}><Icon name="smile" width={18} height={18} /></button>
-									<button type="button" class="composer-tool cw" class:active={composerSpoilerActive} aria-label="Content warning" aria-pressed={composerSpoilerActive} onclick={toggleComposerSpoiler}>CW</button>
+									{#if instanceCapabilities.contentWarnings}<button type="button" class="composer-tool cw" class:active={composerSpoilerActive} aria-label="Content warning" aria-pressed={composerSpoilerActive} onclick={toggleComposerSpoiler}>CW</button>{/if}
 									<span class="composer-privacy-wrap">
 										<button bind:this={composerPrivacyTrigger} type="button" class="composer-tool privacy" aria-label={`Privacy: ${composerVisibilityOption.label}`} aria-haspopup="menu" aria-expanded={composerPrivacyOpen} onclick={() => (composerPrivacyOpen = !composerPrivacyOpen)}>
 											<Icon name={composerVisibilityOption.icon} width={13} height={13} /><span>{composerVisibilityOption.label}</span><Icon name="chevDown" width={12} height={12} className={composerPrivacyOpen ? 'chev open' : 'chev'} />
 										</button>
 										{#if composerPrivacyOpen}
 											<div class="composer-privacy-menu" role="menu" aria-label="Post visibility" data-testid="composer-privacy-menu">
-												{#each COMPOSER_VISIBILITIES as option (option.value)}
+										{#each availableComposerVisibilities as option (option.value)}
 													<button type="button" role="menuitemradio" aria-checked={composerVisibility === option.value} class="composer-privacy-item" class:selected={composerVisibility === option.value} onclick={() => selectComposerVisibility(option.value)}>
 														<Icon name={option.icon} width={14} height={14} />
 														<span class="composer-privacy-item-main">
@@ -4530,7 +4587,7 @@
 						{:else if homeTimelineState.status === 'success'}
 							<div data-testid="home-timeline-list">
 								{#each timelinePosts as post (post.id)}
-									<Post {post} replyExpanded={inlineReplyOpenFor('home', post)} replyControlsId={inlineReplyOpenFor('home', post) ? inlineReplyComposerId('home', post) : undefined} onOpen={() => openThread(post)} onAction={(key) => handlePostAction(post, key)} onReact={(anchor) => openReactionPicker(post, 'home', anchor)} onVote={(pollId, choice) => votePollForPost(post, pollId, choice, 'home')} canManage={Boolean(currentSession)} />
+									<Post {post} replyExpanded={inlineReplyOpenFor('home', post)} replyControlsId={inlineReplyOpenFor('home', post) ? inlineReplyComposerId('home', post) : undefined} onOpen={() => openThread(post)} onAction={(key) => handlePostAction(post, key)} onReact={(anchor) => openReactionPicker(post, 'home', anchor)} onVote={instanceCapabilities.polls ? (pollId, choice) => votePollForPost(post, pollId, choice, 'home') : undefined} canManage={Boolean(currentSession)} managementCapabilities={postManagementCapabilities} />
 									{#if inlineReplyOpenFor('home', post) && inlineReplyComposerProps}
 										<InlineReplyComposer
 											id={inlineReplyComposerId('home', post)}
@@ -4653,7 +4710,7 @@
 								<div class="thread-ancestors">
 									{#each threadState.ancestors as ancestor (ancestor.id)}
 										<div data-testid="thread-ancestor">
-											<AncestorPost post={ancestor} replyExpanded={inlineReplyOpenFor('thread', ancestor)} replyControlsId={inlineReplyOpenFor('thread', ancestor) ? inlineReplyComposerId('thread', ancestor) : undefined} onAction={handleThreadPostAction} onReact={handleThreadReact} onVote={handleThreadVote} canManage={Boolean(currentSession)} />
+											<AncestorPost post={ancestor} replyExpanded={inlineReplyOpenFor('thread', ancestor)} replyControlsId={inlineReplyOpenFor('thread', ancestor) ? inlineReplyComposerId('thread', ancestor) : undefined} onAction={handleThreadPostAction} onReact={handleThreadReact} onVote={instanceCapabilities.polls ? handleThreadVote : undefined} canManage={Boolean(currentSession)} managementCapabilities={postManagementCapabilities} />
 										</div>
 										{#if inlineReplyOpenFor('thread', ancestor) && inlineReplyComposerProps}
 											<InlineReplyComposer
@@ -4664,7 +4721,7 @@
 									{/each}
 								</div>
 							{/if}
-							<FocusedPost post={threadState.focused} continuesAbove={threadState.ancestors.length > 0} replyExpanded={inlineReplyOpenFor('thread', threadState.focused)} replyControlsId={inlineReplyOpenFor('thread', threadState.focused) ? inlineReplyComposerId('thread', threadState.focused) : undefined} onAction={handleThreadPostAction} onReact={handleThreadReact} onVote={handleThreadVote} canManage={Boolean(currentSession)} />
+							<FocusedPost post={threadState.focused} continuesAbove={threadState.ancestors.length > 0} replyExpanded={inlineReplyOpenFor('thread', threadState.focused)} replyControlsId={inlineReplyOpenFor('thread', threadState.focused) ? inlineReplyComposerId('thread', threadState.focused) : undefined} onAction={handleThreadPostAction} onReact={handleThreadReact} onVote={instanceCapabilities.polls ? handleThreadVote : undefined} canManage={Boolean(currentSession)} managementCapabilities={postManagementCapabilities} />
 							{#if inlineReplyOpenFor('thread', threadState.focused) && inlineReplyComposerProps}
 								<InlineReplyComposer
 									id={inlineReplyComposerId('thread', threadState.focused)}
@@ -4689,8 +4746,9 @@
 											nestedReplies={reply.nestedReplies}
 											onAction={handleThreadPostAction}
 											onReact={handleThreadReact}
-											onVote={handleThreadVote}
+											onVote={instanceCapabilities.polls ? handleThreadVote : undefined}
 											canManage={Boolean(currentSession)}
+											managementCapabilities={postManagementCapabilities}
 											inlineReply={threadInlineReplyBinding}
 											expandedReplyIds={expandedThreadReplyIds}
 											onShowNested={showThreadReplyNested}
@@ -4731,8 +4789,9 @@
 								onPostOpen={(post) => openThread(post)}
 								onPostAction={handleProfilePostAction}
 								onPostReact={(post, anchor) => openReactionPicker(post, 'profile', anchor)}
-								onPostVote={(post, pollId, choice) => votePollForPost(post, pollId, choice, 'profile')}
+								onPostVote={instanceCapabilities.polls ? (post, pollId, choice) => votePollForPost(post, pollId, choice, 'profile') : undefined}
 								canManage={Boolean(currentSession)}
+								managementCapabilities={postManagementCapabilities}
 								onEditProfile={() => goto('/app/settings')}
 								onFollowToggle={toggleProfileFollow}
 								onSetPetname={profileRouteState.data.profile.id !== '0' ? saveProfilePetname : undefined}
@@ -4745,7 +4804,16 @@
 					</section>
 				{:else if route === 'messages'}
 					<section class="card app-panel" data-testid="messages-panel">
-						{#if messagesChatId}
+						{#if instanceCapabilitiesStatus === 'idle' || instanceCapabilitiesStatus === 'loading'}
+							<div class="request-state" role="status">Checking messaging support</div>
+						{:else if instanceCapabilitiesStatus === 'error'}
+							<div class="request-state request-error"><h2>Could not check messaging support</h2><p>The node capability request failed. No chat API was called.</p><Button variant="secondary" onclick={retryInstanceCapabilities}>Retry request</Button></div>
+						{:else if !instanceCapabilities.chats}
+							<div class="request-state request-empty" data-testid="messages-unavailable">
+								<h2>Messages are not available on this DeltaNet node</h2>
+								<p>Direct posts work from the composer, but the daemon does not yet provide persistent chat threads.</p>
+							</div>
+						{:else if messagesChatId}
 							{#if chatsState.status === 'loading' || chatsState.status === 'idle' || chatThreadState.status === 'loading' || chatThreadState.status === 'idle'}
 								<div class="request-state" role="status" aria-label="Request status">Loading conversation</div>
 							{:else if chatThreadState.status === 'error'}
@@ -4806,6 +4874,16 @@
 					<section class="card app-panel" data-testid="bookmarks-panel">
 						<div class="app-page-kicker">Bookmarks</div>
 						<h1>Bookmarks</h1>
+						{#if instanceCapabilitiesStatus === 'idle' || instanceCapabilitiesStatus === 'loading'}
+							<div class="request-state" role="status">Checking bookmark support</div>
+						{:else if instanceCapabilitiesStatus === 'error'}
+							<div class="request-state request-error"><h2>Could not check bookmark support</h2><p>The node capability request failed. No bookmark API was called.</p><Button variant="secondary" onclick={retryInstanceCapabilities}>Retry request</Button></div>
+						{:else if !instanceCapabilities.bookmarks}
+							<div class="request-state request-empty" data-testid="bookmarks-unavailable">
+								<h2>Bookmarks are not available on this DeltaNet node</h2>
+								<p>The daemon cannot persist saved posts yet, so bookmark controls are hidden.</p>
+							</div>
+						{:else}
 						<p>Posts you have saved for later.</p>
 
 						{#if bookmarksState.status === 'loading' || bookmarksState.status === 'idle'}
@@ -4826,7 +4904,7 @@
 						{:else if bookmarksState.status === 'success'}
 							<div data-testid="bookmarks-list">
 								{#each bookmarksPosts as post (post.id)}
-									<Post {post} onOpen={() => openThread(post)} onAction={(key) => handlePostAction(post, key)} onReact={(anchor) => openReactionPicker(post, 'home', anchor)} onVote={(pollId, choice) => votePollForPost(post, pollId, choice, 'home')} canManage={Boolean(currentSession)} />
+									<Post {post} onOpen={() => openThread(post)} onAction={(key) => handlePostAction(post, key)} onReact={(anchor) => openReactionPicker(post, 'home', anchor)} onVote={instanceCapabilities.polls ? (pollId, choice) => votePollForPost(post, pollId, choice, 'home') : undefined} canManage={Boolean(currentSession)} managementCapabilities={postManagementCapabilities} />
 								{/each}
 							</div>
 							<TimelineLoadMore
@@ -4835,6 +4913,7 @@
 								loadMoreError={bookmarksState.loadMoreError}
 								onLoadMore={loadMoreBookmarks}
 							/>
+						{/if}
 						{/if}
 					</section>
 				{:else if route === 'notifications'}
@@ -4917,6 +4996,7 @@
 							<textarea id="bio" class="input textarea" value={profile.bio} oninput={(event) => updateProfile('bio', event.currentTarget.value)}></textarea>
 							<div class="input-counter">{profileBioCount}</div>
 						</div>
+						{#if instanceCapabilities.extendedProfile}
 						<div class="field">
 							<label class="field-label" for="website">Website</label>
 							<input id="website" class="input" value={profile.website} oninput={(event) => updateProfile('website', event.currentTarget.value)} />
@@ -4929,6 +5009,9 @@
 							<button type="button" role="switch" aria-label="Discoverable profile" aria-checked={profile.discoverable ? 'true' : 'false'} onclick={() => updateProfile('discoverable', !profile.discoverable)}>Discoverable profile</button>
 							<button type="button" role="switch" aria-label="Show follower count" aria-checked={profile.showFollowers ? 'true' : 'false'} onclick={() => updateProfile('showFollowers', !profile.showFollowers)}>Show follower count</button>
 						</div>
+						{:else}
+							<div class="field-help" data-testid="extended-profile-unavailable">Website, location, discoverability, and follower-count settings are not supported by this DeltaNet node.</div>
+						{/if}
 						<div class="settings-actions">
 							<button type="button" class="btn-primary" onclick={saveProfile} disabled={settingsSaveState === 'Saving…'}>Save profile settings</button>
 							<button type="button" class="btn-secondary" onclick={resetProfile}>Reset profile settings</button>

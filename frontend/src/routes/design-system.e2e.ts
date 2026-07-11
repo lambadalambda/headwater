@@ -303,24 +303,18 @@ test('renders canonical poll attachment specimens', async ({ page }) => {
 	await expect(single.locator('.post-poll-vote-row')).toHaveCount(3);
 	await expect(single.locator('.post-poll-radio')).toHaveCount(3);
 	await expect(single.getByRole('button', { name: 'Vote' })).toBeDisabled();
-	await single.locator('.post-poll-vote-row').filter({ hasText: 'warm cassette' }).click();
-	await expect(single.getByRole('radio', { name: 'warm cassette' })).toBeChecked();
-	await expect(single.locator('.post-poll-vote-row').filter({ hasText: 'warm cassette' })).toHaveClass(/selected/);
-	await expect(single.getByRole('button', { name: 'Vote' })).toBeDisabled();
-	await single.getByRole('radio', { name: 'warm cassette' }).focus();
-	await expect(single.locator('.post-poll-vote-row').filter({ hasText: 'warm cassette' })).toHaveCSS('outline-style', 'solid');
+	await expect(single.getByRole('radio', { name: 'warm cassette' })).toBeDisabled();
+	await expect(single.getByText('Voting is unavailable in this view')).toBeVisible();
 	await single.getByRole('button', { name: 'View results ->' }).click();
 	await expect(single.locator('.post-poll-row')).toHaveCount(3);
 	await single.getByRole('button', { name: 'Back to voting' }).click();
-	await expect(single.getByRole('radio', { name: 'warm cassette' })).toBeChecked();
+	await expect(single.getByRole('radio', { name: 'warm cassette' })).not.toBeChecked();
 
 	const multi = attachments.locator('.ds-spec').filter({ hasText: 'Voting · multiple choices' });
 	await expect(multi.locator('.post-poll-check')).toHaveCount(3);
-	await multi.locator('.post-poll-vote-row').filter({ hasText: 'CW redesign' }).click();
-	await multi.locator('.post-poll-vote-row').filter({ hasText: 'Polls' }).click();
-	await expect(multi.getByRole('checkbox', { name: 'CW redesign' })).toBeChecked();
-	await expect(multi.getByRole('checkbox', { name: 'Polls' })).toBeChecked();
-	await expect(multi.getByRole('button', { name: 'Vote · 2 selected' })).toBeDisabled();
+	await expect(multi.getByRole('checkbox', { name: 'CW redesign' })).toBeDisabled();
+	await expect(multi.getByRole('checkbox', { name: 'Polls' })).toBeDisabled();
+	await expect(multi.getByRole('button', { name: 'Vote' })).toBeDisabled();
 
 	const results = attachments.locator('.ds-spec').filter({ hasText: 'Results · with vote' });
 	await expect(results.locator('.post-poll-row')).toHaveCount(3);
