@@ -35,6 +35,6 @@ artifacts as production releases.
 
 - Child slice of `desktop-platform-packaging.md`; signing, notarization, hardened
   fuses, updates, and installed-artifact acceptance remain there.
-- Native CI has verified the Windows installer, final DMG, packaged macOS smoke,
-  checksums, and rolling prerelease publication. Keep this issue open until the
-  Linux AppImage and expanded release guidance are published successfully.
+- Native CI run `29646214311` verified the Flatpak, AppImage packaged smoke,
+  Windows installer, final DMG, checksums, and rolling prerelease publication.
+  The expanded release guidance was published with the same successful run.

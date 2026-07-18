@@ -79,10 +79,14 @@ background operation without yet solving the full release matrix.
 
 - The first implementation slice is tracked in
   [Bootstrap the secure macOS Electron host](electron-secure-bootstrap.md).
-- The first packaged nightly confirmed that signup succeeds but then asks for a
-  newly rotated enrollment code that Electron does not expose. Complete the
-  private daemon-to-main enrollment bridge and app-only onboarding operation
-  before treating packaged account creation or restore as usable.
+- The private daemon-to-main enrollment bridge now redeems startup and rotated
+  codes inside Electron main, returning only a validated OAuth client to the
+  landing document. Signup and restore can continue into sign-in without
+  terminal input, and development plus unpacked packaged two-launch smokes pass.
+  The required main-generated bootstrap proof remains open, so another local
+  process can still race anonymous signup/restore. Registration also needs a
+  recoverable transaction design so a lost response cannot strand a persisted
+  OAuth client slot whose secret main never received.
 - Target macOS arm64 first unless the product owner selects another development
   platform. Cross-platform signing, updates, and broad installer coverage belong
   to the release-infrastructure issue.

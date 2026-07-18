@@ -55,3 +55,4 @@
 - [x] [Rebrand DeltaNet to Headwater](issues/rebrand-headwater.md)
 - [x] [Build a production daemon runtime and lifecycle](issues/daemon-production-runtime.md)
 - [x] [Bootstrap the secure macOS Electron host](issues/electron-secure-bootstrap.md)
+- [x] [Publish unsigned nightly desktop builds](issues/nightly-desktop-releases.md)

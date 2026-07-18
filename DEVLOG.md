@@ -4,6 +4,38 @@ DeltaNet-era entries retained after the current entry preserve the former name
 and deployed identifiers as written. They document implementation history, not
 current naming.
 
+## 2026-07-18 - private desktop enrollment handoff
+
+Packaged desktop onboarding can now continue from signup or restore into OAuth
+without asking the user to recover a terminal-only secret
+(`meta/issues/electron-desktop-alpha.md`):
+
+- The utility protocol validates exact 43-character enrollment events and sends
+  them to a revisioned, expiring, single-waiter broker in Electron main. Raw
+  codes remain in main-process memory and are cleared on consumption, expiry,
+  rotation, shutdown, or runtime failure.
+- A landing-document-only IPC operation asks main to register the OAuth client
+  against the exact daemon loopback origin. Requests have abortable five-second
+  deadlines and streamed 16 KiB response bounds; credentials are retained for a
+  renderer-reload retry until local storage acknowledges them.
+- Signup and restore snapshot their origin and inputs before asynchronous work,
+  wait specifically for the post-operation code revision, and reuse persisted
+  clients without consuming another code. Remote home servers never receive
+  desktop enrollment authority.
+- Top-level desktop navigation is limited to known SPA and OAuth documents, so
+  same-origin API, blob, or asset documents cannot invoke privileged enrollment
+  IPC. The sandboxed preload keeps all validation self-contained rather than
+  loading unsupported local CommonJS modules.
+- Verification passed root checks, 1,533 daemon tests, 359 frontend browser
+  tests, 40 desktop tests, full builds/resource verification, independent code
+  review, and two-launch development plus unpacked Linux packaged smokes with
+  the real daemon, native helper, registration, acknowledgement, persistence,
+  listener cleanup, and sandboxed preload.
+- The desktop alpha remains incomplete: main-generated bootstrap proof is still
+  required to prevent a local signup/restore race, and daemon OAuth registration
+  needs a recoverable transaction so a lost response cannot strand a client
+  slot whose secret main never received.
+
 ## 2026-07-18 - unsigned native desktop nightlies
 
 Headwater now has the packaging and CI foundation for rolling unsigned desktop
@@ -43,8 +75,9 @@ nightlies (`meta/issues/nightly-desktop-releases.md`):
   full build/resource staging and import verification, workflow YAML parsing,
   `git diff --check`, Flatpak build/install, and macOS strict signature checks.
   The first native workflow subsequently produced every original artifact and
-  published the rolling release successfully; the issue remains open until the
-  AppImage and expanded guidance complete the same path.
+  published the rolling release successfully. Follow-up run `29646214311`
+  published the AppImage and expanded guidance, completing and closing the
+  unsigned-nightly issue.
 
 ## 2026-07-18 - secure Electron desktop bootstrap
 
