@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
 import electron from 'electron';
+import { electronSmokeArguments } from '../dist/smoke.js';
 
 const root = mkdtempSync(join(tmpdir(), 'headwater-desktop-smoke-'));
 const appDir = fileURLToPath(new URL('..', import.meta.url));
@@ -53,11 +54,7 @@ const listenerIsClosed = (origin) => new Promise((resolve) => {
 
 const launch = async (attempt) => {
   const marker = join(root, `result-${attempt}.json`);
-  const child = spawn(electron, [
-    appDir,
-    `--user-data-dir=${root}`,
-    `--headwater-desktop-smoke-marker=${marker}`,
-  ], {
+  const child = spawn(electron, electronSmokeArguments({ appDir, userData: root, marker }), {
     detached: process.platform !== 'win32',
     stdio: ['ignore', 'inherit', 'inherit'],
   });
