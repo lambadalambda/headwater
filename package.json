@@ -10,7 +10,7 @@
   },
   "scripts": {
     "setup": "pnpm --dir daemon install && pnpm --dir frontend install && electron_config_cache=desktop/.cache/electron pnpm --dir desktop install",
-    "build": "pnpm --dir frontend build && pnpm --dir daemon build && pnpm --dir desktop build && pnpm --dir desktop run stage:resources",
+    "build": "pnpm --dir frontend build && pnpm --dir daemon build && pnpm --dir desktop build && pnpm --dir desktop run stage:resources && pnpm --dir desktop run verify:resources",
     "start": "pnpm --dir daemon start",
     "dev:daemon": "pnpm --dir daemon dev",
     "dev:frontend": "pnpm --dir frontend dev",

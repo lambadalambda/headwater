@@ -12,3 +12,4 @@ accounts.local.json
 test-results/
 .cache/
 desktop/resources/
+desktop/release/

@@ -27,7 +27,6 @@ const requestedSmokeMarker = app.commandLine.getSwitchValue('headwater-desktop-s
   || process.env['HEADWATER_DESKTOP_SMOKE_MARKER']
   || '';
 const smokePaths = validateDesktopSmokePaths({
-  isPackaged: app.isPackaged,
   root: process.env['HEADWATER_DESKTOP_SMOKE_ROOT'] || '',
   marker: requestedSmokeMarker,
 });
@@ -65,7 +64,7 @@ const run = async (): Promise<void> => {
   try {
     await app.whenReady();
     const appDir = dirname(dirname(fileURLToPath(import.meta.url)));
-    const resourceRoot = app.isPackaged && !smokeMarker ? process.resourcesPath : `${appDir}/resources`;
+    const resourceRoot = app.isPackaged ? process.resourcesPath : `${appDir}/resources`;
     const paths = desktopPaths({ appDir, resourcesPath: resourceRoot, userData: app.getPath('userData') });
     const rendererSession = session.fromPath(`${app.getPath('userData')}/renderer-session`, { cache: true });
     rendererSession.setPermissionCheckHandler(() => false);

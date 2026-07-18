@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
 import electron from 'electron';
@@ -9,6 +9,8 @@ import { electronSmokeArguments, electronSmokeEnvironment } from '../dist/smoke.
 
 const root = mkdtempSync(join(tmpdir(), 'headwater-desktop-smoke-'));
 const appDir = fileURLToPath(new URL('..', import.meta.url));
+const packagedExecutable = process.env['HEADWATER_DESKTOP_SMOKE_EXECUTABLE'];
+const executable = packagedExecutable ? resolve(packagedExecutable) : electron;
 
 const stopProcessGroup = (child) => {
   if (!child.pid) return;
@@ -54,7 +56,11 @@ const listenerIsClosed = (origin) => new Promise((resolve) => {
 
 const launch = async (attempt) => {
   const marker = join(root, `result-${attempt}.json`);
-  const child = spawn(electron, electronSmokeArguments({ appDir, userData: root, marker }), {
+  const child = spawn(executable, electronSmokeArguments({
+    appDir: packagedExecutable ? undefined : appDir,
+    userData: root,
+    marker,
+  }), {
     detached: process.platform !== 'win32',
     env: electronSmokeEnvironment(process.env, { userData: root, marker }),
     stdio: ['ignore', 'inherit', 'inherit'],

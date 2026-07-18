@@ -1,9 +1,58 @@
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getRPCServerPath } from '@deltachat/stdio-rpc-server';
+import { nativeHelperFilename } from '../dist/paths.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
+const resolvePackageRoot = (name, from) => {
+  const candidates = [join(from, 'node_modules', ...name.split('/'))];
+  for (let current = from; current !== dirname(current); current = dirname(current)) {
+    if (basename(current) === 'node_modules') candidates.push(join(current, ...name.split('/')));
+  }
+  for (const candidate of candidates) {
+    const manifest = join(candidate, 'package.json');
+    if (existsSync(manifest) && readJson(manifest).name === name) return realpathSync(candidate);
+  }
+  let current = dirname(createRequire(join(from, 'package.json')).resolve(name));
+  while (current !== dirname(current)) {
+    const manifest = join(current, 'package.json');
+    if (existsSync(manifest) && readJson(manifest).name === name) return current;
+    current = dirname(current);
+  }
+  throw new Error(`could not locate runtime package ${name}`);
+};
+const stageRuntimePackages = (destination) => {
+  const rootManifest = readJson(join(root, 'package.json'));
+  const versions = new Map();
+  const copied = new Set();
+  const stagePackage = (name, from, nodeModules) => {
+    const source = resolvePackageRoot(name, from);
+    const manifest = readJson(join(source, 'package.json'));
+    const target = join(nodeModules, ...name.split('/'));
+    const key = `${target}\0${manifest.version}`;
+    if (copied.has(key)) return;
+    copied.add(key);
+    const packageVersions = versions.get(name) ?? new Set();
+    packageVersions.add(manifest.version);
+    versions.set(name, packageVersions);
+    mkdirSync(dirname(target), { recursive: true });
+    cpSync(source, target, { recursive: true, dereference: true });
+    const requiredPeers = Object.keys(manifest.peerDependencies ?? {})
+      .filter((peer) => manifest.peerDependenciesMeta?.[peer]?.optional !== true);
+    for (const dependency of new Set([...Object.keys(manifest.dependencies ?? {}), ...requiredPeers])) {
+      stagePackage(dependency, source, join(target, 'node_modules'));
+    }
+  };
+  for (const dependency of Object.keys(rootManifest.dependencies ?? {})) {
+    stagePackage(dependency, root, destination);
+  }
+  return Object.fromEntries([...versions]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, packageVersions]) => [name, [...packageVersions].sort()]));
+};
 const resources = join(root, 'resources');
 const resourceName = basename(resources);
 const orphanedBackups = readdirSync(root)
@@ -26,9 +75,12 @@ try {
   cpSync(resolve(root, '../frontend/build'), join(staging, 'frontend'), { recursive: true });
   copyFileSync(join(root, 'dist', 'worker.mjs'), join(staging, 'utility', 'worker.mjs'));
   copyFileSync(join(root, 'dist', 'protocol.js'), join(staging, 'utility', 'protocol.js'));
+  const runtimePackages = stageRuntimePackages(join(staging, 'node_modules'));
+  writeFileSync(join(staging, 'runtime-packages.json'), `${JSON.stringify(runtimePackages, null, 2)}\n`);
   const native = getRPCServerPath({ disableEnvPath: true });
-  copyFileSync(native, join(staging, 'native', 'deltachat-rpc-server'));
-  chmodSync(join(staging, 'native', 'deltachat-rpc-server'), 0o755);
+  const nativeTarget = join(staging, 'native', nativeHelperFilename(process.platform));
+  copyFileSync(native, nativeTarget);
+  if (process.platform !== 'win32') chmodSync(nativeTarget, 0o755);
   if (existsSync(resources)) renameSync(resources, backup);
   try {
     renameSync(staging, resources);

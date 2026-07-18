@@ -1,13 +1,13 @@
 import { dirname, isAbsolute, resolve } from 'node:path';
 
 export const electronSmokeArguments = (input: {
-  appDir: string;
+  appDir?: string;
   userData: string;
   marker: string;
 }): string[] => [
   `--user-data-dir=${input.userData}`,
   `--headwater-desktop-smoke-marker=${input.marker}`,
-  input.appDir,
+  ...(input.appDir ? [input.appDir] : []),
 ];
 
 export const electronSmokeEnvironment = (
@@ -20,11 +20,10 @@ export const electronSmokeEnvironment = (
 });
 
 export const validateDesktopSmokePaths = (input: {
-  isPackaged: boolean;
   root: string;
   marker: string;
 }): Readonly<{ root: string; marker: string }> | null => {
-  if (input.isPackaged || !isAbsolute(input.root) || !isAbsolute(input.marker)) return null;
+  if (!isAbsolute(input.root) || !isAbsolute(input.marker)) return null;
   const root = resolve(input.root);
   const marker = resolve(input.marker);
   return dirname(marker) === root ? { root, marker } : null;

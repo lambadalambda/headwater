@@ -55,3 +55,6 @@ tests on each target.
 ## Notes
 
 - Depends on `electron-desktop-alpha.md`.
+- Unsigned rolling CI artifacts are tracked separately in
+  `nightly-desktop-releases.md` and do not satisfy this issue's signing or
+  installed-artifact acceptance criteria.

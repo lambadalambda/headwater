@@ -1,0 +1,208 @@
+name: Desktop Nightly
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-nightly-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PNPM_VERSION: 11.5.2
+  NODE_VERSION: 24
+  NIGHTLY_VERSION: 0.0.1-nightly.${{ github.run_number }}
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+jobs:
+  checks:
+    name: Checks and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: |
+            daemon/pnpm-lock.yaml
+            frontend/pnpm-lock.yaml
+            desktop/pnpm-lock.yaml
+      - name: Install dependencies
+        run: |
+          pnpm --dir daemon install --frozen-lockfile
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir desktop install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: pnpm --dir frontend exec playwright install --with-deps chromium
+      - name: Run checks
+        run: pnpm check
+      - name: Run tests
+        run: pnpm test
+
+  linux:
+    name: Linux x64 Flatpak
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: |
+            daemon/pnpm-lock.yaml
+            frontend/pnpm-lock.yaml
+            desktop/pnpm-lock.yaml
+      - name: Install dependencies
+        run: |
+          pnpm --dir daemon install --frozen-lockfile
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir desktop install --frozen-lockfile
+      - name: Install Flatpak toolchain and runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub \
+            org.freedesktop.Platform//24.08 \
+            org.freedesktop.Sdk//24.08 \
+            org.electronjs.Electron2.BaseApp//24.08
+      - name: Build and verify staged resources
+        run: pnpm build && pnpm --dir desktop verify:resources
+      - name: Build Flatpak bundle
+        run: pnpm --dir desktop package:linux --config.extraMetadata.version=${NIGHTLY_VERSION}
+      - name: Verify Flatpak output
+        run: test -x desktop/resources/native/deltachat-rpc-server && test -n "$(find desktop/release -maxdepth 1 -name '*.flatpak' -print -quit)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-linux-${{ github.sha }}
+          path: desktop/release/*.flatpak
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Windows x64 installer
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: |
+            daemon/pnpm-lock.yaml
+            frontend/pnpm-lock.yaml
+            desktop/pnpm-lock.yaml
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          pnpm --dir daemon install --frozen-lockfile
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir desktop install --frozen-lockfile
+      - name: Build and verify staged resources
+        shell: pwsh
+        run: pnpm build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; pnpm --dir desktop verify:resources
+      - name: Build NSIS installer
+        shell: pwsh
+        run: pnpm --dir desktop package:win --config.extraMetadata.version=$env:NIGHTLY_VERSION
+      - name: Verify Windows output
+        shell: pwsh
+        run: |
+          if (-not (Test-Path desktop/resources/native/deltachat-rpc-server.exe)) { throw 'missing staged Delta Chat helper' }
+          if (-not (Get-ChildItem desktop/release/*.exe -ErrorAction SilentlyContinue)) { throw 'missing Windows installer' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-windows-${{ github.sha }}
+          path: desktop/release/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  macos:
+    name: macOS arm64 DMG
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: |
+            daemon/pnpm-lock.yaml
+            frontend/pnpm-lock.yaml
+            desktop/pnpm-lock.yaml
+      - name: Install dependencies
+        run: |
+          pnpm --dir daemon install --frozen-lockfile
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir desktop install --frozen-lockfile
+      - name: Build and verify staged resources
+        run: pnpm build && pnpm --dir desktop verify:resources
+      - name: Build unsigned DMG
+        run: pnpm --dir desktop package:mac --config.extraMetadata.version=${NIGHTLY_VERSION}
+      - name: Smoke packaged app
+        env:
+          HEADWATER_DESKTOP_SMOKE_EXECUTABLE: ${{ github.workspace }}/desktop/release/mac-arm64/Headwater.app/Contents/MacOS/Headwater
+        run: node desktop/scripts/smoke.mjs
+      - name: Verify macOS output
+        run: |
+          test -x desktop/resources/native/deltachat-rpc-server
+          test -n "$(find desktop/release -maxdepth 1 -name '*.dmg' -print -quit)"
+          codesign --verify --deep --strict desktop/release/mac-arm64/Headwater.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-macos-${{ github.sha }}
+          path: desktop/release/*.dmg
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish rolling nightly prerelease
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [checks, linux, windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: nightly-*-${{ github.sha }}
+          path: nightly-artifacts
+          merge-multiple: true
+      - name: Verify this is still the main branch head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: test "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)" = "${GITHUB_SHA}"
+      - name: Generate checksums
+        working-directory: nightly-artifacts
+        run: sha256sum *.flatpak *.exe *.dmg > SHA256SUMS.txt
+      - name: Replace nightly prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete nightly --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes || true
+          gh release create nightly nightly-artifacts/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "Headwater Nightly ${GITHUB_SHA::7}" \
+            --notes "Unsigned development builds from commit ${GITHUB_SHA}. These artifacts are not notarized or signed by a trusted developer certificate and may trigger operating-system security warnings." \
+            --prerelease

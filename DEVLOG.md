@@ -4,6 +4,42 @@ DeltaNet-era entries retained after the current entry preserve the former name
 and deployed identifiers as written. They document implementation history, not
 current naming.
 
+## 2026-07-18 - unsigned native desktop nightlies
+
+Headwater now has the packaging and CI foundation for rolling unsigned desktop
+nightlies (`meta/issues/nightly-desktop-releases.md`):
+
+- Native GitHub jobs build a Linux x64 Flatpak, Windows x64 NSIS installer, and
+  macOS arm64 DMG after a separate root check/test gate. SHA-qualified job
+  artifacts are merged only after every platform succeeds, checksummed, and
+  published to the rolling `nightly` prerelease when the commit is still the
+  current `main` head. Non-canceling event/ref concurrency prevents interrupted
+  release replacement and manual runs never publish.
+- electron-builder 26.15.3 is pinned beside Electron 43.1.1. Packaging uses a
+  stable application/desktop identity, Headwater icons, explicit external
+  resources, platform-native helper names, and post-pack assertions for the
+  daemon, frontend, utility worker, runtime dependencies, and executable helper.
+- Resource staging now preserves nested production dependency layouts outside
+  ASAR and records the exact staged versions. Verification imports the staged
+  compiled daemon, catching dependency graphs that merely exist but cannot
+  resolve at runtime.
+- The Flatpak aligns the Freedesktop runtime, SDK, and Electron BaseApp on 24.08
+  and exports a 512 px icon. A privileged disposable NAS container built the
+  111 MB bundle without warnings; installing it confirmed the expected app ID,
+  runtime, architecture, and commit.
+- Credential-free macOS nightlies are ad-hoc sealed rather than left with a
+  structurally invalid bundle. The hardened runtime receives Electron's JIT,
+  unsigned-executable-memory, and library-validation entitlements; strict deep
+  signature verification passes, and a LaunchServices run confirmed startup.
+  The existing two-launch daemon/helper/listener smoke can now target packaged
+  resources and runs against the sealed app in CI.
+- Final local verification passed root checks, 1,533 daemon tests, 353 frontend
+  browser tests, 28 desktop tests, both daemon production-artifact tests, the
+  full build/resource staging and import verification, workflow YAML parsing,
+  `git diff --check`, Flatpak build/install, and macOS strict signature checks.
+  The issue remains open until native CI proves NSIS creation, final DMG creation,
+  packaged macOS smoke, checksums, and rolling GitHub publication.
+
 ## 2026-07-18 - secure Electron desktop bootstrap
 
 The first macOS-arm64 desktop slice now has an independent pinned Electron 43

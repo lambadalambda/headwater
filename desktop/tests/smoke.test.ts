@@ -16,6 +16,13 @@ describe('Electron smoke launcher', () => {
       '--headwater-desktop-smoke-marker=/tmp/headwater-smoke/result.json',
       '/repo/desktop',
     ]);
+    expect(electronSmokeArguments({
+      userData: '/tmp/headwater-smoke',
+      marker: '/tmp/headwater-smoke/result.json',
+    })).toEqual([
+      '--user-data-dir=/tmp/headwater-smoke',
+      '--headwater-desktop-smoke-marker=/tmp/headwater-smoke/result.json',
+    ]);
   });
 
   it('passes the isolated smoke root and marker through the child environment', () => {
@@ -31,14 +38,13 @@ describe('Electron smoke launcher', () => {
     });
   });
 
-  it('accepts only development markers directly inside the isolated root', () => {
+  it('accepts only markers directly inside the isolated root', () => {
     const input = { root: '/tmp/headwater-smoke', marker: '/tmp/headwater-smoke/result.json' };
-    expect(validateDesktopSmokePaths({ ...input, isPackaged: false })).toEqual(input);
-    expect(validateDesktopSmokePaths({ ...input, isPackaged: true })).toBeNull();
-    expect(validateDesktopSmokePaths({ ...input, marker: '/tmp/outside.json', isPackaged: false })).toBeNull();
-    expect(validateDesktopSmokePaths({ ...input, root: 'relative', isPackaged: false })).toBeNull();
-    expect(validateDesktopSmokePaths({ ...input, marker: 'relative', isPackaged: false })).toBeNull();
-    expect(validateDesktopSmokePaths({ ...input, marker: '/tmp/headwater-smoke/nested/result.json', isPackaged: false })).toBeNull();
-    expect(validateDesktopSmokePaths({ ...input, marker: '/tmp/headwater-smoke/../outside.json', isPackaged: false })).toBeNull();
+    expect(validateDesktopSmokePaths(input)).toEqual(input);
+    expect(validateDesktopSmokePaths({ ...input, marker: '/tmp/outside.json' })).toBeNull();
+    expect(validateDesktopSmokePaths({ ...input, root: 'relative' })).toBeNull();
+    expect(validateDesktopSmokePaths({ ...input, marker: 'relative' })).toBeNull();
+    expect(validateDesktopSmokePaths({ ...input, marker: '/tmp/headwater-smoke/nested/result.json' })).toBeNull();
+    expect(validateDesktopSmokePaths({ ...input, marker: '/tmp/headwater-smoke/../outside.json' })).toBeNull();
   });
 });

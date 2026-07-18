@@ -1,0 +1,64 @@
+appId: social.pleroma.Headwater
+productName: Headwater
+asar: true
+npmRebuild: false
+afterPack: scripts/verify-packaged-resources.cjs
+directories:
+  output: release
+files:
+  - dist/**/*
+  - package.json
+extraResources:
+  - from: resources/daemon
+    to: daemon
+  - from: resources/frontend
+    to: frontend
+  - from: resources/utility
+    to: utility
+  - from: resources/native
+    to: native
+  - from: resources/node_modules
+    to: node_modules
+  - from: resources/runtime-packages.json
+    to: runtime-packages.json
+artifactName: Headwater-${version}-${os}-${arch}.${ext}
+mac:
+  icon: build/icon.png
+  category: public.app-category.social-networking
+  target:
+    - target: dmg
+      arch: arm64
+  identity: "-"
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  minimumSystemVersion: "12.0"
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: x64
+  executableName: Headwater
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+linux:
+  icon: build/icon-512x512.png
+  category: Network
+  executableName: headwater
+  syncDesktopName: true
+  target:
+    - target: flatpak
+      arch: x64
+flatpak:
+  runtime: org.freedesktop.Platform
+  sdk: org.freedesktop.Sdk
+  runtimeVersion: "24.08"
+  baseVersion: "24.08"
+  finishArgs:
+    - --share=ipc
+    - --share=network
+    - --socket=x11
+    - --socket=wayland
+    - --socket=pulseaudio
+    - --device=dri
