@@ -3,6 +3,7 @@ import {
   browserWindowOptions,
   externalHttpUrl,
   isAllowedInternalNavigation,
+  isExpectedBackupSender,
   isExpectedEnrollmentSender,
   isExpectedStatusSender,
 } from '../src/security.js';
@@ -59,5 +60,15 @@ describe('desktop renderer security policy', () => {
     expect(isExpectedEnrollmentSender({ sender: contents, senderFrame: frame }, contents, 'http://127.0.0.1:43123')).toBe(false);
     frame.url = 'http://127.0.0.1:43123/pleroma/headwater/blob/1';
     expect(isExpectedEnrollmentSender({ sender: contents, senderFrame: frame }, contents, 'http://127.0.0.1:43123')).toBe(false);
+  });
+
+  it('accepts backup IPC only from the required-backup and settings documents', () => {
+    const frame = { url: 'http://127.0.0.1:43123/backup' };
+    const contents = { mainFrame: frame };
+    expect(isExpectedBackupSender({ sender: contents, senderFrame: frame }, contents, 'http://127.0.0.1:43123')).toBe(true);
+    frame.url = 'http://127.0.0.1:43123/app/settings';
+    expect(isExpectedBackupSender({ sender: contents, senderFrame: frame }, contents, 'http://127.0.0.1:43123')).toBe(true);
+    frame.url = 'http://127.0.0.1:43123/app/home';
+    expect(isExpectedBackupSender({ sender: contents, senderFrame: frame }, contents, 'http://127.0.0.1:43123')).toBe(false);
   });
 });

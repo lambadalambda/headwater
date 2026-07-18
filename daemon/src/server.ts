@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { chmod, mkdir, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -91,6 +91,10 @@ import {
 } from './resource-limits.js';
 import { createResourceBudget } from './resource-budget.js';
 import { resolveDataFilePath } from './config.js';
+import {
+  createDesktopBootstrapVerifier,
+  type DesktopBootstrapOperation,
+} from './desktop-bootstrap.js';
 
 const DC_CONTACT_ID_SELF = 1;
 const FAVOURITE_EMOJI = '❤';
@@ -107,6 +111,8 @@ export type ServerOptions = {
         trustedOrigins?: string[];
         /** Receives replacement enrollment secrets without requiring log parsing. */
         onEnrollmentCode?: (enrollment: { code: string; expiresAt: number }) => void;
+        /** Restart-scoped desktop key delivered only over inherited utility IPC. */
+        desktopBootstrapKey?: string;
       }
     | { unsafeTestOnly: true };
   /** Absolute path to a built frontend SPA to serve as static files; skipped if unset/missing. */
@@ -255,6 +261,9 @@ export const createApp = (
   }: ServerOptions,
 ) => {
   const enabledSecurity = 'auth' in security ? security : null;
+  const desktopBootstrap = enabledSecurity?.desktopBootstrapKey
+    ? createDesktopBootstrapVerifier({ key: enabledSecurity.desktopBootstrapKey })
+    : null;
   const allowedSignupRelays = new Set(
     [DEFAULT_RELAY, ...(signupRelays ?? [])].map(normalizeRelayUrl),
   );
@@ -897,6 +906,13 @@ export const createApp = (
     const match = /^Bearer ([A-Za-z0-9_-]+)$/.exec(authorization ?? '');
     return match?.[1] ?? null;
   };
+  const desktopBootstrapOperation = (method: string, path: string): DesktopBootstrapOperation | null => {
+    if (method !== 'POST') return null;
+    if (isApiPath(path, '/signup')) return 'signup';
+    if (isApiPath(path, '/restore')) return 'restore';
+    if (path === '/api/v1/apps') return 'oauth-register';
+    return null;
+  };
 
   app.use('*', async (c, next) => {
     c.header('Vary', 'Origin');
@@ -936,6 +952,12 @@ export const createApp = (
 
     if (method === 'OPTIONS') {
       return c.body(null, 204);
+    }
+
+    const bootstrapOperation = desktopBootstrapOperation(method, path);
+    if (desktopBootstrap && bootstrapOperation
+      && !desktopBootstrap.verify(c.req.header('x-headwater-desktop-proof'), bootstrapOperation)) {
+      return c.json({ error: 'valid desktop bootstrap proof is required' }, 403);
     }
 
     if (enabledSecurity) {
@@ -1307,6 +1329,18 @@ export const createApp = (
   // --- OAuth: persisted local bearer sessions, auto-granted ---------------
 
   const oauthScopes = new Set(OAUTH_SCOPE.split(' '));
+  const desktopOAuthTransactions = new Map<string, Readonly<{
+    fingerprint: string;
+    response: Readonly<{
+      id: string;
+      name: string;
+      website: null;
+      redirect_uri: string;
+      client_id: string;
+      client_secret: string;
+      vapid_key: string;
+    }>;
+  }>>();
   const normalizedScope = (raw: unknown): string | null => {
     const scopes = [...new Set(String(raw ?? '').trim().split(/\s+/).filter(Boolean))];
     return scopes.length === oauthScopes.size && scopes.every((scope) => oauthScopes.has(scope))
@@ -1345,15 +1379,28 @@ export const createApp = (
     if (!name || name.length > 200 || !redirectUri || !scope) {
       return c.json({ error: 'invalid_client_metadata' }, 422);
     }
+    const enrollmentCode = String(body?.['enrollment_code'] ?? '') || undefined;
+    const transactionKey = desktopBootstrap ? c.req.header('idempotency-key') : undefined;
+    if (desktopBootstrap && !/^[A-Za-z0-9_-]{43}$/.test(transactionKey ?? '')) {
+      return c.json({ error: 'invalid_idempotency_key' }, 422);
+    }
+    const fingerprint = createHash('sha256')
+      .update(JSON.stringify({ name, redirectUri, scope, enrollmentCode: enrollmentCode ?? null }))
+      .digest('base64url');
+    const replay = transactionKey ? desktopOAuthTransactions.get(transactionKey) : undefined;
+    if (replay) {
+      if (replay.fingerprint !== fingerprint) return c.json({ error: 'idempotency_conflict' }, 409);
+      return c.json(replay.response);
+    }
     try {
       const client = enabledSecurity.auth.registerClient(
         { name, redirectUri, scope },
         {
-          enrollmentCode: String(body?.['enrollment_code'] ?? '') || undefined,
+          enrollmentCode,
           accessToken: bearerToken(c.req.header('authorization')) ?? undefined,
         },
       );
-      return c.json({
+      const response = Object.freeze({
         id: client.clientId,
         name: client.name,
         website: null,
@@ -1362,6 +1409,14 @@ export const createApp = (
         client_secret: client.clientSecret,
         vapid_key: '',
       });
+      if (transactionKey) {
+        if (desktopOAuthTransactions.size >= 16) {
+          const oldest = desktopOAuthTransactions.keys().next().value;
+          if (oldest) desktopOAuthTransactions.delete(oldest);
+        }
+        desktopOAuthTransactions.set(transactionKey, Object.freeze({ fingerprint, response }));
+      }
+      return c.json(response);
     } catch (error) {
       const authError = error instanceof AuthError ? error : null;
       if (authError?.code === 'client_limit') return c.json({ error: authError.code }, 429);

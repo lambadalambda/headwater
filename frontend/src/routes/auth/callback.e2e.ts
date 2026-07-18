@@ -60,6 +60,38 @@ test('OAuth callback exchanges code and stores token without passwords', async (
 	await expect(page.evaluate(() => window.sessionStorage.getItem('headwater.oauth.pending'))).resolves.toBeNull();
 });
 
+test('desktop OAuth callback continues directly to the required recovery backup', async ({ page }) => {
+	await page.addInitScript(() => {
+		Object.defineProperty(window, 'headwaterDesktop', {
+			value: Object.freeze({
+				getStatus: async () => ({ state: 'ready', origin: window.location.origin, configured: true, backupRequired: true })
+			})
+		});
+	});
+	await page.goto('/');
+	const origin = new URL(page.url()).origin;
+	await page.route(`${origin}/oauth/token`, async (route) => {
+		await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+			access_token: 'a'.repeat(43), token_type: 'Bearer', scope: 'read write follow push', created_at: 1700000001
+		}) });
+	});
+	await page.route(`${origin}/api/v1/accounts/verify_credentials`, async (route) => {
+		await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+	});
+	await page.evaluate((pending) => sessionStorage.setItem('headwater.oauth.pending', JSON.stringify(pending)), {
+		instanceUrl: origin,
+		clientId: 'desktop-client',
+		clientSecret: 'desktop-secret',
+		redirectUri: `${origin}/auth/callback`,
+		scopes: ['read', 'write', 'follow', 'push'],
+		state: 'desktop-state',
+		createdAt: Date.now()
+	});
+
+	await page.goto('/auth/callback?code=desktop-code&state=desktop-state');
+	await expect(page).toHaveURL('/backup');
+});
+
 test('OAuth callback keeps the token when account enrichment fails', async ({ page }) => {
 	await page.route('https://pleroma.example/oauth/token', async (route) => {
 		await route.fulfill({

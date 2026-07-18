@@ -50,6 +50,20 @@ background operation without yet solving the full release matrix.
   either preserve this application ID/user-data directory through the first
   supported release with a tested migration, or use an isolated disposable
   alpha identity and say so before users create accounts.
+- Present desktop first run as a focused Create account / Restore backup flow.
+  Hide public-timeline, design-system, remote-server, terminal-enrollment, and
+  implementation-detail navigation from the desktop onboarding surface.
+- Persist the first successfully bound loopback port so origin-scoped renderer
+  sessions survive application restarts and ordinary reinstalls. Existing local
+  identity data must reopen without showing first-run onboarding.
+- Require a successfully written encrypted `.dnbk` backup after desktop account
+  creation before allowing normal application navigation. Use native open/save
+  dialogs, never pass native paths or backup bytes through renderer IPC, and
+  resume the backup-required step after cancellation, reload, or restart.
+- Keep Restore backup equally visible on an unconfigured desktop. A clean
+  install with only the `.dnbk` file and passphrase must restore the identity,
+  establish a fresh local OAuth session, and enter the application without a
+  terminal or manual enrollment code.
 
 ## Acceptance Criteria
 
@@ -74,6 +88,10 @@ background operation without yet solving the full release matrix.
 - The selected Electron utility runtime executes the same production daemon
   artifact verified under Node 24, or the documented runtime incompatibility is
   resolved before the alpha is accepted.
+- A first-run acceptance test creates an account, saves its required backup,
+  restarts with the same identity/session, and proves normal app routes cannot
+  bypass the backup gate. A clean-data acceptance test restores that backup and
+  signs in automatically.
 
 ## Notes
 
@@ -82,11 +100,17 @@ background operation without yet solving the full release matrix.
 - The private daemon-to-main enrollment bridge now redeems startup and rotated
   codes inside Electron main, returning only a validated OAuth client to the
   landing document. Signup and restore can continue into sign-in without
-  terminal input, and development plus unpacked packaged two-launch smokes pass.
-  The required main-generated bootstrap proof remains open, so another local
-  process can still race anonymous signup/restore. Registration also needs a
-  recoverable transaction design so a lost response cannot strand a persisted
-  OAuth client slot whose secret main never received.
+  terminal input. Main-generated, operation-bound, short-lived bootstrap proofs
+  now protect signup, restore, and OAuth registration, and exact-request
+  idempotency lets a lost registration response replay the original client
+  credentials safely.
+- The focused Create/Restore surface, stable loopback origin, native backup
+  dialogs, and durable mandatory-backup gate are implemented. Direct app routes
+  fail closed until desktop status confirms the gate is clear. Unit/browser
+  coverage, production resource verification, and a two-launch Linux
+  development smoke pass; the broader tray/background policy, failure UX,
+  abrupt-process recovery, and full create/restore packaged acceptance scenarios
+  remain open under this alpha issue.
 - Target macOS arm64 first unless the product owner selects another development
   platform. Cross-platform signing, updates, and broad installer coverage belong
   to the release-infrastructure issue.

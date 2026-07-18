@@ -34,7 +34,7 @@ test.describe('responsive regression coverage', () => {
 			await setViewport(page, viewportName);
 			await page.goto('/');
 
-			await expect(page.getByRole('heading', { name: /A quieter corner of the social web/ })).toBeVisible();
+			await expect(page.getByRole('heading', { name: 'Headwater', exact: true })).toBeVisible();
 			await expect(page.getByRole('tab', { name: 'Sign in' })).toBeVisible();
 			await expectNoHorizontalOverflow(page);
 		});

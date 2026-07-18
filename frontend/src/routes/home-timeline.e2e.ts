@@ -1651,7 +1651,7 @@ test('home timeline status action auth failures sign out and redirect', async ({
 	await page.locator('[data-status-id="status-action-auth"]').getByRole('button', { name: 'Favorite 9' }).click();
 
 	await expect(page).toHaveURL('/');
-	await expect(page.getByRole('heading', { name: /quieter corner of the social web/i })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Headwater', exact: true })).toBeVisible();
 });
 
 test('home timeline clears stale pending actions after session changes', async ({ page }) => {
@@ -2851,7 +2851,7 @@ test('home timeline 401 response triggers sign-out and root redirect', async ({ 
 	await page.goto('/app/home');
 
 	await expect(page).toHaveURL('/');
-	await expect(page.getByRole('heading', { name: /quieter corner of the social web/i })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Headwater', exact: true })).toBeVisible();
 });
 
 test('home timeline 403 response triggers sign-out and root redirect', async ({ page }) => {
@@ -2864,7 +2864,7 @@ test('home timeline 403 response triggers sign-out and root redirect', async ({ 
 	await page.goto('/app/home');
 
 	await expect(page).toHaveURL('/');
-	await expect(page.getByRole('heading', { name: /quieter corner of the social web/i })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Headwater', exact: true })).toBeVisible();
 });
 
 test('home timeline stays responsive at desktop, tablet, and mobile', async ({ page }) => {

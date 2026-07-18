@@ -200,6 +200,7 @@
 
 	let sessionReady = $state(false);
 	let mounted = $state(false);
+	let desktopGateError = $state('');
 	let currentSession = $state<PleromaSession | null>(null);
 	let accountCache = $state(createPleromaAccountCache());
 	let homeTimelineState = $state<HomeTimelineState>({ status: 'idle' });
@@ -2416,6 +2417,20 @@
 		backupError = '';
 		backupSavedAs = '';
 		try {
+			if (window.headwaterDesktop) {
+				const saved = await window.headwaterDesktop.saveBackup({
+					accessToken: session.accessToken,
+					passphrase: backupPassphrase
+				});
+				if (!saved) {
+					backupError = 'Backup save cancelled.';
+					return;
+				}
+				backupSavedAs = saved.filename;
+				backupInfo = { lastBackupAt: Date.now() };
+				backupPassphrase = '';
+				return;
+			}
 			const { blob, filename } = await exportHeadwaterBackup({
 				instanceUrl: session.instanceUrl,
 				accessToken: session.accessToken,
@@ -4020,6 +4035,23 @@
 	};
 
 	onMount(() => {
+		let active = true;
+		let cleanup: (() => void) | undefined;
+		const initialize = async () => {
+			if (window.headwaterDesktop) {
+				try {
+					const status = await window.headwaterDesktop.getStatus();
+					if (!active) return;
+					if (status.backupRequired) {
+						await goto('/backup');
+						return;
+					}
+				} catch {
+					if (active) desktopGateError = 'Headwater could not verify the recovery backup. Restart Headwater and try again.';
+					return;
+				}
+			}
+			if (!active) return;
 		const storedTheme = localStorage.getItem('pn-theme');
 		if (storedTheme === 'cream' || storedTheme === 'dusk' || storedTheme === 'drive' || storedTheme === 'simoun') applyTheme(storedTheme);
 		searchRecents = readSearchRecents();
@@ -4035,7 +4067,7 @@
 		const checkInterval = window.setInterval(triggerHomeTimelineCheck, HOME_TIMELINE_FALLBACK_INTERVAL_MS);
 		const notificationInterval = window.setInterval(pollNotifications, NOTIFICATION_POLL_INTERVAL_MS);
 
-		return () => {
+		cleanup = () => {
 			invalidateHomeTimelineRequests();
 			invalidateProfileRouteRequests();
 			invalidateStatusActionRequests();
@@ -4049,6 +4081,13 @@
 			window.removeEventListener(LEGACY_NOTIFICATION_POLL_EVENT, pollNotifications);
 			window.clearInterval(checkInterval);
 			window.clearInterval(notificationInterval);
+		};
+		};
+		void initialize();
+
+		return () => {
+			active = false;
+			cleanup?.();
 		};
 	});
 
@@ -4215,7 +4254,11 @@
 	{/if}
 {/snippet}
 
-{#if sessionReady && !currentSession}
+{#if desktopGateError}
+	<main class="public-route-shell">
+		<div class="card request-state request-error" role="alert">{desktopGateError}</div>
+	</main>
+{:else if sessionReady && !currentSession}
 	{#if route === 'profile'}
 		<main class="public-route-shell public-profile-shell" data-testid="public-profile-shell">
 			<div class="public-profile-wrap">

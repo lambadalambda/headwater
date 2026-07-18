@@ -18,6 +18,7 @@ describe('desktop resource paths', () => {
     })).toMatchObject({
       nativeHelper: join('/resources', 'native', 'deltachat-rpc-server.exe'),
       dataDir: join('/user-data', 'daemon', 'main'),
+      settingsFile: join('/user-data', 'desktop-settings.json'),
     });
   });
 });

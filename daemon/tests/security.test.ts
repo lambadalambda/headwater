@@ -10,6 +10,7 @@ import { createApp, type AppContext } from '../src/server.js';
 import { createStore } from '../src/store.js';
 import { createStreamingHub } from '../src/streaming.js';
 import type { Transport } from '../src/transport/types.js';
+import { signDesktopBootstrapProof } from '../src/desktop-bootstrap.js';
 
 const BASE = 'http://localhost:4030';
 const TRUSTED = 'http://localhost:5173';
@@ -305,6 +306,91 @@ describe('fail-closed route matrix', () => {
 });
 
 describe('onboarding configuration lock', () => {
+	 it('requires one-time operation-bound desktop proofs for local onboarding and OAuth registration', async () => {
+		const base = fixture();
+		const key = 'k'.repeat(43);
+		let current: Transport | null = null;
+		const ctx: AppContext = {
+			getTransport: () => current,
+			signup: async () => {
+				current = base.transport;
+				return current;
+			},
+		};
+		const app = createApp(ctx, {
+			baseUrl: BASE,
+			security: { auth: base.auth, trustedOrigins: [TRUSTED], desktopBootstrapKey: key },
+		});
+		const signupBody = JSON.stringify({ display_name: 'Alice' });
+		const signup = (proof?: string) => app.request('/api/headwater/signup', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', ...(proof ? { 'X-Headwater-Desktop-Proof': proof } : {}) },
+			body: signupBody,
+		});
+		const proof = signDesktopBootstrapProof({
+			key,
+			operation: 'signup',
+			nonce: 's'.repeat(22),
+			expiresAt: Date.now() + 30_000,
+		});
+
+		expect((await signup()).status).toBe(403);
+		expect((await signup(signDesktopBootstrapProof({
+			key,
+			operation: 'restore',
+			nonce: 'r'.repeat(22),
+			expiresAt: Date.now() + 30_000,
+		}))).status).toBe(403);
+		expect((await signup(proof)).status).toBe(200);
+		expect((await signup(proof)).status).toBe(403);
+
+		const oauthBase = fixture();
+		const oauthApp = createApp(oauthBase.ctx, {
+			baseUrl: BASE,
+			security: { auth: oauthBase.auth, trustedOrigins: [TRUSTED], desktopBootstrapKey: key },
+		});
+		const enrollment = oauthBase.auth.createEnrollmentCode();
+		const oauthBody = new URLSearchParams({
+			client_name: 'Headwater',
+			redirect_uris: REDIRECT,
+			scopes: 'read write follow push',
+			enrollment_code: enrollment.code,
+		});
+		expect((await oauthApp.request('/api/v1/apps', { method: 'POST', body: oauthBody })).status).toBe(403);
+		const oauthProof = signDesktopBootstrapProof({
+			key,
+			operation: 'oauth-register',
+			nonce: 'o'.repeat(22),
+			expiresAt: Date.now() + 30_000,
+		});
+		const transactionKey = 'i'.repeat(43);
+		const firstRegistration = await oauthApp.request('/api/v1/apps', {
+			method: 'POST',
+			headers: { 'X-Headwater-Desktop-Proof': oauthProof, 'Idempotency-Key': transactionKey },
+			body: oauthBody,
+		});
+		expect(firstRegistration.status).toBe(200);
+		const firstClient = await firstRegistration.json();
+		const replayProof = signDesktopBootstrapProof({
+			key,
+			operation: 'oauth-register',
+			nonce: 'p'.repeat(22),
+			expiresAt: Date.now() + 30_000,
+		});
+		const replay = await oauthApp.request('/api/v1/apps', {
+			method: 'POST',
+			headers: { 'X-Headwater-Desktop-Proof': replayProof, 'Idempotency-Key': transactionKey },
+			body: oauthBody,
+		});
+		expect(replay.status).toBe(200);
+		expect(await replay.json()).toEqual(firstClient);
+		expect((await oauthApp.request('/api/v1/apps', {
+			method: 'POST',
+			headers: { 'X-Headwater-Desktop-Proof': replayProof, 'Idempotency-Key': transactionKey },
+			body: oauthBody,
+		})).status).toBe(403);
+	});
+
   it('requires terminal enrollment proof before selecting an operator-approved custom relay', async () => {
     const base = fixture();
     let current: Transport | null = null;

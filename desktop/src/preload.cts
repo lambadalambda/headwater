@@ -1,6 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron');
 
-type DesktopStatus = Readonly<{ state: 'ready'; origin: string }>;
+type DesktopStatus = Readonly<{
+  state: 'ready';
+  origin: string;
+  configured: boolean;
+  backupRequired: boolean;
+}>;
 type DesktopOAuthClient = Readonly<{ origin: string; clientId: string; clientSecret: string }>;
 
 const exactRecord = (value: unknown, keys: readonly string[], message: string): Record<string, unknown> => {
@@ -20,9 +25,39 @@ const localOrigin = (value: unknown, message: string): string => {
 };
 
 const parseStatus = (value: unknown): DesktopStatus => {
-  const status = exactRecord(value, ['origin', 'state'], 'invalid desktop status');
-  if (status['state'] !== 'ready') throw new Error('invalid desktop status');
-  return Object.freeze({ state: 'ready', origin: localOrigin(status['origin'], 'invalid desktop status') });
+  const status = exactRecord(value, ['backupRequired', 'configured', 'origin', 'state'], 'invalid desktop status');
+  if (status['state'] !== 'ready' || typeof status['configured'] !== 'boolean' || typeof status['backupRequired'] !== 'boolean') {
+    throw new Error('invalid desktop status');
+  }
+  return Object.freeze({
+    state: 'ready',
+    origin: localOrigin(status['origin'], 'invalid desktop status'),
+    configured: status['configured'],
+    backupRequired: status['backupRequired'],
+  });
+};
+
+const filename = (value: unknown): string => {
+  if (typeof value !== 'string' || !value || value.length > 255 || /[/\\]/.test(value)) throw new Error('invalid desktop backup filename');
+  return value;
+};
+
+const parseSelectedBackup = (value: unknown): Readonly<{ filename: string }> | null => {
+  if (value === null) return null;
+  const selected = exactRecord(value, ['filename'], 'invalid desktop backup selection');
+  return Object.freeze({ filename: filename(selected['filename']) });
+};
+
+const parseOnboardingResult = (value: unknown) => {
+  const result = exactRecord(value, ['acct', 'client', 'origin'], 'invalid desktop onboarding result');
+  if (typeof result['acct'] !== 'string' || !result['acct'] || result['acct'].length > 512) {
+    throw new Error('invalid desktop onboarding result');
+  }
+  return Object.freeze({
+    origin: localOrigin(result['origin'], 'invalid desktop onboarding result'),
+    acct: result['acct'],
+    client: parseDesktopOAuthClient(result['client']),
+  });
 };
 
 const parseDesktopOAuthClient = (value: unknown): DesktopOAuthClient | null => {
@@ -59,5 +94,22 @@ contextBridge.exposeInMainWorld('headwaterDesktop', Object.freeze({
     if (typeof clientId !== 'string' || !clientId || clientId.length > 512) throw new Error('invalid desktop OAuth client');
     const acknowledged: unknown = await ipcRenderer.invoke('headwater:acknowledge-oauth-client', clientId);
     if (acknowledged !== true) throw new Error('invalid desktop OAuth acknowledgement');
+  },
+  selectBackup: async () => parseSelectedBackup(await ipcRenderer.invoke('headwater:select-backup')),
+  createAccount: async (input: Readonly<{ displayName: string }>) => {
+    const displayName = input?.displayName;
+    if (typeof displayName !== 'string' || !displayName.trim() || displayName.length > 200
+      || Object.keys(input).join(',') !== 'displayName') throw new Error('invalid desktop account creation input');
+    return parseOnboardingResult(await ipcRenderer.invoke('headwater:create-account', { displayName }));
+  },
+  restoreAccount: async (passphrase: string) => {
+    if (typeof passphrase !== 'string' || !passphrase || passphrase.length > 1024) throw new Error('invalid desktop restore input');
+    return parseOnboardingResult(await ipcRenderer.invoke('headwater:restore-account', passphrase));
+  },
+  saveBackup: async (input: Readonly<{ accessToken: string; passphrase: string }>) => {
+    if (typeof input?.accessToken !== 'string' || !/^[A-Za-z0-9_-]+$/.test(input.accessToken) || input.accessToken.length > 512
+      || typeof input.passphrase !== 'string' || !input.passphrase || input.passphrase.length > 1024
+      || Object.keys(input).sort().join(',') !== 'accessToken,passphrase') throw new Error('invalid desktop backup input');
+    return parseSelectedBackup(await ipcRenderer.invoke('headwater:save-backup', input));
   },
 }));

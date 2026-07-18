@@ -7,8 +7,8 @@ import {
 
 const config = {
   account: 'main',
-  listener: { hostname: '127.0.0.1', port: 0 },
-  baseUrl: 'http://127.0.0.1:0',
+  listener: { hostname: '127.0.0.1', port: 43123 },
+  baseUrl: 'http://127.0.0.1:43123',
   dataDir: '/tmp/headwater/data',
   accountsFile: '/tmp/headwater/accounts.json',
   authFile: '/tmp/headwater/auth.json',
@@ -18,6 +18,7 @@ const config = {
   nativeHelperPath: '/tmp/headwater/deltachat-rpc-server',
   allowedOrigins: [],
   signupRelays: [],
+  desktopBootstrapKey: 'k'.repeat(43),
   shutdownTimeoutMs: 10_000,
 };
 
@@ -33,6 +34,8 @@ describe('desktop private protocol', () => {
     { version: 1, type: 'shutdown', secret: 'extra' },
     { version: 1, type: 'start', config: { ...config, dataDir: 'relative' } },
     { version: 1, type: 'start', config: { ...config, listener: { hostname: '0.0.0.0', port: 0 } } },
+    { version: 1, type: 'start', config: { ...config, desktopBootstrapKey: 'short' } },
+    { version: 1, type: 'start', config: { ...config, baseUrl: 'http://127.0.0.1:43124' } },
   ])('rejects malformed or over-broad commands', (value) => {
     expect(() => parseMainToWorker(value)).toThrow(/desktop protocol/i);
   });

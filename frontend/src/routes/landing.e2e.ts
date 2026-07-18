@@ -1,454 +1,330 @@
-import { expect, test, type Page } from '@playwright/test';
-import { expectNoHorizontalOverflow, fulfillJson, setViewport } from '../test/playwright';
+import { expect, test, type Page } from '@playwright/test'
 
-const mockHeadwaterStatus = async (page: Page, body: { configured: boolean; address: string | null }) => {
-	await page.route('**/api/headwater/status', async (route) => {
-		await fulfillJson(route, body);
-	});
-};
+const localOrigin = 'http://127.0.0.1:9444'
+const serverOrigin = 'https://social.example'
 
-const mockOAuthAppRegistration = async (page: Page, origin: string) => {
-	let body = '';
-	await page.route(`${origin}/api/v1/apps`, async (route) => {
-		body = route.request().postData() ?? '';
-		await route.fulfill({
-			status: 200,
-			contentType: 'application/json',
-			body: JSON.stringify({
-				id: `${origin}-app`,
-				name: 'Headwater',
-				website: origin,
-				redirect_uri: `${origin}/auth/callback`,
-				client_id: `${origin}-client`,
-				client_secret: `${origin}-secret`
-			})
-		});
-	});
+type DesktopMockOptions = {
+  configured?: boolean
+  selectFilename?: string | null
+  restoreError?: string
+  onboardingClient?: boolean
+}
 
-	return () => body;
-};
+async function mockDesktop(page: Page, options: DesktopMockOptions = {}) {
+  await page.addInitScript(
+    ({ configured, selectFilename, restoreError, onboardingClient, origin }) => {
+      const emptyCalls = {
+        registrations: 0,
+        acknowledgements: [] as string[],
+        creates: [] as Array<{ displayName: string }>,
+        selections: 0,
+        restores: [] as string[],
+      }
+      let calls = emptyCalls
+      try {
+        const saved = JSON.parse(window.name) as typeof emptyCalls
+        if (saved && typeof saved.registrations === 'number') calls = saved
+      } catch {
+        // The first document has no persisted desktop test calls.
+      }
+      const persistCalls = () => {
+        window.name = JSON.stringify(calls)
+      }
+      const client = {
+        origin,
+        clientId: 'client-desktop',
+        clientSecret: 'secret-desktop',
+      }
 
-const mockDesktopEnrollment = async (page: Page, options: { revisionDelayMs?: number } = {}) => {
-	await page.addInitScript(({ revisionDelayMs }) => {
-		const calls = { revisions: 0, registrations: [] as Array<number | null>, acknowledgements: [] as string[] };
-		Object.defineProperty(window, '__headwaterEnrollmentCalls', { value: calls });
-		Object.defineProperty(window, 'headwaterDesktop', {
-			value: Object.freeze({
-				getStatus: async () => ({ state: 'ready', origin: window.location.origin }),
-				getEnrollmentRevision: async () => {
-					calls.revisions += 1;
-					if (revisionDelayMs) await new Promise((resolve) => setTimeout(resolve, revisionDelayMs));
-					return 1;
-				},
-				registerOAuthClient: async (afterRevision?: number) => {
-					calls.registrations.push(afterRevision ?? null);
-					await new Promise((resolve) => setTimeout(resolve, 25));
-					return { origin: window.location.origin, clientId: 'desktop-client', clientSecret: 'desktop-secret' };
-				},
-				acknowledgeOAuthClient: async (clientId: string) => { calls.acknowledgements.push(clientId); }
-			})
-		});
-	}, { revisionDelayMs: options.revisionDelayMs ?? 0 });
-};
+      Object.defineProperty(window, '__desktopCalls', { value: calls })
+      Object.defineProperty(window, 'headwaterDesktop', {
+        value: {
+          getStatus: async () => ({
+            state: 'ready',
+            origin,
+            configured,
+            backupRequired: false,
+          }),
+          getEnrollmentRevision: async () => 0,
+          registerOAuthClient: async () => {
+            calls.registrations += 1
+            persistCalls()
+            return client
+          },
+          acknowledgeOAuthClient: async (clientId: string) => {
+            calls.acknowledgements.push(clientId)
+            persistCalls()
+          },
+          selectBackup: async () => {
+            calls.selections += 1
+            persistCalls()
+            return selectFilename === null
+              ? null
+              : { filename: selectFilename ?? 'headwater-recovery.dnbk' }
+          },
+          createAccount: async (input: { displayName: string }) => {
+            calls.creates.push(input)
+            persistCalls()
+            return { origin, acct: 'alice@headwater.local', client: onboardingClient ? client : null }
+          },
+          restoreAccount: async (passphrase: string) => {
+            calls.restores.push(passphrase)
+            persistCalls()
+            if (restoreError) throw new Error(restoreError)
+            return { origin, acct: 'alice@headwater.local', client: onboardingClient ? client : null }
+          },
+          saveBackup: async () => ({ filename: 'headwater-recovery.dnbk' }),
+        },
+      })
+    },
+    {
+      configured: options.configured ?? true,
+      selectFilename: options.selectFilename,
+      restoreError: options.restoreError,
+      onboardingClient: options.onboardingClient ?? true,
+      origin: localOrigin,
+    },
+  )
+}
 
-test('signed-out landing explains the encrypted-email federation model and avoids passwords', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockHeadwaterStatus(page, { configured: true, address: null });
-	await page.goto('/');
+function desktopCalls(page: Page) {
+  return page.evaluate(() => JSON.parse(window.name))
+}
 
-	await expect(page.getByRole('banner')).toContainText('Headwater');
-	const brandMark = page.getByRole('link', { name: 'Headwater home' }).locator('.brand-mark');
-	await expect(brandMark.locator('svg')).toBeVisible();
-	await expect(brandMark.locator('svg > rect')).toHaveCount(0);
-	await expect(brandMark).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-	await expect(page.getByRole('link', { name: 'Browse public' })).toHaveAttribute('href', '/public');
-	await expect(page.getByRole('link', { name: 'Open public timeline' })).toHaveAttribute('href', '/public');
-	await expect(page.getByRole('heading', { name: /A quieter corner of the social web/ })).toBeVisible();
-	await expect(page.getByText(/encrypted email/i).first()).toBeVisible();
-	await expect(page.getByText(/chatmail/i).first()).toBeVisible();
-	await expect(page.getByText(/invite link/i).first()).toBeVisible();
-	await expect(page.getByText('Headwater never sees your password')).toBeVisible();
-	await expect(page.locator('input[type="password"]')).toHaveCount(0);
-	await expectNoHorizontalOverflow(page);
-});
+async function mockOAuthRegistration(page: Page) {
+  await page.route('**/api/v1/apps', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'app-123',
+        client_id: 'client-browser',
+        client_secret: 'secret-browser',
+      }),
+    })
+  })
+}
 
-test('home server field defaults to the current origin and is tucked behind an advanced affordance', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockHeadwaterStatus(page, { configured: true, address: null });
-	await page.goto('/');
+async function blockAuthorization(page: Page) {
+  await page.route('**/oauth/authorize?**', (route) => route.abort())
+}
 
-	await expect(page.getByRole('tab', { name: 'Sign in' })).toHaveAttribute('aria-selected', 'true');
-	await expect(page.getByRole('textbox', { name: 'Your home server' })).toHaveCount(0);
-	await page.getByRole('button', { name: /advanced/i }).click();
-	await expect(page.getByRole('textbox', { name: 'Your home server' })).toHaveValue(new URL(page.url()).origin);
-	await expectNoHorizontalOverflow(page);
-});
+test('shows a focused browser sign-in without public navigation', async ({ page }) => {
+  await page.goto('/')
 
-test('status configured:true defaults to sign in and starts the OAuth redirect on this origin', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockHeadwaterStatus(page, { configured: true, address: null });
-	await page.goto('/');
-	const origin = new URL(page.url()).origin;
-	const appRegistrationBody = await mockOAuthAppRegistration(page, origin);
+  await expect(page.getByRole('heading', { name: 'Headwater' })).toBeVisible()
+  await expect(page.getByText('Your own social node over encrypted email.')).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByLabel('One-time enrollment code')).toBeVisible()
+  await expect(page.getByRole('link', { name: /Public feed|Design system/ })).toHaveCount(0)
+  await expect(page.getByLabel('Password')).toHaveCount(0)
+})
 
-	await expect(page.getByRole('tab', { name: 'Sign in' })).toHaveAttribute('aria-selected', 'true');
-	await expect(page.getByRole('textbox', { name: 'One-time enrollment code' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
-	await page.getByRole('textbox', { name: 'One-time enrollment code' }).fill('terminal-code');
-	await page.getByRole('button', { name: 'Continue' }).click();
+test('registers a browser client with an enrollment code', async ({ page }) => {
+  await mockOAuthRegistration(page)
+  await page.goto('/')
+  await page.getByLabel('One-time enrollment code').fill('browser-enrollment-code-1234')
+  await page.getByRole('button', { name: 'Use a different node' }).click()
+  await page.getByLabel('Your home server').fill(serverOrigin)
 
-	await expect(page.getByText(`Redirecting to ${origin}`)).toBeVisible();
-	const authorizationLink = page.getByRole('link', { name: /Open .*authorization/ });
-	await expect(authorizationLink).toHaveAttribute('href', new RegExp(`^${origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/oauth/authorize\\?`));
-	expect(appRegistrationBody()).toContain('client_name=Headwater');
-	expect(appRegistrationBody()).toContain('scopes=read+write+follow+push');
-	expect(appRegistrationBody()).toContain('enrollment_code=terminal-code');
-	const storedClient = await page.evaluate((key) => window.localStorage.getItem(key), `headwater.oauth.client.${encodeURIComponent(origin)}`);
-	expect(storedClient).toContain(`${origin}-client`);
+  const registrationPromise = page.waitForRequest(`${serverOrigin}/api/v1/apps`)
+  await page.getByRole('button', { name: 'Continue' }).click()
+  const registration = await registrationPromise
 
-	const pending = await page.evaluate(() => JSON.parse(window.sessionStorage.getItem('headwater.oauth.pending') ?? 'null'));
-	expect(pending).toMatchObject({ instanceUrl: origin, clientId: `${origin}-client`, scopes: ['read', 'write', 'follow', 'push'], state: expect.any(String) });
+  expect(registration.method()).toBe('POST')
+  expect(registration.postData()).toContain('enrollment_code=browser-enrollment-code-1234')
+  await expect(page.getByRole('heading', { name: `Continue to ${serverOrigin}` })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Authorize Headwater' })).toHaveAttribute(
+    'href',
+    /https:\/\/social\.example\/oauth\/authorize\?/
+  )
+})
 
-	await page.getByRole('button', { name: 'Cancel redirect' }).click();
-	await expect(page.getByText('Headwater never sees your password')).toBeVisible();
-});
+test('opens a configured desktop account through the native OAuth bridge', async ({ page }) => {
+  await mockDesktop(page, { configured: true })
+  await blockAuthorization(page)
+  await page.goto('/')
 
-test('normal sign-in migrates and reuses a legacy paired client without consuming another enrollment code', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockHeadwaterStatus(page, { configured: true, address: null });
-	await page.goto('/');
-	const origin = new URL(page.url()).origin;
-	await page.evaluate(({ key, client }) => window.localStorage.setItem(key, JSON.stringify(client)), {
-		key: `deltanet.oauth.client.${encodeURIComponent(origin)}`,
-		client: {
-			instanceUrl: origin,
-			clientId: 'persisted-client',
-			clientSecret: 'persisted-secret',
-			redirectUri: `${origin}/auth/callback`,
-			scopes: ['read', 'write', 'follow', 'push'],
-			createdAt: Date.now()
-		}
-	});
-	await page.reload();
-	await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), `headwater.oauth.client.${encodeURIComponent(origin)}`)).toContain('persisted-client');
-	expect(await page.evaluate((key) => window.localStorage.getItem(key), `deltanet.oauth.client.${encodeURIComponent(origin)}`)).toContain('persisted-client');
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+  const authorizationPromise = page.waitForRequest(`${localOrigin}/oauth/authorize?**`)
+  await page.getByRole('button', { name: 'Open this account' }).click()
+  await authorizationPromise
 
-	let registrationRequests = 0;
-	await page.route(`${origin}/api/v1/apps`, async (route) => {
-		registrationRequests += 1;
-		await route.abort();
-	});
-	await expect(page.getByText(/reuse this browser's registered client/i)).toBeVisible();
-	await page.getByRole('button', { name: 'Continue' }).click();
+  await expect.poll(() => desktopCalls(page)).toMatchObject({
+    registrations: 1,
+    acknowledgements: ['client-desktop'],
+  })
+})
 
-	const link = page.getByRole('link', { name: /Open .*authorization/ });
-	await expect(link).toHaveAttribute('href', /client_id=persisted-client/);
-	expect(registrationRequests).toBe(0);
-});
+test('shows only Create and Restore choices on an unconfigured desktop', async ({ page }) => {
+  await mockDesktop(page, { configured: false })
+  await page.goto('/')
 
-test('desktop sign-in reuses a paired client before requesting another enrollment registration', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockDesktopEnrollment(page);
-	await mockHeadwaterStatus(page, { configured: true, address: null });
-	await page.goto('/');
-	const origin = new URL(page.url()).origin;
-	await page.evaluate(({ key, client }) => localStorage.setItem(key, JSON.stringify(client)), {
-		key: `headwater.oauth.client.${encodeURIComponent(origin)}`,
-		client: {
-			instanceUrl: origin,
-			clientId: 'persisted-client',
-			clientSecret: 'persisted-secret',
-			redirectUri: `${origin}/auth/callback`,
-			scopes: ['read', 'write', 'follow', 'push'],
-			createdAt: Date.now()
-		}
-	});
-	await page.reload();
+  await expect(page.getByText('Create a new identity or restore an existing one.')).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Create account' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Restore backup' })).toBeVisible()
+  await expect(page.getByLabel('Display name')).toBeVisible()
+  await expect(page.getByLabel('One-time enrollment code')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /different node|settings/i })).toHaveCount(0)
+})
 
-	await page.getByRole('button', { name: 'Continue' }).click();
-	await expect(page.getByRole('link', { name: /Open .*authorization/ })).toHaveAttribute('href', /client_id=persisted-client/);
-	const calls = await page.evaluate(() => (window as unknown as { __headwaterEnrollmentCalls: { registrations: number[] } }).__headwaterEnrollmentCalls);
-	expect(calls.registrations).toEqual([]);
-});
+test('creates a desktop account through the native bridge', async ({ page }) => {
+  await mockDesktop(page, { configured: false })
+  await blockAuthorization(page)
+  await page.goto('/')
 
-test('desktop sign-in stores and acknowledges a fresh main-registered client', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockDesktopEnrollment(page);
-	await mockHeadwaterStatus(page, { configured: true, address: null });
-	await page.goto('/');
+  await page.getByLabel('Display name').fill('Alice')
+  const authorizationPromise = page.waitForRequest(`${localOrigin}/oauth/authorize?**`)
+  await page.getByRole('button', { name: 'Create account' }).click()
+  await authorizationPromise
 
-	await page.getByRole('button', { name: 'Continue' }).click();
-	await expect(page.getByRole('link', { name: /Open .*authorization/ })).toHaveAttribute('href', /client_id=desktop-client/);
-	expect(await page.evaluate(() => (window as unknown as { __headwaterEnrollmentCalls: unknown }).__headwaterEnrollmentCalls)).toEqual({ revisions: 1, registrations: [null], acknowledgements: ['desktop-client'] });
-});
+  await expect.poll(() => desktopCalls(page)).toMatchObject({
+    creates: [{ displayName: 'Alice' }],
+    acknowledgements: ['client-desktop'],
+  })
+})
 
-test('desktop enrollment authority is disabled when a remote home server is selected', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockDesktopEnrollment(page);
-	await mockHeadwaterStatus(page, { configured: true, address: null });
-	await page.goto('/');
-	await page.getByRole('button', { name: /advanced/i }).click();
-	await page.getByRole('textbox', { name: 'Your home server' }).fill('https://remote.example');
+test('offers immediate sign-in retry after committed desktop creation loses OAuth registration', async ({ page }) => {
+  await mockDesktop(page, { configured: false, onboardingClient: false })
+  await page.goto('/')
 
-	await expect(page.getByRole('textbox', { name: 'One-time enrollment code' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
-	const calls = await page.evaluate(() => (window as unknown as { __headwaterEnrollmentCalls: { registrations: number[] } }).__headwaterEnrollmentCalls);
-	expect(calls.registrations).toEqual([]);
-});
+  await page.getByLabel('Display name').fill('Alice')
+  await page.getByRole('button', { name: 'Create account' }).click()
 
-test('status configured:false defaults to the create-account tab', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockHeadwaterStatus(page, { configured: false, address: null });
-	await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Account created' })).toBeVisible()
+  await expect(page.getByText('could not finish local sign-in')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Try sign-in again' })).toBeVisible()
+})
 
-	await expect(page.getByRole('tab', { name: 'Create account' })).toHaveAttribute('aria-selected', 'true');
-});
+test('creates a browser account and asks for a new enrollment code', async ({ page }) => {
+  await page.route('**/api/headwater/signup', async (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({ display_name: 'Alice' })
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ account: { acct: 'alice@headwater.local' } }),
+    })
+  })
 
-test('signup happy path registers the account and continues into OAuth sign-in', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockHeadwaterStatus(page, { configured: false, address: null });
-	await page.goto('/');
-	const origin = new URL(page.url()).origin;
-	await mockOAuthAppRegistration(page, origin);
+  await page.goto('/')
+  await page.getByRole('tab', { name: 'Create account' }).click()
+  await page.getByLabel('Display name').fill('Alice')
+  await page.getByRole('button', { name: 'Create account' }).click()
 
-	let signupBody: unknown;
-	await page.route('**/api/headwater/signup', async (route) => {
-		signupBody = JSON.parse(route.request().postData() ?? '{}');
-		await fulfillJson(route, {
-			account: { acct: 'quietfox@nine.testrun.org' }
-		});
-	});
+  await expect(page.getByRole('heading', { name: 'Account created' })).toBeVisible()
+  await expect(page.getByText('alice@headwater.local')).toBeVisible()
+  await expect(page.getByLabel('One-time enrollment code')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue to sign in' })).toBeDisabled()
+})
 
-	await expect(page.getByRole('tab', { name: 'Create account' })).toHaveAttribute('aria-selected', 'true');
-	await page.getByRole('textbox', { name: 'Display name' }).fill('Quiet Fox');
-	await page.getByRole('button', { name: 'Create account' }).click();
+test('uses custom browser relay and server settings explicitly', async ({ page }) => {
+  await page.route(`${serverOrigin}/api/headwater/signup`, async (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      display_name: 'Alice',
+      relay: 'https://relay.example',
+      enrollment_code: 'relay-enrollment-code-1234',
+    })
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ account: { acct: 'alice@headwater.local' } }),
+    })
+  })
 
-	await expect(page.getByText('quietfox@nine.testrun.org')).toBeVisible();
-	expect(signupBody).toMatchObject({ display_name: 'Quiet Fox' });
-	await expect(page.getByText(/new one-time enrollment code printed by the daemon/i)).toBeVisible();
-	await page.getByRole('textbox', { name: 'One-time enrollment code' }).fill('post-signup-code');
-	await page.getByRole('button', { name: 'Continue to sign in' }).click();
-	await expect(page.getByText(`Redirecting to ${origin}`)).toBeVisible();
-	const authorizationLink = page.getByRole('link', { name: /Open .*authorization/ });
-	await expect(authorizationLink).toHaveAttribute('href', /\/oauth\/authorize\?/);
-});
+  await page.goto('/')
+  await page.getByRole('tab', { name: 'Create account' }).click()
+  await page.getByLabel('Display name').fill('Alice')
+  await page.getByRole('button', { name: 'Relay and server settings' }).click()
+  await page.getByLabel('Relay').fill('https://relay.example')
+  await page.getByLabel('Custom relay enrollment code').fill('relay-enrollment-code-1234')
+  await page.getByLabel('Your home server').fill(serverOrigin)
+  await page.getByRole('button', { name: 'Create account' }).click()
 
-test('desktop signup waits for the rotated code and continues without terminal input', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockDesktopEnrollment(page);
-	await mockHeadwaterStatus(page, { configured: false, address: null });
-	await page.goto('/');
-	const origin = new URL(page.url()).origin;
-	let browserRegistrations = 0;
-	await page.route(`${origin}/api/v1/apps`, async (route) => {
-		browserRegistrations += 1;
-		await route.abort();
-	});
-	await page.route('**/api/headwater/signup', async (route) => {
-		await fulfillJson(route, { account: { acct: 'desktop@nine.testrun.org' } });
-	});
+  await expect(page.getByRole('heading', { name: 'Account created' })).toBeVisible()
+})
 
-	await page.getByRole('textbox', { name: 'Display name' }).fill('Desktop Fox');
-	await page.getByRole('button', { name: 'Create account' }).click();
+test('switches browser conflicts back to sign-in with a typed message', async ({ page }) => {
+  await page.route('**/api/headwater/signup', async (route) => {
+    await route.fulfill({ status: 409, contentType: 'application/json', body: '{}' })
+  })
 
-	await expect(page.getByText(`Redirecting to ${origin}`)).toBeVisible();
-	await expect(page.getByRole('link', { name: /Open .*authorization/ })).toHaveAttribute('href', /client_id=desktop-client/);
-	expect(browserRegistrations).toBe(0);
-	await expect(page.getByRole('textbox', { name: 'One-time enrollment code' })).toHaveCount(0);
-	expect(await page.evaluate(() => (window as unknown as { __headwaterEnrollmentCalls: unknown }).__headwaterEnrollmentCalls)).toEqual({ revisions: 1, registrations: [1], acknowledgements: ['desktop-client'] });
-});
+  await page.goto('/')
+  await page.getByRole('tab', { name: 'Create account' }).click()
+  await page.getByLabel('Display name').fill('Alice')
+  await page.getByRole('button', { name: 'Create account' }).click()
 
-test('desktop signup remains bound to its original home server while pending', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockDesktopEnrollment(page, { revisionDelayMs: 100 });
-	await mockHeadwaterStatus(page, { configured: false, address: null });
-	await page.goto('/');
-	const origin = new URL(page.url()).origin;
-	let releaseSignup!: () => void;
-	const signupReleased = new Promise<void>((resolve) => { releaseSignup = resolve; });
-	let signupStarted!: () => void;
-	const signupRequest = new Promise<void>((resolve) => { signupStarted = resolve; });
-	await page.route('**/api/headwater/signup', async (route) => {
-		expect(new URL(route.request().url()).origin).toBe(origin);
-		signupStarted();
-		await signupReleased;
-		await fulfillJson(route, { account: { acct: 'desktop@nine.testrun.org' } });
-	});
+  await expect(page.getByText('This node already has an account — sign in instead.')).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Sign in', selected: true })).toBeVisible()
+})
 
-	await page.getByRole('button', { name: /advanced/i }).click();
-	await page.getByRole('textbox', { name: 'Display name' }).fill('Desktop Fox');
-	await page.getByRole('button', { name: 'Create account' }).click();
-	await page.getByRole('textbox', { name: 'Your home server' }).fill('https://remote.example');
-	await signupRequest;
-	releaseSignup();
+test('restores a browser account and asks for a new enrollment code', async ({ page }) => {
+  await page.route('**/api/headwater/restore', async (route) => {
+    expect(route.request().method()).toBe('POST')
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ account: { acct: 'alice@headwater.local' } }),
+    })
+  })
 
-	await expect(page.getByText(`Redirecting to ${origin}`)).toBeVisible();
-	await expect(page.getByRole('link', { name: /Open .*authorization/ })).toHaveAttribute('href', /client_id=desktop-client/);
-});
+  await page.goto('/')
+  await page.getByRole('tab', { name: 'Create account' }).click()
+  await page.getByRole('button', { name: 'Restore a backup instead' }).click()
+  await page.getByLabel('Backup file').setInputFiles({
+    name: 'account.dnbk',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from('encrypted-backup'),
+  })
+  await page.getByLabel('Backup passphrase').fill('correct horse battery staple')
+  await page.getByRole('button', { name: 'Restore account' }).click()
 
-test('signup lets the relay be changed behind an advanced affordance, defaulting to nine.testrun.org', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockHeadwaterStatus(page, { configured: false, address: null });
-	await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Account restored' })).toBeVisible()
+  await expect(page.getByText('alice@headwater.local')).toBeVisible()
+  await expect(page.getByLabel('One-time enrollment code')).toBeVisible()
+})
 
-	await page.getByRole('button', { name: /advanced/i }).click();
-	const relay = page.getByRole('textbox', { name: 'Relay', exact: true });
-	await expect(relay).toHaveValue('https://nine.testrun.org');
-	await expect(page.getByText(/mail relay hosting your address/i)).toBeVisible();
-	await relay.fill('https://NINE.TESTRUN.ORG:443/');
-	await expect(page.getByRole('textbox', { name: 'Custom relay enrollment code' })).toHaveCount(0);
+test('restores a desktop account through native file selection', async ({ page }) => {
+  await mockDesktop(page, { configured: false, selectFilename: 'alice-backup.dnbk' })
+  await blockAuthorization(page)
+  await page.goto('/')
 
-	await relay.fill('https://relay.example');
-	await expect(page.getByRole('textbox', { name: 'Custom relay enrollment code' })).toBeVisible();
-	await page.getByRole('textbox', { name: 'Display name' }).fill('Quiet Fox');
-	await expect(page.getByRole('button', { name: 'Create account' })).toBeDisabled();
+  await page.getByRole('tab', { name: 'Restore backup' }).click()
+  await page.getByRole('button', { name: 'Choose backup file…' }).click()
+  await expect(page.getByText('alice-backup.dnbk')).toBeVisible()
+  await page.getByLabel('Backup passphrase').fill('correct horse battery staple')
+  const authorizationPromise = page.waitForRequest(`${localOrigin}/oauth/authorize?**`)
+  await page.getByRole('button', { name: 'Restore account' }).click()
+  await authorizationPromise
 
-	let signupBody: Record<string, unknown> = {};
-	await page.route('**/api/headwater/signup', async (route) => {
-		signupBody = JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>;
-		await fulfillJson(route, { account: { acct: 'quietfox@relay.example' } });
-	});
-	await page.getByRole('textbox', { name: 'Custom relay enrollment code' }).fill('terminal-proof');
-	await page.getByRole('button', { name: 'Create account' }).click();
-	expect(signupBody).toMatchObject({
-		display_name: 'Quiet Fox',
-		relay: 'https://relay.example',
-		enrollment_code: 'terminal-proof'
-	});
-});
+  await expect.poll(() => desktopCalls(page)).toMatchObject({
+    selections: 1,
+    restores: ['correct horse battery staple'],
+    acknowledgements: ['client-desktop'],
+  })
+})
 
-test('signup 409 tells the user this node already has an account and switches to sign in', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockHeadwaterStatus(page, { configured: false, address: null });
-	await page.goto('/');
+test('shows desktop restore failures without exposing native paths', async ({ page }) => {
+  await mockDesktop(page, {
+    configured: false,
+    selectFilename: 'alice-backup.dnbk',
+    restoreError: 'The backup passphrase is incorrect.',
+  })
+  await page.goto('/')
 
-	await page.route('**/api/headwater/signup', async (route) => {
-		await fulfillJson(route, { error: 'already configured' }, 409);
-	});
+  await page.getByRole('tab', { name: 'Restore backup' }).click()
+  await page.getByRole('button', { name: 'Choose backup file…' }).click()
+  await page.getByLabel('Backup passphrase').fill('wrong passphrase')
+  await page.getByRole('button', { name: 'Restore account' }).click()
 
-	await page.getByRole('textbox', { name: 'Display name' }).fill('Quiet Fox');
-	await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByText('The backup passphrase is incorrect.')).toBeVisible()
+  await expect(page.locator('body')).not.toContainText('/Users/')
+})
 
-	await expect(page.getByText(/already has an account/i)).toBeVisible();
-	await expect(page.getByRole('tab', { name: 'Sign in' })).toHaveAttribute('aria-selected', 'true');
-});
+test('keeps the primary browser action visible at narrow widths', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
 
-test('signup 422 surfaces a validation error on the display name field', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockHeadwaterStatus(page, { configured: false, address: null });
-	await page.goto('/');
-
-	await page.route('**/api/headwater/signup', async (route) => {
-		await fulfillJson(route, { error: 'display_name is invalid' }, 422);
-	});
-
-	await page.getByRole('textbox', { name: 'Display name' }).fill('x');
-	await page.getByRole('button', { name: 'Create account' }).click();
-
-	await expect(page.getByText('display_name is invalid')).toBeVisible();
-	await expect(page.getByRole('tab', { name: 'Create account' })).toHaveAttribute('aria-selected', 'true');
-});
-
-test('signed-out landing remains usable on mobile', async ({ page }) => {
-	await setViewport(page, 'mobile');
-	await mockHeadwaterStatus(page, { configured: true, address: null });
-	await page.goto('/');
-
-	await expect(page.getByRole('heading', { name: /A quieter corner of the social web/ })).toBeVisible();
-	await expect(page.getByRole('tab', { name: 'Sign in' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
-	await expect(page.getByRole('link', { name: 'Browse public' })).toBeVisible();
-	await expectNoHorizontalOverflow(page);
-});
-
-test('signup tab warns about the 90-day expiry and offers restore-from-backup', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockHeadwaterStatus(page, { configured: false, address: null });
-	await page.goto('/');
-
-	await expect(page.getByText(/90 days/).first()).toBeVisible();
-	await page.getByRole('button', { name: 'Restore from a backup instead' }).click();
-	await expect(page.getByLabel('Backup file')).toBeVisible();
-	await expect(page.getByLabel('Backup passphrase')).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Restore this node' })).toBeDisabled();
-
-	await page.getByRole('button', { name: 'Back to creating a new account' }).click();
-	await expect(page.getByRole('textbox', { name: 'Display name' })).toBeVisible();
-});
-
-test('restore happy path uploads the backup and continues into OAuth sign-in', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockHeadwaterStatus(page, { configured: false, address: null });
-	await page.goto('/');
-	const origin = new URL(page.url()).origin;
-	await mockOAuthAppRegistration(page, origin);
-
-	let restoreBody = '';
-	await page.route('**/api/headwater/restore', async (route) => {
-		restoreBody = route.request().postData() ?? '';
-		await fulfillJson(route, { account: { acct: 'restored@nine.testrun.org' } });
-	});
-
-	await page.getByRole('button', { name: 'Restore from a backup instead' }).click();
-	await page.getByLabel('Backup file').setInputFiles({
-		name: 'headwater-backup.dnbk',
-		mimeType: 'application/octet-stream',
-		buffer: Buffer.from('DNBK1\nfake')
-	});
-	await page.getByLabel('Backup passphrase').fill('correct horse');
-	await page.getByRole('button', { name: 'Restore this node' }).click();
-
-	await expect(page.getByText('restored@nine.testrun.org')).toBeVisible();
-	expect(restoreBody).toContain('name="passphrase"');
-	expect(restoreBody).toContain('correct horse');
-	expect(restoreBody).toContain('filename="headwater-backup.dnbk"');
-	await page.getByRole('textbox', { name: 'One-time enrollment code' }).fill('post-restore-code');
-	await page.getByRole('button', { name: 'Continue to sign in' }).click();
-	await expect(page.getByText(`Redirecting to ${origin}`)).toBeVisible();
-});
-
-test('desktop restore waits for the rotated code and continues without terminal input', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockDesktopEnrollment(page);
-	await mockHeadwaterStatus(page, { configured: false, address: null });
-	await page.goto('/');
-	const origin = new URL(page.url()).origin;
-	await page.route('**/api/headwater/restore', async (route) => {
-		await fulfillJson(route, { account: { acct: 'restored-desktop@nine.testrun.org' } });
-	});
-
-	await page.getByRole('button', { name: 'Restore from a backup instead' }).click();
-	await page.getByLabel('Backup file').setInputFiles({
-		name: 'headwater-backup.dnbk',
-		mimeType: 'application/octet-stream',
-		buffer: Buffer.from('DNBK1\nfake')
-	});
-	await page.getByLabel('Backup passphrase').fill('correct horse');
-	await page.getByRole('button', { name: 'Restore this node' }).click();
-
-	await expect(page.getByText(`Redirecting to ${origin}`)).toBeVisible();
-	await expect(page.getByRole('link', { name: /Open .*authorization/ })).toHaveAttribute('href', /client_id=desktop-client/);
-	expect(await page.evaluate(() => (window as unknown as { __headwaterEnrollmentCalls: unknown }).__headwaterEnrollmentCalls)).toEqual({ revisions: 1, registrations: [1], acknowledgements: ['desktop-client'] });
-});
-
-test('restore surfaces a wrong-passphrase error and stays on the form', async ({ page }) => {
-	await setViewport(page, 'desktop');
-	await mockHeadwaterStatus(page, { configured: false, address: null });
-	await page.goto('/');
-
-	await page.route('**/api/headwater/restore', async (route) => {
-		await fulfillJson(route, { error: 'wrong passphrase or corrupted backup file' }, 422);
-	});
-
-	await page.getByRole('button', { name: 'Restore from a backup instead' }).click();
-	await page.getByLabel('Backup file').setInputFiles({
-		name: 'headwater-backup.dnbk',
-		mimeType: 'application/octet-stream',
-		buffer: Buffer.from('DNBK1\nfake')
-	});
-	await page.getByLabel('Backup passphrase').fill('wrong');
-	await page.getByRole('button', { name: 'Restore this node' }).click();
-
-	await expect(page.getByText('wrong passphrase or corrupted backup file')).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Restore this node' })).toBeVisible();
-});
+  await expect(page.getByRole('heading', { name: 'Headwater' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeInViewport()
+})

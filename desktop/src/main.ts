@@ -1,6 +1,7 @@
-import { dirname } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import {
   app,
   BrowserWindow,
@@ -12,6 +13,7 @@ import {
   type IpcMainInvokeEvent,
 } from 'electron';
 import { desktopPaths } from './paths.js';
+import { createDesktopBootstrapProof } from './bootstrap-proof.js';
 import { createQuitHandler } from './lifecycle.js';
 import { createEnrollmentBroker } from './enrollment.js';
 import {
@@ -20,15 +22,18 @@ import {
   type DesktopOAuthClient,
 } from './oauth-registration.js';
 import { parseWorkerToMain } from './protocol.js';
+import { restoreDesktopAccount, saveDesktopBackup, signupDesktopAccount } from './onboarding.js';
 import {
   browserWindowOptions,
   externalHttpUrl,
   isAllowedInternalNavigation,
+  isExpectedBackupSender,
   isExpectedEnrollmentSender,
   isExpectedStatusSender,
 } from './security.js';
 import { createUtilitySupervisor } from './supervisor.js';
 import { validateDesktopSmokePaths } from './smoke.js';
+import { readDesktopSettings, writeDesktopSettings, type DesktopSettings } from './settings.js';
 
 const requestedSmokeMarker = app.commandLine.getSwitchValue('headwater-desktop-smoke-marker')
   || process.env['HEADWATER_DESKTOP_SMOKE_MARKER']
@@ -77,6 +82,15 @@ const run = async (): Promise<void> => {
     const appDir = dirname(dirname(fileURLToPath(import.meta.url)));
     const resourceRoot = app.isPackaged ? process.resourcesPath : `${appDir}/resources`;
     const paths = desktopPaths({ appDir, resourcesPath: resourceRoot, userData: app.getPath('userData') });
+    let desktopSettings = readDesktopSettings(paths.settingsFile);
+    const updateDesktopSettings = (update: Partial<Pick<DesktopSettings, 'port' | 'backupRequired'>>): void => {
+      const next = Object.freeze({ ...desktopSettings, ...update });
+      writeDesktopSettings(paths.settingsFile, next);
+      desktopSettings = next;
+    };
+    const desktopBootstrapKey = randomBytes(32).toString('base64url');
+    let configured = false;
+    let onboardingKind: 'create' | 'restore' | null = null;
     const rendererSession = session.fromPath(`${app.getPath('userData')}/renderer-session`, { cache: true });
     rendererSession.setPermissionCheckHandler(() => false);
     rendererSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -96,10 +110,22 @@ const run = async (): Promise<void> => {
       promise: Promise<DesktopOAuthClient | null>;
     }> | null = null;
     let registrationSnapshotRevision: number | null = null;
+    let registrationTransaction: Readonly<{ revision: number; key: string }> | null = null;
+    const operationControllers = new Set<AbortController>();
+    const runOperation = async <T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+      const controller = new AbortController();
+      operationControllers.add(controller);
+      try {
+        return await operation(controller.signal);
+      } finally {
+        operationControllers.delete(controller);
+      }
+    };
     const abortRegistration = (): void => {
       registrationInFlight?.controller.abort();
       registrationInFlight = null;
       registrationSnapshotRevision = null;
+      registrationTransaction = null;
     };
     const supervisor = createUtilitySupervisor({
       post: (message) => child.postMessage(message),
@@ -111,8 +137,14 @@ const run = async (): Promise<void> => {
         pendingOAuthClient = null;
         enrollment.publish(value);
       },
+      onUnconfigured: () => { configured = false; },
+      onAccount: () => {
+        configured = true;
+      },
       onRuntimeFailure: (error) => {
         abortRegistration();
+        for (const controller of operationControllers) controller.abort();
+        operationControllers.clear();
         enrollment.close();
         window?.destroy();
         window = null;
@@ -124,6 +156,8 @@ const run = async (): Promise<void> => {
     });
     shutdownUtility = async () => {
       abortRegistration();
+      for (const controller of operationControllers) controller.abort();
+      operationControllers.clear();
       pendingOAuthClient = null;
       enrollment.close();
       await supervisor.shutdown();
@@ -142,8 +176,8 @@ const run = async (): Promise<void> => {
       type: 'start',
       config: {
         account: 'main',
-        listener: { hostname: '127.0.0.1', port: 0 },
-        baseUrl: 'http://127.0.0.1:0',
+        listener: { hostname: '127.0.0.1', port: desktopSettings.port },
+        baseUrl: `http://127.0.0.1:${desktopSettings.port}`,
         dataDir: paths.dataDir,
         accountsFile: paths.accountsFile,
         authFile: paths.authFile,
@@ -153,10 +187,15 @@ const run = async (): Promise<void> => {
         nativeHelperPath: paths.nativeHelper,
         allowedOrigins: [],
         signupRelays: [],
+        desktopBootstrapKey,
         shutdownTimeoutMs: 10_000,
       },
     });
     const status = await supervisor.ready;
+    const boundPort = Number(new URL(status.origin).port);
+    if (!Number.isSafeInteger(boundPort) || boundPort < 1 || boundPort > 65535) throw new Error('invalid desktop listener port');
+    if (desktopSettings.port === 0) updateDesktopSettings({ port: boundPort });
+    else if (desktopSettings.port !== boundPort) throw new Error('desktop listener did not bind the persisted port');
     smokeOrigin = status.origin;
     window = new BrowserWindow({
       ...browserWindowOptions(paths.preload, app.isPackaged),
@@ -175,11 +214,70 @@ const run = async (): Promise<void> => {
       return { action: 'deny' };
     });
     contents.on('will-attach-webview', (event) => event.preventDefault());
+    const registerOAuthClient = (requestedRevision?: number): Promise<DesktopOAuthClient | null> => {
+      if (requestedRevision !== undefined && requestedRevision > enrollment.revision()) {
+        return Promise.reject(new Error('invalid desktop enrollment revision'));
+      }
+      if (pendingOAuthClient
+        && (requestedRevision === undefined || pendingOAuthClient.revision > requestedRevision)) {
+        return Promise.resolve(pendingOAuthClient.client);
+      }
+      if (registrationInFlight) {
+        return registrationInFlight.afterRevision === requestedRevision
+          ? registrationInFlight.promise
+          : Promise.resolve(null);
+      }
+      const controller = new AbortController();
+      let promise!: Promise<DesktopOAuthClient | null>;
+      promise = (async () => {
+        try {
+          const snapshot = await enrollment.get(requestedRevision);
+          if (!snapshot) return null;
+          if (controller.signal.aborted || enrollment.revision() !== snapshot.revision) return null;
+           registrationSnapshotRevision = snapshot.revision;
+           if (registrationTransaction?.revision !== snapshot.revision) {
+             registrationTransaction = Object.freeze({ revision: snapshot.revision, key: randomBytes(32).toString('base64url') });
+           }
+           try {
+             const client = await registerDesktopOAuthClient({
+               origin: status.origin,
+               enrollmentCode: snapshot.code,
+               bootstrapProof: createDesktopBootstrapProof({ key: desktopBootstrapKey, operation: 'oauth-register' }),
+               idempotencyKey: registrationTransaction.key,
+               signal: controller.signal,
+            });
+            if (controller.signal.aborted || enrollment.revision() !== snapshot.revision) return null;
+            pendingOAuthClient = Object.freeze({ revision: snapshot.revision, client });
+            enrollment.consume(snapshot.revision);
+            return client;
+          } catch (error) {
+             if (error instanceof DesktopOAuthRegistrationError && error.status === 403) {
+               enrollment.consume(snapshot.revision);
+               registrationTransaction = null;
+            }
+            throw error;
+          }
+        } finally {
+          const activeRegistration = registrationInFlight as Readonly<{ controller: AbortController }> | null;
+          if (activeRegistration?.controller === controller) {
+            registrationInFlight = null;
+            registrationSnapshotRevision = null;
+          }
+        }
+      })();
+      registrationInFlight = Object.freeze({ afterRevision: requestedRevision, controller, promise });
+      return promise;
+    };
     ipcMain.handle('headwater:desktop-status', (event: IpcMainInvokeEvent, ...args: unknown[]) => {
       if (args.length !== 0 || !window || !isExpectedStatusSender(event, contents, status.origin)) {
         throw new Error('unauthorized desktop status request');
       }
-      return Object.freeze({ state: 'ready', origin: status.origin });
+      return Object.freeze({
+        state: 'ready',
+        origin: status.origin,
+        configured,
+        backupRequired: desktopSettings.backupRequired,
+      });
     });
     ipcMain.handle('headwater:enrollment-revision', (event: IpcMainInvokeEvent, ...args: unknown[]) => {
       if (args.length !== 0 || !window || !isExpectedEnrollmentSender(event, contents, status.origin)) {
@@ -196,54 +294,7 @@ const run = async (): Promise<void> => {
         throw new Error('unauthorized desktop enrollment request');
       }
       const requestedRevision = args.length === 0 ? undefined : afterRevision as number;
-      if (requestedRevision !== undefined && requestedRevision > enrollment.revision()) {
-        throw new Error('invalid desktop enrollment revision');
-      }
-      if (pendingOAuthClient
-        && (requestedRevision === undefined || pendingOAuthClient.revision > requestedRevision)) {
-        return pendingOAuthClient.client;
-      }
-      if (registrationInFlight) {
-        return registrationInFlight.afterRevision === requestedRevision
-          ? registrationInFlight.promise
-          : null;
-      }
-      const controller = new AbortController();
-      let promise!: Promise<DesktopOAuthClient | null>;
-      promise = (async () => {
-        try {
-          const snapshot = await enrollment.get(requestedRevision);
-          if (!snapshot) return null;
-          if (controller.signal.aborted || enrollment.revision() !== snapshot.revision) return null;
-          registrationSnapshotRevision = snapshot.revision;
-          try {
-            const client = await registerDesktopOAuthClient({
-              origin: status.origin,
-              enrollmentCode: snapshot.code,
-              signal: controller.signal,
-            });
-            if (controller.signal.aborted || enrollment.revision() !== snapshot.revision) return null;
-            pendingOAuthClient = Object.freeze({ revision: snapshot.revision, client });
-            enrollment.consume(snapshot.revision);
-            return client;
-          } catch (error) {
-            if (error instanceof DesktopOAuthRegistrationError && error.status === 403) {
-              enrollment.consume(snapshot.revision);
-            }
-            throw error;
-          }
-        } finally {
-          const activeRegistration = registrationInFlight as Readonly<{
-            controller: AbortController;
-          }> | null;
-          if (activeRegistration?.controller === controller) {
-            registrationInFlight = null;
-            registrationSnapshotRevision = null;
-          }
-        }
-      })();
-      registrationInFlight = Object.freeze({ afterRevision: requestedRevision, controller, promise });
-      return promise;
+      return registerOAuthClient(requestedRevision);
     });
     ipcMain.handle('headwater:acknowledge-oauth-client', (event: IpcMainInvokeEvent, ...args: unknown[]) => {
       const clientId = args[0];
@@ -253,7 +304,94 @@ const run = async (): Promise<void> => {
         throw new Error('unauthorized desktop OAuth acknowledgement');
       }
       pendingOAuthClient = null;
+      registrationTransaction = null;
       return true;
+    });
+    let selectedRestorePath: string | null = null;
+    ipcMain.handle('headwater:select-backup', async (event: IpcMainInvokeEvent, ...args: unknown[]) => {
+      if (args.length !== 0 || !window || !isExpectedEnrollmentSender(event, contents, status.origin)) {
+        throw new Error('unauthorized desktop restore request');
+      }
+      const selected = await dialog.showOpenDialog(window, {
+        properties: ['openFile'],
+        filters: [{ name: 'Headwater backup', extensions: ['dnbk'] }],
+      });
+      selectedRestorePath = selected.canceled || selected.filePaths.length !== 1 ? null : selected.filePaths[0] ?? null;
+      return selectedRestorePath ? Object.freeze({ filename: basename(selectedRestorePath) }) : null;
+    });
+    ipcMain.handle('headwater:create-account', async (event: IpcMainInvokeEvent, ...args: unknown[]) => {
+      const input = args[0];
+      if (args.length !== 1 || typeof input !== 'object' || input === null || Array.isArray(input)
+        || Object.keys(input).join(',') !== 'displayName'
+        || typeof (input as Record<string, unknown>)['displayName'] !== 'string'
+        || !window || !isExpectedEnrollmentSender(event, contents, status.origin)
+        || configured || onboardingKind !== null) {
+        throw new Error('unauthorized desktop account creation request');
+      }
+      updateDesktopSettings({ backupRequired: true });
+      const baseline = enrollment.revision();
+      onboardingKind = 'create';
+      try {
+        const account = await runOperation((signal) => signupDesktopAccount({
+          origin: status.origin,
+          bootstrapKey: desktopBootstrapKey,
+          displayName: (input as { displayName: string }).displayName,
+          signal,
+        }));
+        const client = await registerOAuthClient(baseline).catch(() => null);
+        return Object.freeze({ origin: status.origin, acct: account.acct, client });
+      } finally {
+        onboardingKind = null;
+      }
+    });
+    ipcMain.handle('headwater:restore-account', async (event: IpcMainInvokeEvent, ...args: unknown[]) => {
+      const passphrase = args[0];
+      if (args.length !== 1 || typeof passphrase !== 'string' || !passphrase || passphrase.length > 1024
+        || !selectedRestorePath || !window || !isExpectedEnrollmentSender(event, contents, status.origin)
+        || configured || onboardingKind !== null) {
+        throw new Error('unauthorized desktop restore request');
+      }
+      const baseline = enrollment.revision();
+      onboardingKind = 'restore';
+      try {
+        const account = await runOperation((signal) => restoreDesktopAccount({
+          origin: status.origin,
+          bootstrapKey: desktopBootstrapKey,
+          backupPath: selectedRestorePath as string,
+          passphrase,
+          signal,
+        }));
+        selectedRestorePath = null;
+        updateDesktopSettings({ backupRequired: false });
+        const client = await registerOAuthClient(baseline).catch(() => null);
+        return Object.freeze({ origin: status.origin, acct: account.acct, client });
+      } finally {
+        onboardingKind = null;
+      }
+    });
+    ipcMain.handle('headwater:save-backup', async (event: IpcMainInvokeEvent, ...args: unknown[]) => {
+      const input = args[0];
+      if (args.length !== 1 || typeof input !== 'object' || input === null || Array.isArray(input)
+        || Object.keys(input).sort().join(',') !== 'accessToken,passphrase'
+        || typeof (input as Record<string, unknown>)['accessToken'] !== 'string'
+        || typeof (input as Record<string, unknown>)['passphrase'] !== 'string'
+        || !window || !isExpectedBackupSender(event, contents, status.origin)) {
+        throw new Error('unauthorized desktop backup request');
+      }
+      const selected = await dialog.showSaveDialog(window, {
+        defaultPath: join(app.getPath('documents'), 'headwater-backup.dnbk'),
+        filters: [{ name: 'Headwater backup', extensions: ['dnbk'] }],
+      });
+      if (selected.canceled || !selected.filePath) return null;
+      const saved = await runOperation((signal) => saveDesktopBackup({
+        origin: status.origin,
+        destination: selected.filePath as string,
+        accessToken: (input as { accessToken: string }).accessToken,
+        passphrase: (input as { passphrase: string }).passphrase,
+        signal,
+      }));
+      updateDesktopSettings({ backupRequired: false });
+      return saved;
     });
     await window.loadURL(status.origin);
     window.show();

@@ -27,8 +27,7 @@ export const isAllowedInternalNavigation = (raw: string, expectedOrigin: string)
     const url = new URL(raw);
     const path = url.pathname.endsWith('/') && url.pathname !== '/' ? url.pathname.slice(0, -1) : url.pathname;
     const applicationPath = path === '/'
-      || path === '/public'
-      || path === '/design-system'
+      || path === '/backup'
       || path === '/auth/callback'
       || path === '/oauth/authorize'
       || path === '/app'
@@ -76,6 +75,22 @@ export const isExpectedEnrollmentSender = (
   try {
     const url = new URL(event.senderFrame.url);
     return url.pathname === '/' && url.username === '' && url.password === '';
+  } catch {
+    return false;
+  }
+};
+
+export const isExpectedBackupSender = (
+  event: { sender: unknown; senderFrame: SenderFrame | null },
+  expectedContents: SenderContents,
+  expectedOrigin: string,
+): boolean => {
+  if (!isExpectedStatusSender(event, expectedContents, expectedOrigin) || !event.senderFrame) return false;
+  try {
+    const url = new URL(event.senderFrame.url);
+    return (url.pathname === '/backup' || url.pathname === '/app/settings')
+      && url.username === ''
+      && url.password === '';
   } catch {
     return false;
   }

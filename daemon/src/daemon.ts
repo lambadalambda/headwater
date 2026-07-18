@@ -65,6 +65,7 @@ export type DaemonConfig = {
   nativeHelperPath?: string;
   allowedOrigins: string[];
   signupRelays: string[];
+  desktopBootstrapKey?: string;
   shutdownTimeoutMs?: number;
 };
 
@@ -115,6 +116,11 @@ const validateConfig = (config: DaemonConfig): void => {
   }
   if (!Number.isInteger(config.listener.port) || config.listener.port < 0 || config.listener.port > 65535) {
     throw new Error(`invalid daemon listener port: ${config.listener.port}`);
+  }
+  if (config.desktopBootstrapKey !== undefined
+    && (!/^[A-Za-z0-9_-]{43}$/.test(config.desktopBootstrapKey)
+      || Buffer.from(config.desktopBootstrapKey, 'base64url').byteLength !== 32)) {
+    throw new Error('invalid daemon desktop bootstrap key');
   }
 };
 
@@ -857,6 +863,7 @@ const app = createApp(ctx, {
     auth,
     trustedOrigins: ALLOWED_ORIGINS,
     onEnrollmentCode: (enrollment) => emit({ type: 'enrollment-code', ...enrollment }),
+    ...(config.desktopBootstrapKey ? { desktopBootstrapKey: config.desktopBootstrapKey } : {}),
   },
   signupRelays: SIGNUP_RELAYS,
   staticDir,

@@ -3,12 +3,14 @@ import { registerDesktopOAuthClient } from '../src/oauth-registration.js';
 
 describe('desktop OAuth client registration', () => {
   it('registers only against the supplied local origin and returns no enrollment code', async () => {
-    let request: Readonly<{ url: string; body: string }> | null = null;
+    let request: Readonly<{ url: string; body: string; headers: HeadersInit | undefined }> | null = null;
     const result = await registerDesktopOAuthClient({
       origin: 'http://127.0.0.1:43123',
       enrollmentCode: 'a'.repeat(43),
+      bootstrapProof: `v1.oauth-register.1800000030000.${'n'.repeat(22)}.${'m'.repeat(43)}`,
+      idempotencyKey: 'i'.repeat(43),
       fetch: async (input, init) => {
-        request = { url: String(input), body: String(init?.body) };
+        request = { url: String(input), body: String(init?.body), headers: init?.headers };
         return new Response(JSON.stringify({
           client_id: 'desktop-client',
           client_secret: 'desktop-secret',
@@ -18,6 +20,7 @@ describe('desktop OAuth client registration', () => {
     expect(request).toEqual({
       url: 'http://127.0.0.1:43123/api/v1/apps',
       body: expect.stringContaining(`enrollment_code=${'a'.repeat(43)}`),
+      headers: expect.objectContaining({ 'idempotency-key': 'i'.repeat(43) }),
     });
     expect(result).toEqual({ origin: 'http://127.0.0.1:43123', clientId: 'desktop-client', clientSecret: 'desktop-secret' });
     expect(result).not.toHaveProperty('enrollmentCode');
@@ -27,6 +30,8 @@ describe('desktop OAuth client registration', () => {
     await expect(registerDesktopOAuthClient({
       origin: 'http://127.0.0.1:43123',
       enrollmentCode: 'a'.repeat(43),
+      bootstrapProof: `v1.oauth-register.1800000030000.${'n'.repeat(22)}.${'m'.repeat(43)}`,
+      idempotencyKey: 'i'.repeat(43),
       fetch: async () => new Response(JSON.stringify({ error: 'secret daemon detail' }), { status: 403 }),
     })).rejects.toMatchObject({ message: 'desktop OAuth registration failed (403)', status: 403 });
   });
@@ -35,6 +40,8 @@ describe('desktop OAuth client registration', () => {
     await expect(registerDesktopOAuthClient({
       origin: 'http://127.0.0.1:43123',
       enrollmentCode: 'a'.repeat(43),
+      bootstrapProof: `v1.oauth-register.1800000030000.${'n'.repeat(22)}.${'m'.repeat(43)}`,
+      idempotencyKey: 'i'.repeat(43),
       timeoutMs: 5,
       fetch: async (_input, init) => new Promise((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
@@ -55,6 +62,8 @@ describe('desktop OAuth client registration', () => {
     await expect(registerDesktopOAuthClient({
       origin: 'http://127.0.0.1:43123',
       enrollmentCode: 'a'.repeat(43),
+      bootstrapProof: `v1.oauth-register.1800000030000.${'n'.repeat(22)}.${'m'.repeat(43)}`,
+      idempotencyKey: 'i'.repeat(43),
       fetch: async () => new Response(body, { status: 200 }),
     })).rejects.toThrow('invalid desktop OAuth registration response');
     expect(cancelled).toBe(true);

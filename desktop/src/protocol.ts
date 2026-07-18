@@ -4,8 +4,8 @@ export type SafeError = Readonly<{ name: string; message: string; code?: string 
 
 export type DaemonConfigWire = Readonly<{
   account: 'main';
-  listener: Readonly<{ hostname: '127.0.0.1'; port: 0 }>;
-  baseUrl: 'http://127.0.0.1:0';
+  listener: Readonly<{ hostname: '127.0.0.1'; port: number }>;
+  baseUrl: string;
   dataDir: string;
   accountsFile: string;
   authFile: string;
@@ -15,6 +15,7 @@ export type DaemonConfigWire = Readonly<{
   nativeHelperPath: string;
   allowedOrigins: string[];
   signupRelays: string[];
+  desktopBootstrapKey: string;
   shutdownTimeoutMs: 10_000;
 }>;
 
@@ -103,16 +104,21 @@ const daemonConfig = (value: unknown): DaemonConfigWire => {
   exact(config, [
     'account', 'listener', 'baseUrl', 'dataDir', 'accountsFile', 'authFile', 'staticDir',
     'restoreJournal', 'daemonLock', 'nativeHelperPath', 'allowedOrigins', 'signupRelays',
-    'shutdownTimeoutMs',
+    'desktopBootstrapKey', 'shutdownTimeoutMs',
   ]);
   const listener = record(config['listener']);
   exact(listener, ['hostname', 'port']);
-  if (config['account'] !== 'main' || listener['hostname'] !== '127.0.0.1' || listener['port'] !== 0) fail();
-  if (config['baseUrl'] !== 'http://127.0.0.1:0' || config['shutdownTimeoutMs'] !== 10_000) fail();
+  const port = listener['port'];
+  if (config['account'] !== 'main' || listener['hostname'] !== '127.0.0.1'
+    || !Number.isSafeInteger(port) || (port as number) < 0 || (port as number) > 65535) fail();
+  if (config['baseUrl'] !== `http://127.0.0.1:${port}` || config['shutdownTimeoutMs'] !== 10_000) fail();
+  const desktopBootstrapKey = config['desktopBootstrapKey'];
+  if (typeof desktopBootstrapKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(desktopBootstrapKey)
+    || Buffer.from(desktopBootstrapKey, 'base64url').byteLength !== 32) fail();
   return {
     account: 'main',
-    listener: { hostname: '127.0.0.1', port: 0 },
-    baseUrl: 'http://127.0.0.1:0',
+    listener: { hostname: '127.0.0.1', port: port as number },
+    baseUrl: config['baseUrl'] as string,
     dataDir: absolutePath(config['dataDir']),
     accountsFile: absolutePath(config['accountsFile']),
     authFile: absolutePath(config['authFile']),
@@ -122,6 +128,7 @@ const daemonConfig = (value: unknown): DaemonConfigWire => {
     nativeHelperPath: absolutePath(config['nativeHelperPath']),
     allowedOrigins: stringArray(config['allowedOrigins']),
     signupRelays: stringArray(config['signupRelays']),
+    desktopBootstrapKey: desktopBootstrapKey as string,
     shutdownTimeoutMs: 10_000,
   };
 };

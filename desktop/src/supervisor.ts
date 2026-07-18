@@ -9,6 +9,8 @@ type SupervisorEffects = {
   readinessTimeoutMs?: number | false;
   onRuntimeFailure?: (error: Error) => void;
   onEnrollmentCode?: (value: Readonly<{ code: string; expiresAt: number }>) => void;
+  onUnconfigured?: () => void;
+  onAccount?: (value: Readonly<{ displayName: string; address: string }>) => void;
 };
 
 export const createUtilitySupervisor = (effects: SupervisorEffects) => {
@@ -77,6 +79,14 @@ export const createUtilitySupervisor = (effects: SupervisorEffects) => {
     const event = message.event;
     if (event.type === 'enrollment-code') {
       effects.onEnrollmentCode?.({ code: event.code, expiresAt: event.expiresAt });
+      return;
+    }
+    if (event.type === 'unconfigured') {
+      effects.onUnconfigured?.();
+      return;
+    }
+    if (event.type === 'account') {
+      effects.onAccount?.({ displayName: event.displayName, address: event.address });
       return;
     }
     if (event.type === 'ready') {

@@ -14,6 +14,7 @@ export type DesktopPaths = Readonly<{
   authFile: string;
   restoreJournal: string;
   daemonLock: string;
+  settingsFile: string;
 }>;
 
 export const desktopPaths = (input: {
@@ -36,5 +37,6 @@ export const desktopPaths = (input: {
     authFile: join(stateRoot, 'main.auth.json'),
     restoreJournal: `${dataDir}.sidecar-restore-journal.json`,
     daemonLock: `${dataDir}.daemon.lock`,
+    settingsFile: join(input.userData, 'desktop-settings.json'),
   };
 };

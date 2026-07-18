@@ -22,6 +22,22 @@ describe('utility-process supervisor', () => {
     ]);
   });
 
+  it('forwards configured and unconfigured account state', () => {
+    const states: string[] = [];
+    const supervisor = createUtilitySupervisor({
+      post: () => {},
+      kill: () => {},
+      readinessTimeoutMs: false,
+      onUnconfigured: () => states.push('unconfigured'),
+      onAccount: (account) => states.push(`configured:${account.address}`),
+    });
+    supervisor.accept({ version: 1, type: 'daemon-event', event: { type: 'unconfigured', account: 'main' } });
+    supervisor.accept({ version: 1, type: 'daemon-event', event: {
+      type: 'account', displayName: 'Alice', address: 'alice@example.org', feedInvite: 'https://i.delta.chat/#invite',
+    } });
+    expect(states).toEqual(['unconfigured', 'configured:alice@example.org']);
+  });
+
   it('becomes ready exactly once and rejects duplicate readiness', async () => {
     const posted: unknown[] = [];
     const supervisor = createUtilitySupervisor({ post: (message) => posted.push(message), kill: () => {} });

@@ -4,6 +4,40 @@ DeltaNet-era entries retained after the current entry preserve the former name
 and deployed identifiers as written. They document implementation history, not
 current naming.
 
+## 2026-07-18 - focused desktop first run and recovery gate
+
+Desktop onboarding now presents the account lifecycle rather than its daemon and
+OAuth machinery (`meta/issues/electron-desktop-alpha.md`):
+
+- An unconfigured desktop shows only Create account and Restore backup. Electron
+  main owns account creation, native backup selection, restore upload, and native
+  backup saving; native paths and backup bytes do not cross renderer IPC. The
+  browser build retains explicit remote-node, relay, and enrollment controls.
+- Electron generates restart-scoped, operation-bound HMAC proofs for signup,
+  restore, and OAuth registration. Daemon verification is short-lived,
+  single-use, timing-safe, and rejects missing, wrong-operation, expired, or
+  replayed proofs.
+- The first bound loopback port is persisted atomically and reused on restart.
+  Settings and backup output use restrictive files, flushed writes, atomic
+  renames, and destination-directory fsync where supported; missing settings
+  fail closed to requiring a recovery backup.
+- Account creation durably marks backup-required before daemon commit. OAuth
+  callback and direct app routes cannot bypass the gate, application API work
+  waits for desktop status, cancellation remains gated, and only a successful
+  native encrypted backup save clears the requirement.
+- OAuth client registration uses an exact-request idempotency transaction. A
+  lost successful response can replay the original client credentials with a
+  fresh bootstrap proof, and committed Create/Restore operations expose an
+  immediate sign-in retry instead of attempting the account operation twice.
+- Restore and settings failures are translated to renderer-safe messages, while
+  streamed backup responses remain bounded and incomplete output is removed.
+- Verification passed all checks, 1,536 daemon tests, 55 desktop tests, all 358
+  frontend browser tests, the production build and staged
+  resource verifier, independent security review with no high or medium
+  findings, and a two-launch Linux development smoke on the NAS worker. The
+  local macOS smoke was blocked by the restricted runner's Mach rendezvous
+  permission before application startup.
+
 ## 2026-07-18 - private desktop enrollment handoff
 
 Packaged desktop onboarding can now continue from signup or restore into OAuth

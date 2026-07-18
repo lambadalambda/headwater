@@ -51,12 +51,18 @@ const readBoundedText = async (response: Response, limit: number): Promise<strin
 export const registerDesktopOAuthClient = async (input: Readonly<{
   origin: string;
   enrollmentCode: string;
+  bootstrapProof: string;
+  idempotencyKey: string;
   fetch?: typeof fetch;
   signal?: AbortSignal;
   timeoutMs?: number;
 }>): Promise<DesktopOAuthClient> => {
   const origin = localOrigin(input.origin);
   if (!/^[A-Za-z0-9_-]{43}$/.test(input.enrollmentCode)) throw new Error('invalid desktop enrollment code');
+  if (!/^v1\.oauth-register\.\d{13}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}$/.test(input.bootstrapProof)) {
+    throw new Error('invalid desktop bootstrap proof');
+  }
+  if (!/^[A-Za-z0-9_-]{43}$/.test(input.idempotencyKey)) throw new Error('invalid desktop OAuth transaction');
   const redirectUri = `${origin}/auth/callback`;
   const body = new URLSearchParams({
     client_name: 'Headwater',
@@ -71,7 +77,11 @@ export const registerDesktopOAuthClient = async (input: Readonly<{
   try {
     response = await (input.fetch ?? globalThis.fetch)(`${origin}/api/v1/apps`, {
       method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'x-headwater-desktop-proof': input.bootstrapProof,
+        'idempotency-key': input.idempotencyKey,
+      },
       body,
       redirect: 'error',
       signal,

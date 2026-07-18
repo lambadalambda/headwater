@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import {
 		clearPendingOAuth,
 		createPleromaClient,
@@ -85,6 +86,10 @@
 			clearPending();
 			callbackState = { status: 'success', instanceHost: new URL(pending.instanceUrl).hostname };
 			void enrichStoredSessionAccount(session);
+			if (window.headwaterDesktop) {
+				const status = await window.headwaterDesktop.getStatus();
+				await goto(status.backupRequired ? '/backup' : '/app/home');
+			}
 		} catch (error) {
 			callbackState = {
 				status: 'error',

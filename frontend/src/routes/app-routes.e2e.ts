@@ -74,7 +74,7 @@ test('signed-out users are redirected away from authenticated app routes', async
 	await page.goto('/app/home');
 
 	await expect(page).toHaveURL('/');
-	await expect(page.getByRole('heading', { name: /quieter corner of the social web/i })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Headwater', exact: true })).toBeVisible();
 });
 
 test('authenticated users are redirected from the landing page into the real app', async ({ page }) => {
@@ -218,11 +218,15 @@ test('app route guard revalidates when session disappears during client navigati
 	await page.goto('/app/home');
 	await expect(page.getByTestId('app-header')).toBeVisible();
 
-	await page.evaluate(() => window.localStorage.removeItem('headwater.session'));
-	await page.getByTestId('left-sidebar').getByRole('link', { name: 'Explore' }).click();
+	await page.evaluate(() => {
+		const explore = document.querySelector<HTMLAnchorElement>('[data-testid="left-sidebar"] a[href="/app/explore"]');
+		if (!explore) throw new Error('Explore link is unavailable');
+		window.localStorage.removeItem('headwater.session');
+		explore.click();
+	});
 
 	await expect(page).toHaveURL('/');
-	await expect(page.getByRole('heading', { name: /quieter corner of the social web/i })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Headwater', exact: true })).toBeVisible();
 });
 
 test('timeline, thread, profile, notification, and placeholder routes deep link in the real shell', async ({ page }) => {

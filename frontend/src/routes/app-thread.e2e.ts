@@ -884,7 +884,7 @@ test('real thread route action auth failures sign out and redirect', async ({ pa
 	await reply.getByRole('button', { name: 'Boost 12' }).click();
 
 	await expect(page).toHaveURL('/');
-	await expect(page.getByRole('heading', { name: /quieter corner of the social web/i })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Headwater', exact: true })).toBeVisible();
 });
 
 test('real thread route keeps independent action state across out-of-order responses', async ({ page }) => {
