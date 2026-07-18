@@ -60,7 +60,10 @@ Headwater is the frontend for the Headwater daemon, speaking the Pleroma/Mastodo
 - Do not introduce backward-compatibility layers unless there is a concrete need.
 - Do not write class declarations or class inheritance in application code. Framework internals and third-party APIs are exempt.
 - Keep code comments rare and focused on non-obvious behavior.
-- Agents should only create commits when explicitly requested.
+- Follow the repository's default delivery cadence without waiting for a separate
+  commit request: create or select an issue, work TDD red-green-refactor, request
+  a focused review and address findings, then commit and push. Stop before commit
+  or push only when the user explicitly asks.
 - For larger UI/handoff slices, request a focused review before committing, especially when porting canonical design behavior into the real app.
 
 ## Composer Behavior
