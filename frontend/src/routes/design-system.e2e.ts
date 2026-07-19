@@ -40,6 +40,45 @@ test('shows converted canonical design-system sections and switches themes', asy
 	await expectNoHorizontalOverflow(page);
 });
 
+test('preserves a saved Headwater custom theme on the design system route', async ({ page }) => {
+	await page.addInitScript(() => {
+		localStorage.setItem('headwater.theme.v1.custom', JSON.stringify({ bg: '#101522', panel: '#182034', ink: '#F0EBDD', muted: '#8A94AE', accent: '#D98152', good: '#8BC99A', warn: '#D9B56F', bad: '#D48383' }));
+		localStorage.setItem('headwater.theme.v1.preferences', JSON.stringify({ version: 1, mode: 'fixed', fixedTheme: 'custom', lightTheme: 'cream', darkTheme: 'dusk' }));
+	});
+	await page.goto('/design-system');
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'custom');
+	await expect(page.locator('html')).toHaveCSS('--bg', '#101522');
+});
+
+test('design system follows system themes and explicit picks return to fixed mode', async ({ page }) => {
+	await page.emulateMedia({ colorScheme: 'dark' });
+	await page.addInitScript(() => localStorage.setItem('headwater.theme.v1.preferences', JSON.stringify({ version: 1, mode: 'system', fixedTheme: 'cream', lightTheme: 'cream', darkTheme: 'drive' })));
+	await page.goto('/design-system');
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'drive');
+	await page.emulateMedia({ colorScheme: 'light' });
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'cream');
+	await page.getByRole('button', { name: 'Simoun' }).click();
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'simoun');
+	await page.emulateMedia({ colorScheme: 'dark' });
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'simoun');
+});
+
+test('design system synchronizes Headwater theme preferences and palettes across tabs', async ({ page }) => {
+	await page.goto('/design-system');
+	const otherPage = await page.context().newPage();
+	await otherPage.goto('/design-system');
+
+	await otherPage.evaluate(() => localStorage.setItem('headwater.theme.v1.preferences', JSON.stringify({ version: 1, mode: 'fixed', fixedTheme: 'simoun', lightTheme: 'cream', darkTheme: 'dusk' })));
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'simoun');
+	await otherPage.evaluate(() => {
+		localStorage.setItem('headwater.theme.v1.custom', JSON.stringify({ bg: '#102030', panel: '#183048', ink: '#F0F4F8', muted: '#A0B0C0', accent: '#80C0D0', good: '#80C090', warn: '#D0B070', bad: '#D08080' }));
+		localStorage.setItem('headwater.theme.v1.preferences', JSON.stringify({ version: 1, mode: 'fixed', fixedTheme: 'custom', lightTheme: 'cream', darkTheme: 'dusk' }));
+	});
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'custom');
+	await expect(page.locator('html')).toHaveCSS('--bg', '#102030');
+	await otherPage.close();
+});
+
 test('renders canonical composer content-warning specimen', async ({ page }) => {
 	await setViewport(page, 'desktop');
 	await page.goto('/design-system');

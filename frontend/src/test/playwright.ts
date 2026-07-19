@@ -23,6 +23,29 @@ export const expectNoHorizontalOverflow = async (page: Page) => {
 	expect(hasOverflow).toBe(false);
 };
 
+export const expectNoMobileFocusZoom = async (page: Page) => {
+	const selector = [
+		'input:not([type])',
+		'input:is([type="text"], [type="search"], [type="email"], [type="url"], [type="tel"], [type="number"], [type="password"])',
+		'textarea',
+		'select',
+		'[contenteditable="true"][role="textbox"]'
+	].join(', ');
+	const undersized = await page.locator(selector).evaluateAll((elements) => elements
+		.filter((element) => {
+			const control = element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+			const bounds = element.getBoundingClientRect();
+			return !control.disabled && bounds.width > 0 && bounds.height > 0 && getComputedStyle(element).visibility !== 'hidden';
+		})
+		.map((element) => ({
+			name: element.getAttribute('aria-label') ?? element.getAttribute('name') ?? element.getAttribute('placeholder') ?? element.tagName.toLowerCase(),
+			fontSize: Number.parseFloat(getComputedStyle(element).fontSize)
+		}))
+		.filter((control) => control.fontSize < 16));
+
+	expect(undersized).toEqual([]);
+};
+
 export const expectElementIsTruncatedWithinParent = async (locator: Locator) => {
 	const result = await locator.evaluate((element) => {
 		const parent = element.parentElement;

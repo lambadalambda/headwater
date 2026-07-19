@@ -25,6 +25,7 @@ type ComposerUploadBase = {
 	name: string;
 	kind: 'photo' | 'audio' | 'video' | 'file';
 	progress: number;
+	previewUrl?: string;
 };
 
 export type ComposerUpload =

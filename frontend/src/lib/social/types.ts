@@ -134,6 +134,7 @@ export type SocialPost = {
 	id: string;
 	actionStatusId?: string;
 	threadStatusId?: string;
+	inReplyToId?: string | null;
 	name: string;
 	nameEmojis?: CustomEmoji[];
 	handle: string;

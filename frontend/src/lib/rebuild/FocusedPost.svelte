@@ -19,6 +19,7 @@
 
 	type FocusedThreadPost = PostLike & {
 		id?: string | number;
+		inReplyToId?: string | null;
 		name?: string;
 		nameEmojis?: CustomEmoji[];
 		handle?: string;
@@ -170,7 +171,7 @@
 	<PostCW post={post}>
 		<div class="focused-body"><RichText text={post.body} emojis={post.bodyEmojis} mentionAccts={post.mentionAccts} mentionNames={post.mentionNames} mentionClass="post-mention-inline" linkUrls /></div>
 		<QuotedPost quoted={post.quotedPost} />
-		<PostPinged addressees={post.addressees} addresseeNames={post.addresseeNames} addresseePetnames={post.addresseePetnames} focused />
+		<PostPinged addressees={post.addressees} parentStatusId={post.inReplyToId} addresseeNames={post.addresseeNames} addresseePetnames={post.addresseePetnames} focused />
 
 		{#if post.media}
 			<div class="focused-media">

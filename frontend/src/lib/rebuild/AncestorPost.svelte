@@ -16,6 +16,7 @@
 
 	type ThreadPost = PostLike & {
 		id?: string | number;
+		inReplyToId?: string | null;
 		name?: string;
 		nameEmojis?: CustomEmoji[];
 		handle?: string;
@@ -78,7 +79,7 @@
 		<div style="min-width:0">
 			<PostHead post={post} />
 			<PostCW post={post}>
-				<PostBody body={post.body} emojis={post.bodyEmojis} addressees={post.addressees} addresseeNames={post.addresseeNames} addresseePetnames={post.addresseePetnames} mentionNames={post.mentionNames} mentionAccts={post.mentionAccts} />
+				<PostBody body={post.body} emojis={post.bodyEmojis} addressees={post.addressees} parentStatusId={post.inReplyToId} addresseeNames={post.addresseeNames} addresseePetnames={post.addresseePetnames} mentionNames={post.mentionNames} mentionAccts={post.mentionAccts} />
 				<QuotedPost quoted={post.quotedPost} />
 				<PostMedia post={post} onOpen={handleLightbox} onVote={onVote ? (pollId, choice) => onVote(post.id, pollId, choice) : undefined} />
 			</PostCW>

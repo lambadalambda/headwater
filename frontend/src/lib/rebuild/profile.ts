@@ -6,6 +6,7 @@ export type ProfilePost = PostLike & {
 	id: string | number;
 	actionStatusId?: string;
 	threadStatusId?: string;
+	inReplyToId?: string | null;
 	name: string;
 	nameEmojis?: CustomEmoji[];
 	handle: string;

@@ -5,6 +5,7 @@
 
 	type UnicodeGroup = { id: string; label: string; items: string[] };
 	type Anchor = { left?: number; top?: number; bottom?: number; placement?: 'above' | 'below' };
+	type ViewportBounds = { width: number; height: number; offsetLeft: number; offsetTop: number };
 	type Props = {
 		open: boolean;
 		emojis?: ComposerEmoji[];
@@ -41,6 +42,7 @@
 	let tab = $state('recent');
 	let search = $state('');
 	let selectedIndex = $state(0);
+	let viewport = $state<ViewportBounds>({ width: 800, height: 800, offsetLeft: 0, offsetTop: 0 });
 
 	let packs = $derived([...new Set(emojis.map((emoji) => emoji.pack ?? 'custom'))]);
 	let sidebar = $derived([
@@ -72,15 +74,26 @@
 	});
 	let pickerStyle = $derived.by(() => {
 		if (isStatic) return undefined;
+		const margin = 8;
 		const style: string[] = [];
-		const pickerHeight = 420 + 16;
-		const viewH = typeof window === 'undefined' ? 800 : window.innerHeight;
-		const spaceAbove = anchor?.top ?? 0;
-		const spaceBelow = anchor?.bottom == null ? 0 : viewH - anchor.bottom;
-		const placement = anchor?.placement ?? (spaceAbove >= pickerHeight ? 'above' : spaceBelow >= pickerHeight ? 'below' : spaceAbove > spaceBelow ? 'above' : 'below');
-		if (anchor?.left != null) style.push(`left:${Math.max(8, Math.min(anchor.left, (typeof window === 'undefined' ? 800 : window.innerWidth) - 388))}px`);
-		if (placement === 'below' && anchor?.bottom != null) style.push(`top:${anchor.bottom + 8}px`);
-		else if (anchor?.top != null) style.push(`top:${anchor.top}px`, 'transform:translateY(-100%) translateY(-8px)');
+		const pickerWidth = Math.max(0, Math.min(380, viewport.width - margin * 2));
+		const pickerHeight = Math.max(0, Math.min(420, viewport.height - margin * 2));
+		const viewportRight = viewport.offsetLeft + viewport.width;
+		const viewportBottom = viewport.offsetTop + viewport.height;
+		const minLeft = viewport.offsetLeft + margin;
+		const minTop = viewport.offsetTop + margin;
+		const maxLeft = Math.max(minLeft, viewportRight - pickerWidth - margin);
+		const maxTop = Math.max(minTop, viewportBottom - pickerHeight - margin);
+		const spaceAbove = (anchor?.top ?? minTop) - viewport.offsetTop;
+		const spaceBelow = viewportBottom - (anchor?.bottom ?? viewportBottom);
+		const requiredSpace = pickerHeight + margin * 2;
+		const placement = anchor?.placement ?? (spaceAbove >= requiredSpace ? 'above' : spaceBelow >= requiredSpace ? 'below' : spaceAbove > spaceBelow ? 'above' : 'below');
+		const left = Math.max(minLeft, Math.min(anchor?.left ?? minLeft, maxLeft));
+		const proposedTop = placement === 'below'
+			? (anchor?.bottom ?? minTop) + margin
+			: (anchor?.top ?? viewportBottom) - pickerHeight - margin;
+		const top = Math.max(minTop, Math.min(proposedTop, maxTop));
+		style.push(`left:${left}px`, `top:${top}px`, `width:${pickerWidth}px`, `height:${pickerHeight}px`);
 		return style.join(';');
 	});
 
@@ -132,6 +145,13 @@
 	};
 
 	onMount(() => {
+		const syncViewport = () => {
+			const visualViewport = window.visualViewport;
+			const nextViewport = visualViewport
+				? { width: visualViewport.width, height: visualViewport.height, offsetLeft: visualViewport.offsetLeft, offsetTop: visualViewport.offsetTop }
+				: { width: window.innerWidth, height: window.innerHeight, offsetLeft: 0, offsetTop: 0 };
+			if (nextViewport.width > 16 && nextViewport.height > 16) viewport = nextViewport;
+		};
 		const onDoc = (event: MouseEvent) => {
 			if (!open || isStatic || !picker || picker.contains(event.target as Node)) return;
 			if ((event.target as Element | null)?.closest('[data-emoji-trigger]')) return;
@@ -140,11 +160,18 @@
 		const onKey = (event: KeyboardEvent) => {
 			if (open && !isStatic && event.key === 'Escape') onClose();
 		};
+		syncViewport();
 		document.addEventListener('mousedown', onDoc);
 		document.addEventListener('keydown', onKey);
+		window.addEventListener('resize', syncViewport);
+		window.visualViewport?.addEventListener('resize', syncViewport);
+		window.visualViewport?.addEventListener('scroll', syncViewport);
 		return () => {
 			document.removeEventListener('mousedown', onDoc);
 			document.removeEventListener('keydown', onKey);
+			window.removeEventListener('resize', syncViewport);
+			window.visualViewport?.removeEventListener('resize', syncViewport);
+			window.visualViewport?.removeEventListener('scroll', syncViewport);
 		};
 	});
 

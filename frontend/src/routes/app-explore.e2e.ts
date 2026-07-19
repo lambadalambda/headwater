@@ -17,63 +17,69 @@ const authenticate = async (page: Page) => {
 	}, session);
 };
 
-test('real explore route renders hero, tags, topics, communities, and discover feed', async ({ page }) => {
+test('Explore presents known-content search as its only prominent feature', async ({ page }) => {
 	await authenticate(page);
-	await setViewport(page, 'desktop');
+	await setViewport(page, 'wide');
 	await page.goto('/app/explore');
 
-	await expect(page.getByRole('heading', { name: 'Explore the network' })).toBeVisible();
-	const search = page.getByRole('searchbox', { name: 'Search topics, people, and posts' });
-	await expect(search).toBeVisible();
-	await search.fill('vaporwave');
-	await expect(search).toHaveValue('vaporwave');
-	await expect(page.getByRole('button', { name: '#fediverse' })).toBeVisible();
-	await expect(page.getByTestId('explore-topic-card')).toHaveCount(3);
-	await expect(page.getByTestId('explore-community-card')).toHaveCount(3);
-	await expect(page.getByTestId('explore-feed')).toContainText('Popular across friendly instances');
-	await expect(page.getByTestId('explore-artwork')).toBeVisible();
+	const content = page.getByTestId('app-content');
+	await expect(content.getByRole('heading', { name: 'Find people and posts' })).toBeVisible();
+	const searchForm = content.getByRole('search', { name: 'Explore search' });
+	const search = searchForm.getByRole('searchbox', { name: 'Search known people and posts' });
+	await expect(search).toHaveCSS('font-size', '18px');
+	await expect(search).toHaveAttribute('aria-describedby', 'explore-search-hint');
+	await expect(content).toContainText('Search people and posts already known to this Headwater node');
+	await search.focus();
+	await expect(searchForm).toHaveCSS('outline-width', '2px');
+	const formBounds = await searchForm.boundingBox();
+	expect(formBounds?.width ?? 0).toBeGreaterThanOrEqual(500);
+	expect(formBounds?.height ?? 0).toBeGreaterThanOrEqual(64);
+	await expect(page.getByTestId('right-rail')).toHaveCount(0);
+	await expect(page.getByTestId('explore-topic-card')).toHaveCount(0);
+	await expect(page.getByTestId('explore-community-card')).toHaveCount(0);
+	await expect(page.getByTestId('explore-feed')).toHaveCount(0);
+	await expect(page.getByTestId('explore-artwork')).toHaveCount(0);
 	await expectNoHorizontalOverflow(page);
 });
 
-test('real explore route switches discover feed tabs', async ({ page }) => {
+test('Explore submits text to full search and feed invites to follow', async ({ page }) => {
 	await authenticate(page);
 	await setViewport(page, 'desktop');
+	await page.route('https://pleroma.example/api/headwater/follow', async (route) => {
+		expect(route.request().postDataJSON()).toEqual({ invite: 'https://i.delta.chat/#feed-invite' });
+		await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+	});
 	await page.goto('/app/explore');
 
-	const feedTabs = page.getByRole('tablist', { name: 'Discover feed' });
-	await expect(feedTabs.getByRole('tab', { name: 'Popular' })).toHaveAttribute('aria-selected', 'true');
-	await expect(page.getByTestId('explore-feed')).toContainText('Popular across friendly instances');
+	const content = page.getByTestId('app-content');
+	const search = content.getByRole('searchbox', { name: 'Search known people and posts' });
+	await search.fill('slow web');
+	await content.getByRole('button', { name: 'Search', exact: true }).click();
+	await expect(page).toHaveURL(/\/app\/search\?q=slow(?:\+|%20)web$/);
 
-	await feedTabs.getByRole('tab', { name: 'New' }).click();
-	await expect(feedTabs.getByRole('tab', { name: 'New' })).toHaveAttribute('aria-selected', 'true');
-	await expect(page.getByTestId('explore-feed')).toContainText('Fresh instance dispatches');
-
-	await feedTabs.getByRole('tab', { name: 'Active' }).click();
-	await expect(feedTabs.getByRole('tab', { name: 'Active' })).toHaveAttribute('aria-selected', 'true');
-	await expect(page.getByTestId('explore-feed')).toContainText('Most replied threads');
+	await page.goto('/app/explore');
+	await search.fill('https://i.delta.chat/#feed-invite');
+	await expect(content.getByRole('button', { name: 'Follow feed' })).toBeVisible();
+	await content.getByRole('button', { name: 'Follow feed' }).click();
+	await expect(page.getByText('Followed that feed')).toBeVisible();
+	await expect(search).toHaveValue('');
 });
 
-test('real explore route community join buttons retain local joined state', async ({ page }) => {
+test('Explore search remains prominent and contained on mobile', async ({ page }) => {
 	await authenticate(page);
-	await setViewport(page, 'desktop');
-	await page.goto('/app/explore');
+	for (const width of [390, 320]) {
+		await page.setViewportSize({ width, height: 844 });
+		await page.goto('/app/explore');
 
-	const community = page.getByTestId('explore-community-card').filter({ hasText: 'Federated CSS Garden' });
-	const join = community.getByRole('button', { name: 'Join Federated CSS Garden' });
-
-	await expect(join).toHaveAttribute('aria-pressed', 'false');
-	await join.click();
-	await expect(community.getByRole('button', { name: 'Joined Federated CSS Garden' })).toHaveAttribute('aria-pressed', 'true');
-});
-
-test('real explore route stacks cleanly on mobile', async ({ page }) => {
-	await authenticate(page);
-	await setViewport(page, 'mobile');
-	await page.goto('/app/explore');
-
-	await expect(page.getByRole('heading', { name: 'Explore the network' })).toBeVisible();
-	await expect(page.getByTestId('explore-topic-card').first()).toBeVisible();
-	await expect(page.getByTestId('explore-community-card').first()).toBeVisible();
-	await expect(page.getByRole('searchbox', { name: 'Search topics, people, and posts' })).toBeVisible();
-	await expectNoHorizontalOverflow(page);
+		const content = page.getByTestId('app-content');
+		const searchForm = content.getByRole('search', { name: 'Explore search' });
+		const search = searchForm.getByRole('searchbox', { name: 'Search known people and posts' });
+		await expect(content.getByRole('heading', { name: 'Find people and posts' })).toBeVisible();
+		await expect(search).toHaveCSS('font-size', '16px');
+		await expect.poll(async () => searchForm.evaluate((element) => {
+			const bounds = element.getBoundingClientRect();
+			return bounds.left >= 0 && bounds.right <= window.innerWidth && element.scrollWidth <= element.clientWidth;
+		})).toBe(true);
+		await expectNoHorizontalOverflow(page);
+	}
 });

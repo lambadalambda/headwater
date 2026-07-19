@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Avatar from './Avatar.svelte';
+	import ComposerAttachmentPreview from './ComposerAttachmentPreview.svelte';
 	import ComposerCWPanel from './ComposerCWPanel.svelte';
 	import ComposerMentionEditor from './ComposerMentionEditor.svelte';
 	import ComposerPollPanel from './ComposerPollPanel.svelte';
@@ -195,21 +196,25 @@
 		{#if uploads.length > 0}
 			<div class="composer-uploads thread-inline-reply-uploads" aria-live="polite">
 				{#each uploads as upload (upload.localId)}
-					<div class="composer-upload-row" class:error={upload.status === 'error'} title={upload.error}>
-						<div class={`composer-upload-thumb ${upload.kind}`}>{composerUploadBadge(upload.kind)}</div>
-						<div class="composer-upload-meta">
-							<div class="composer-upload-name">{upload.name}</div>
-							<div class="composer-upload-prog-row">
-								<div class="composer-upload-bar" role="progressbar" aria-label={`Upload progress for ${upload.name}`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={upload.progress}><span style={`width:${upload.progress}%`}></span></div>
-								<span class="composer-upload-pct">{upload.status === 'error' ? 'Error' : `${upload.progress}%`}</span>
+					{#if upload.kind === 'photo'}
+						<ComposerAttachmentPreview {upload} disabled={submitting} onRemove={onRemoveUpload} onAltText={onAltText} />
+					{:else}
+						<div class="composer-upload-row" class:error={upload.status === 'error'} title={upload.error}>
+							<div class={`composer-upload-thumb ${upload.kind}`}>{composerUploadBadge(upload.kind)}</div>
+							<div class="composer-upload-meta">
+								<div class="composer-upload-name">{upload.name}</div>
+								<div class="composer-upload-prog-row">
+									<div class="composer-upload-bar" role="progressbar" aria-label={`Upload progress for ${upload.name}`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={upload.progress}><span style={`width:${upload.progress}%`}></span></div>
+									<span class="composer-upload-pct">{upload.status === 'error' ? 'Error' : `${upload.progress}%`}</span>
+								</div>
+								{#if upload.error}<div class="composer-upload-error">{upload.error}</div>{/if}
+								{#if upload.status === 'uploaded' && onAltText}
+									<input class="composer-upload-alt" type="text" placeholder="Alt text (describe for screen readers)" aria-label={`Alt text for ${upload.name}`} value={upload.media.description ?? ''} disabled={submitting} onchange={(event) => onAltText(upload.localId, event.currentTarget.value)} />
+								{/if}
 							</div>
-							{#if upload.error}<div class="composer-upload-error">{upload.error}</div>{/if}
-							{#if upload.status === 'uploaded' && onAltText}
-								<input class="composer-upload-alt" type="text" placeholder="Alt text (describe for screen readers)" aria-label={`Alt text for ${upload.name}`} value={upload.media.description ?? ''} disabled={submitting} onchange={(event) => onAltText(upload.localId, event.currentTarget.value)} />
-							{/if}
+							<button type="button" class="composer-upload-rm" aria-label={`Remove ${upload.name}`} disabled={submitting} onclick={() => onRemoveUpload?.(upload.localId)}>×</button>
 						</div>
-						<button type="button" class="composer-upload-rm" aria-label={`Remove ${upload.name}`} disabled={submitting} onclick={() => onRemoveUpload?.(upload.localId)}>×</button>
-					</div>
+					{/if}
 				{/each}
 			</div>
 		{:else if mediaEnabled}

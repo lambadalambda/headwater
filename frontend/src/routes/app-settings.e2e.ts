@@ -72,6 +72,60 @@ test('real settings route populates the form from the session account', async ({
 	await expect(page.getByTestId('app-content').getByTestId('profile-preview-card')).toHaveCount(0);
 });
 
+test('custom theme editor imports legacy codes and saves a Headwater shareable palette', async ({ page }) => {
+	await authenticate(page);
+	await setViewport(page, 'wide');
+	await page.goto('/app/settings/appearance');
+
+	await expect(page.getByRole('heading', { name: 'Custom theme' })).toBeVisible();
+	const pageBackground = page.getByRole('textbox', { name: 'Page background hex' });
+	const imported = 'PN1:F4F0E8,FAF8F1,202442,747890,9B82D2,A2D0AD,DDB574,D28787';
+	await page.getByRole('textbox', { name: 'Import theme code' }).fill(imported);
+	await page.getByRole('button', { name: 'Import theme code' }).click();
+	await expect(pageBackground).toHaveValue('#F4F0E8');
+	await expect(page.getByRole('textbox', { name: 'Theme share code' })).toHaveValue(/^HW1:F4F0E8,/);
+
+	await page.getByRole('button', { name: 'Save as active theme' }).click();
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'custom');
+	await expect(page.locator('html')).toHaveCSS('--bg', '#F4F0E8');
+	await page.reload();
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'custom');
+	await expect(pageBackground).toHaveValue('#F4F0E8');
+});
+
+test('appearance follows independent system themes and migrates the existing theme key', async ({ page }) => {
+	await authenticate(page);
+	await page.emulateMedia({ colorScheme: 'light' });
+	await page.addInitScript(() => localStorage.setItem('pn-theme', 'simoun'));
+	await page.goto('/app/settings/appearance');
+
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'simoun');
+	await page.getByRole('radio', { name: 'Follow system' }).check();
+	await page.getByLabel('Light theme', { exact: true }).selectOption('cream');
+	await page.getByLabel('Dark theme', { exact: true }).selectOption('drive');
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'cream');
+	await page.emulateMedia({ colorScheme: 'dark' });
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'drive');
+
+	const preferences = await page.evaluate(() => JSON.parse(localStorage.getItem('headwater.theme.v1.preferences') ?? '{}'));
+	expect(preferences).toMatchObject({ version: 1, mode: 'system', fixedTheme: 'simoun', lightTheme: 'cream', darkTheme: 'drive' });
+});
+
+test('custom theme editor remains usable without horizontal overflow on mobile', async ({ page }) => {
+	await authenticate(page);
+	await setViewport(page, 'mobile');
+	await page.goto('/app/settings/appearance');
+
+	await expect(page.getByRole('heading', { name: 'Custom theme' })).toBeVisible();
+	await expect(page.getByTestId('theme-preview')).toBeVisible();
+	await expect(page.getByRole('radio', { name: 'Single theme' })).toBeVisible();
+	await expect(page.getByRole('radio', { name: 'Follow system' })).toBeVisible();
+	await expect(page.getByRole('textbox', { name: 'Page background hex' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Save as active theme' })).toBeVisible();
+	await expect(page.getByTestId('right-rail')).toBeHidden();
+	await expectNoHorizontalOverflow(page);
+});
+
 test('real settings route saves through the account update API and reconciles the session', async ({ page }) => {
 	await authenticate(page);
 	await setViewport(page, 'wide');

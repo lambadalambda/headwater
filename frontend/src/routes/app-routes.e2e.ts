@@ -112,8 +112,8 @@ test('real app routes render shell, deep links, and browser history', async ({ p
 
 	await page.getByTestId('left-sidebar').getByRole('link', { name: 'Explore' }).click();
 	await expect(page).toHaveURL('/app/explore');
-	await expect(page.getByRole('heading', { name: 'Explore the network' })).toBeVisible();
-	await expect(page.getByTestId('right-rail')).toContainText('Discover');
+	await expect(page.getByRole('heading', { name: 'Find people and posts' })).toBeVisible();
+	await expect(page.getByTestId('right-rail')).toHaveCount(0);
 
 	await page.getByTestId('left-sidebar').getByRole('link', { name: 'Settings' }).click();
 	await expect(page).toHaveURL('/app/settings');
@@ -192,7 +192,7 @@ test('real app hydrates profile data for existing token-only sessions', async ({
 	expect(await page.evaluate(() => JSON.parse(window.localStorage.getItem('deltanet.session') ?? '{}').account?.display_name)).toBe('quiet admin');
 });
 
-test('real app right rail keeps timeline and explore card stacks', async ({ page }) => {
+test('real app right rail appears only where it has route-specific content', async ({ page }) => {
 	await authenticate(page);
 	await mockHomeTimeline(page);
 	await page.setViewportSize({ width: 1360, height: 900 });
@@ -206,9 +206,12 @@ test('real app right rail keeps timeline and explore card stacks', async ({ page
 
 	await page.getByTestId('left-sidebar').getByRole('link', { name: 'Explore' }).click();
 	await expect(page).toHaveURL('/app/explore');
-	await expect(page.getByLabel('Quick search Explore')).toBeVisible();
-	await expect(rail).toContainText('Known instances');
-	await expect(rail).toContainText('Discovery mode');
+	await expect(page.getByTestId('right-rail')).toHaveCount(0);
+
+	for (const path of ['/app/search', '/app/notifications', '/app/messages', '/app/bookmarks']) {
+		await page.goto(path);
+		await expect(page.getByTestId('right-rail')).toHaveCount(0);
+	}
 });
 
 test('app route guard revalidates when session disappears during client navigation', async ({ page }) => {
@@ -273,7 +276,7 @@ test('real app shell stays responsive across desktop, medium, tablet, and mobile
 			await expect(page.getByTestId('right-rail')).toBeHidden();
 		} else {
 			await expect(page.getByTestId('left-sidebar')).toBeHidden();
-			await expect(page.getByTestId('mobile-bottom-nav')).toBeVisible();
+			await expect(page.getByTestId('mobile-bottom-nav')).toHaveCount(0);
 		}
 
 		await expectNoHorizontalOverflow(page);
@@ -417,7 +420,7 @@ test('real app user menu opens profile, settings, and signs out by forgetting th
 	releaseRevoke();
 });
 
-test('mobile real app shell opens drawer and details sheet', async ({ page }) => {
+test('mobile real app shell navigates through the drawer without redundant bottom navigation', async ({ page }) => {
 	await authenticate(page);
 	await mockHomeTimeline(page);
 	await setViewport(page, 'mobile');
@@ -428,10 +431,37 @@ test('mobile real app shell opens drawer and details sheet', async ({ page }) =>
 	await page.getByTestId('mobile-drawer').getByRole('link', { name: 'Explore' }).click();
 	await expect(page).toHaveURL('/app/explore');
 	await expect(page.getByTestId('mobile-drawer')).toBeHidden();
-
-	await page.getByTestId('mobile-bottom-nav').getByRole('button', { name: 'More' }).click();
-	await expect(page.getByTestId('mobile-sheet')).toBeVisible();
-	await page.getByRole('button', { name: 'Close details sheet' }).click();
-	await expect(page.getByTestId('mobile-sheet')).toBeHidden();
+	await expect(page.getByTestId('mobile-bottom-nav')).toHaveCount(0);
 	await expectNoHorizontalOverflow(page);
+});
+
+test('mobile navigation drawer contains focus and restores it when closed', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page);
+	await setViewport(page, 'mobile');
+	await page.goto('/app/home');
+
+	const trigger = page.getByRole('button', { name: 'Open navigation menu' });
+	await trigger.focus();
+	await trigger.click();
+	const drawer = page.getByRole('dialog', { name: 'Navigation menu' });
+	const close = drawer.getByRole('button', { name: 'Close navigation menu' });
+	await expect(drawer).toHaveAttribute('aria-modal', 'true');
+	await expect(close).toBeFocused();
+	await expect(page.getByTestId('app-header')).toHaveJSProperty('inert', true);
+
+	const lastLink = drawer.getByRole('link').last();
+	await lastLink.focus();
+	await page.keyboard.press('Tab');
+	await expect(close).toBeFocused();
+	await page.keyboard.press('Shift+Tab');
+	await expect(lastLink).toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(drawer).toHaveCount(0);
+	await expect(trigger).toBeFocused();
+
+	await trigger.click();
+	await page.setViewportSize({ width: 1000, height: 800 });
+	await expect(page.getByRole('dialog', { name: 'Navigation menu' })).toHaveCount(0);
+	await expect(page.getByTestId('app-header')).toHaveJSProperty('inert', false);
 });

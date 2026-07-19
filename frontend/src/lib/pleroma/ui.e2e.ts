@@ -361,6 +361,26 @@ test('Pleroma status adapters expose media attachments for shared post rendering
 	]);
 });
 
+test('Pleroma status adapters retain sensitive attachments for explicit reveal', () => {
+	const post = adaptPleromaStatus(withStatus({
+		id: 'status-with-sensitive-media',
+		sensitive: true,
+		spoiler_text: '',
+		media_attachments: [{
+			id: 'image-sensitive',
+			type: 'image',
+			url: 'https://cdn.example/media/sensitive.jpg',
+			preview_url: 'https://cdn.example/media/sensitive-preview.jpg',
+			description: 'sensitive photograph'
+		}]
+	}));
+
+	expect(post.mediaHidden).toBe(true);
+	expect(post.attachments).toEqual([
+		{ kind: 'photo', src: 'https://cdn.example/media/sensitive.jpg', alt: 'sensitive photograph', filename: 'sensitive.jpg' }
+	]);
+});
+
 test('Pleroma status adapters expose poll attachments for shared post rendering', () => {
 	const post = adaptPleromaStatus(withStatus({
 		id: 'status-with-poll',

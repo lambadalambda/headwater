@@ -42,7 +42,7 @@
 			<div class="lightbox-attr">
 				{#if attribution}
 					<Avatar variant="post" avClass={attribution.avClass} avBanner={attribution.avBanner} size={36} />
-					<div>
+					<div class="lightbox-meta">
 						<div class="lightbox-name"><RichText text={attribution.name} emojis={attribution.nameEmojis} linkMentions={false} /> <span>{attribution.handle}</span></div>
 						<div class="lightbox-count">
 							{startIdx + 1} of {total} ·{' '}

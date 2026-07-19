@@ -268,7 +268,7 @@ test('header search ignores stale live results after clearing input', async ({ p
 	await input.fill('slow web');
 	await expect.poll(() => Boolean(deferredSearch.release)).toBe(true);
 	await input.fill('');
-	await expect(page.getByTestId('header-search-dropdown')).toContainText('Search across Headwater');
+	await expect(page.getByTestId('header-search-dropdown')).toContainText('Search this Headwater node');
 
 	deferredSearch.release?.();
 	await page.waitForTimeout(50);
@@ -293,7 +293,7 @@ test('header search shows and clears recent queries', async ({ page }) => {
 	await expect(dropdown).toContainText('gridwave');
 
 	await dropdown.getByRole('button', { name: 'Clear all' }).click();
-	await expect(dropdown).toContainText('Search across Headwater');
+	await expect(dropdown).toContainText('Search this Headwater node');
 	await expect(dropdown).not.toContainText('gridwave');
 });
 
@@ -303,7 +303,7 @@ test('explore search box opens the full search page', async ({ page }) => {
 	await setViewport(page, 'desktop');
 	await page.goto('/app/explore');
 
-	await page.getByRole('searchbox', { name: 'Search topics, people, and posts' }).fill('gridwave');
+	await page.getByRole('searchbox', { name: 'Search known people and posts' }).fill('gridwave');
 	await page.getByTestId('app-content').getByRole('button', { name: 'Search', exact: true }).click();
 
 	await expect(page).toHaveURL(/\/app\/search\?q=gridwave$/);
@@ -315,6 +315,7 @@ test('full search page filters people and posts without showing hashtags', async
 	await mockSearch(page);
 	await setViewport(page, 'desktop');
 	await page.goto('/app/search?q=slow%20web');
+	await expect(page.getByRole('searchbox', { name: 'Search people and posts known to this Headwater node' })).toBeVisible();
 
 	const tabs = page.getByRole('tablist', { name: 'Search result types' });
 	await expect(tabs.getByRole('tab', { name: /All/ })).toHaveAttribute('aria-selected', 'true');
@@ -332,14 +333,8 @@ test('full search page filters people and posts without showing hashtags', async
 	await expect(page.getByTestId('search-results')).not.toContainText('gridwave@retro.social');
 	await expect(page.getByTestId('search-results')).toContainText('the slow web is people');
 
-	await page.getByRole('button', { name: /More filters/ }).click();
-	await expect(page.getByRole('button', { name: /Hide filters/ })).toHaveAttribute('aria-expanded', 'true');
-	await expect(page.getByTestId('search-filter-sidebar')).toContainText('Source');
-	await expect(page.getByTestId('search-filter-sidebar')).toContainText('Date');
-	await expect(page.getByTestId('search-filter-sidebar')).toContainText('From user');
-	await expect(page.getByTestId('search-filter-sidebar')).toContainText('Has media');
-	await expect(page.getByTestId('search-filter-sidebar')).toContainText('Sort');
-	await expect(page.getByTestId('search-filter-sidebar')).toContainText('Filter controls are preview-only for now');
+	await expect(page.getByRole('button', { name: /More filters/ })).toHaveCount(0);
+	await expect(page.getByTestId('search-filter-sidebar')).toHaveCount(0);
 });
 
 test('full search all tab shows top people before posts without burying posts', async ({ page }) => {
@@ -367,15 +362,13 @@ test('full search all tab shows top people before posts without burying posts', 
 	await expect(results).toContainText('gamma grid');
 });
 
-test('full search page keeps filters usable on mobile', async ({ page }) => {
+test('full search page keeps known-content results usable on mobile', async ({ page }) => {
 	await authenticate(page);
 	await mockSearch(page);
 	await setViewport(page, 'mobile');
 	await page.goto('/app/search?q=slow%20web');
 
-	await page.getByRole('button', { name: /More filters/ }).click();
-
-	await expect(page.getByTestId('search-filter-sidebar')).toBeVisible();
+	await expect(page.getByRole('searchbox', { name: 'Search people and posts known to this Headwater node' })).toBeVisible();
 	await expect(page.getByTestId('search-results')).toContainText('the slow web is people');
 	await expectNoHorizontalOverflow(page);
 });
@@ -395,7 +388,7 @@ test('full search page shows no-results and API error states', async ({ page }) 
 
 	await expect(page.getByRole('heading', { name: 'No results for nope' })).toBeVisible();
 	fail = true;
-	await page.getByRole('searchbox', { name: 'Search this instance and federation' }).fill('broken');
+	await page.getByRole('searchbox', { name: 'Search people and posts known to this Headwater node' }).fill('broken');
 	await expect(page).toHaveURL(/q=broken/);
 
 	await expect(page.getByRole('heading', { name: 'Pleroma server error' })).toBeVisible();

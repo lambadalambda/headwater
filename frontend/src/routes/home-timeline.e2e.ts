@@ -16,6 +16,30 @@ const instanceUrl = 'https://pleroma.example/api/v2/instance';
 const accountSearchUrl = 'https://pleroma.example/api/v1/accounts/search**';
 const customEmojisUrl = 'https://pleroma.example/api/v1/custom_emojis';
 
+const trackObjectUrls = async (page: Page) => {
+	await page.addInitScript(() => {
+		const testWindow = window as typeof window & { __createdObjectUrls?: string[]; __revokedObjectUrls?: string[] };
+		const createObjectUrl = URL.createObjectURL.bind(URL);
+		const revokeObjectUrl = URL.revokeObjectURL.bind(URL);
+		testWindow.__createdObjectUrls = [];
+		testWindow.__revokedObjectUrls = [];
+		URL.createObjectURL = (blob) => {
+			const url = createObjectUrl(blob);
+			testWindow.__createdObjectUrls?.push(url);
+			return url;
+		};
+		URL.revokeObjectURL = (url) => {
+			testWindow.__revokedObjectUrls?.push(url);
+			revokeObjectUrl(url);
+		};
+	});
+};
+
+const objectUrlCounts = (page: Page) => page.evaluate(() => {
+	const testWindow = window as typeof window & { __createdObjectUrls?: string[]; __revokedObjectUrls?: string[] };
+	return { created: testWindow.__createdObjectUrls?.length ?? 0, revoked: testWindow.__revokedObjectUrls?.length ?? 0 };
+});
+
 const authenticate = async (page: Page, instance = pleromaFixtures.instance) => {
 	await mockRightRailApis(page);
 	await mockInstance(page, instance);
@@ -361,6 +385,7 @@ test('Headwater capabilities hide unsupported mutations and retain honest unavai
 	await post.getByRole('button', { name: 'More post actions' }).click();
 	await expect(post.getByRole('menuitem', { name: /Bookmark|Delete|Mute|Block/ })).toHaveCount(0);
 	await page.getByLabel('Attach media').setInputFiles({ name: 'alt.png', mimeType: 'image/png', buffer: Buffer.from('image') });
+	await expect(page.getByRole('img', { name: 'Preview of alt.png' })).toHaveAttribute('src', /^blob:/);
 	await expect(page.getByLabel('Alt text for alt.png')).toBeVisible();
 	await page.getByRole('button', { name: 'Remove alt.png' }).click();
 	await page.getByLabel('Attach media').setInputFiles({ name: 'clip.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('audio') });
@@ -403,6 +428,7 @@ test('capability metadata failure stays conservative and offers retry instead of
 });
 
 test('media-description capability gates both home and inline-reply alt controls', async ({ page }) => {
+	await trackObjectUrls(page);
 	await authenticate(page, {
 		...pleromaFixtures.instance,
 		configuration: {
@@ -426,13 +452,18 @@ test('media-description capability gates both home and inline-reply alt controls
 	await page.goto('/app/home');
 	await page.getByLabel('Attach media').setInputFiles({ name: 'home.png', mimeType: 'image/png', buffer: Buffer.from('image') });
 	await expect(page.getByText('100%')).toBeVisible();
+	await expect(page.getByRole('img', { name: 'Preview of home.png' })).toHaveAttribute('src', /^blob:/);
 	await expect(page.getByLabel('Alt text for home.png')).toHaveCount(0);
 	await page.getByRole('button', { name: 'Remove home.png' }).click();
+	await expect.poll(() => objectUrlCounts(page)).toEqual({ created: 1, revoked: 1 });
 	await page.locator('[data-status-id="no-alt-post"]').getByRole('button', { name: /Reply/ }).click();
 	const reply = page.getByRole('form', { name: /Inline reply/ });
 	await reply.getByLabel('Attach reply media').setInputFiles({ name: 'reply.png', mimeType: 'image/png', buffer: Buffer.from('image') });
 	await expect(reply.getByText('100%')).toBeVisible();
+	await expect(reply.getByRole('img', { name: 'Preview of reply.png' })).toHaveAttribute('src', /^blob:/);
 	await expect(reply.getByLabel('Alt text for reply.png')).toHaveCount(0);
+	await page.getByRole('link', { name: 'Explore', exact: true }).first().click();
+	await expect.poll(() => objectUrlCounts(page)).toEqual({ created: 2, revoked: 2 });
 	expect(mediaUpdates).toBe(0);
 });
 
@@ -1838,6 +1869,181 @@ test('home timeline shows reply pill from metadata when the body has no leading 
 	await expect(post.locator('.post-pinged-also')).toHaveCount(0);
 });
 
+test('reply context lazily previews and caches an authenticated parent with Headwater identity', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [{
+			...pleromaFixtures.status,
+			id: 'status-preview-reply',
+			in_reply_to_id: 'parent-preview-status',
+			in_reply_to_account_id: 'parent-preview-account',
+			content: '<p>the reply beneath it</p>',
+			pleroma: { ...pleromaFixtures.status.pleroma, content: { 'text/plain': 'the reply beneath it' }, in_reply_to_account_acct: 'parent@remote.example' }
+		}]);
+	});
+	let previewRequests = 0;
+	let previewAuthorization = '';
+	await page.route('https://pleroma.example/api/v1/statuses/parent-preview-status', async (route) => {
+		previewRequests += 1;
+		previewAuthorization = route.request().headers().authorization ?? '';
+		const parent = statusWithText('parent-preview-status', '@grandparent@retro.social the original post lives here');
+		await fulfillHome(route, {
+			...parent,
+			in_reply_to_id: 'grandparent-preview-status',
+			account: {
+				...parent.account,
+				id: 'parent-preview-account',
+				display_name: 'Chosen Parent',
+				acct: 'parent@remote.example',
+				pleroma: { ...parent.account.pleroma, headwater: { auth_name: 'Verified Parent', petname: 'tomato' } }
+			},
+			mentions: [{ id: 'grandparent-account', url: 'https://retro.social/users/grandparent', username: 'grandparent', acct: 'grandparent@retro.social' }]
+		});
+	});
+
+	await page.setViewportSize({ width: 320, height: 700 });
+	await page.goto('/app/home');
+	const replyContext = page.locator('[data-status-id="status-preview-reply"] .post-pinged');
+	expect(previewRequests).toBe(0);
+	await replyContext.locator('.post-pinged-l').hover();
+	const preview = page.getByRole('tooltip');
+	await expect(preview).toContainText('Verified Parent');
+	await expect(preview).toContainText('tomato');
+	await expect(preview.locator('.reply-preview-body')).toHaveText('the original post lives here');
+	await expect(preview.locator('.post-pinged-chip-parent')).toContainText('@grandparent');
+	expect(previewAuthorization).toBe('Bearer access-token');
+	await expect.poll(() => previewRequests).toBe(1);
+	await expect.poll(async () => preview.evaluate((element) => {
+		const bounds = element.getBoundingClientRect();
+		return bounds.left >= 12 && bounds.right <= window.innerWidth - 12 && bounds.top >= 12 && bounds.bottom <= window.innerHeight - 12;
+	})).toBe(true);
+	await page.getByTestId('app-header').hover();
+	await replyContext.locator('.post-pinged-chip-parent').focus();
+	await expect(preview).toBeVisible();
+	await expect.poll(() => previewRequests).toBe(1);
+	await page.keyboard.press('Escape');
+	await replyContext.locator('.post-pinged-l').click();
+	await expect(preview).toBeVisible();
+	await expect.poll(() => previewRequests).toBe(1);
+});
+
+test('reply parent previews hide content-warning bodies', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [{
+			...pleromaFixtures.status,
+			id: 'status-cw-preview-reply',
+			in_reply_to_id: 'parent-cw-status',
+			content: '<p>reply to a folded post</p>',
+			pleroma: { ...pleromaFixtures.status.pleroma, content: { 'text/plain': 'reply to a folded post' }, in_reply_to_account_acct: 'cwparent@pleroma.example' }
+		}]);
+	});
+	await page.route('https://pleroma.example/api/v1/statuses/parent-cw-status', async (route) => {
+		await fulfillHome(route, { ...statusWithText('parent-cw-status', 'hidden parent body'), spoiler_text: 'Discussion of the ending' });
+	});
+
+	await page.goto('/app/home');
+	await page.locator('[data-status-id="status-cw-preview-reply"] .post-pinged-l').hover();
+	const preview = page.getByRole('tooltip');
+	await expect(preview).toContainText('Content warning: Discussion of the ending');
+	await expect(preview).not.toContainText('hidden parent body');
+});
+
+test('missing reply parents are negatively cached briefly and then retried', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [{
+			...pleromaFixtures.status,
+			id: 'status-missing-parent-reply',
+			in_reply_to_id: 'missing-parent-status',
+			content: '<p>the reply remains readable</p>',
+			pleroma: { ...pleromaFixtures.status.pleroma, content: { 'text/plain': 'the reply remains readable' }, in_reply_to_account_acct: 'missing@pleroma.example' }
+		}]);
+	});
+	let requests = 0;
+	await page.route('https://pleroma.example/api/v1/statuses/missing-parent-status', async (route) => {
+		requests += 1;
+		if (requests === 1) await fulfillHome(route, { error: 'Record not found' }, 404);
+		else await fulfillHome(route, statusWithText('missing-parent-status', 'backfilled parent is now available'));
+	});
+
+	await page.goto('/app/home');
+	const label = page.locator('[data-status-id="status-missing-parent-reply"] .post-pinged-l');
+	await label.hover();
+	await expect(page.getByRole('tooltip')).toContainText('Parent post unavailable');
+	await page.getByTestId('app-header').hover();
+	await label.hover();
+	await expect.poll(() => requests).toBe(1);
+	await page.getByTestId('app-header').hover();
+	await page.waitForTimeout(3_100);
+	await label.hover();
+	await expect(page.getByRole('tooltip')).toContainText('backfilled parent is now available');
+	await expect.poll(() => requests).toBe(2);
+});
+
+test('reply preview caches are isolated by authenticated session', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [{
+			...pleromaFixtures.status,
+			id: 'status-session-preview-reply',
+			in_reply_to_id: 'session-preview-parent',
+			content: '<p>reply across session changes</p>',
+			pleroma: { ...pleromaFixtures.status.pleroma, content: { 'text/plain': 'reply across session changes' }, in_reply_to_account_acct: 'parent@pleroma.example' }
+		}]);
+	});
+	const authorizations: string[] = [];
+	await page.route('https://pleroma.example/api/v1/statuses/session-preview-parent', async (route) => {
+		const authorization = route.request().headers().authorization ?? '';
+		authorizations.push(authorization);
+		await fulfillHome(route, statusWithText('session-preview-parent', authorization === 'Bearer second-token' ? 'second session parent' : 'first session parent'));
+	});
+
+	await page.goto('/app/home');
+	let label = page.locator('[data-status-id="status-session-preview-reply"] .post-pinged-l');
+	await label.hover();
+	await expect(page.getByRole('tooltip')).toContainText('first session parent');
+	await page.evaluate((storedSession) => localStorage.setItem('headwater.session', JSON.stringify(storedSession)), { ...session, accessToken: 'second-token', createdAt: session.createdAt + 1 });
+	await page.getByRole('link', { name: 'Explore', exact: true }).first().click();
+	await page.getByRole('link', { name: 'Home', exact: true }).first().click();
+	label = page.locator('[data-status-id="status-session-preview-reply"] .post-pinged-l');
+	await label.hover();
+	await expect(page.getByRole('tooltip')).toContainText('second session parent');
+	await expect.poll(() => authorizations).toEqual(['Bearer access-token', 'Bearer second-token']);
+});
+
+test('stale reply preview responses cannot replace a new session preview', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [{ ...pleromaFixtures.status, id: 'status-stale-preview-reply', in_reply_to_id: 'stale-preview-parent', pleroma: { ...pleromaFixtures.status.pleroma, in_reply_to_account_acct: 'parent@pleroma.example' } }]);
+	});
+	let releaseOld!: () => void;
+	const oldPending = new Promise<void>((resolve) => { releaseOld = resolve; });
+	let releaseNew!: () => void;
+	const newPending = new Promise<void>((resolve) => { releaseNew = resolve; });
+	await page.route('https://pleroma.example/api/v1/statuses/stale-preview-parent', async (route) => {
+		const authorization = route.request().headers().authorization;
+		if (authorization === 'Bearer access-token') {
+			await oldPending;
+			await fulfillHome(route, statusWithText('stale-preview-parent', 'stale first-session parent'));
+			return;
+		}
+		await newPending;
+		await fulfillHome(route, statusWithText('stale-preview-parent', 'current second-session parent'));
+	});
+
+	await page.goto('/app/home');
+	await page.locator('[data-status-id="status-stale-preview-reply"] .post-pinged-l').hover();
+	await page.evaluate((storedSession) => localStorage.setItem('headwater.session', JSON.stringify(storedSession)), { ...session, accessToken: 'second-token', createdAt: session.createdAt + 1 });
+	await page.getByRole('link', { name: 'Explore', exact: true }).first().click();
+	await page.getByRole('link', { name: 'Home', exact: true }).first().click();
+	await page.locator('[data-status-id="status-stale-preview-reply"] .post-pinged-l').hover();
+	releaseNew();
+	await expect(page.getByRole('tooltip')).toContainText('current second-session parent');
+	releaseOld();
+	await expect(page.getByRole('tooltip')).not.toContainText('stale first-session parent');
+});
+
 test('home timeline reply pill shows the chosen display name for Headwater mentions', async ({ page }) => {
 	await authenticate(page);
 	await mockHomeTimeline(page, async (route) => {
@@ -2247,6 +2453,28 @@ test('home timeline folds content warnings around body and media until revealed'
 	await expect(post.getByRole('button', { name: 'Favorite 10' })).toHaveAttribute('aria-pressed', 'true');
 });
 
+test('sensitive statuses keep text visible while gating only their media', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [{
+			...statusWithText('status-sensitive-media', 'body stays readable'),
+			sensitive: true,
+			spoiler_text: '',
+			media_attachments: [{ id: 'sensitive-photo', type: 'image', url: 'https://cdn.example/media/sensitive.jpg', preview_url: 'https://cdn.example/media/sensitive-preview.jpg', description: 'sensitive photograph' }]
+		}]);
+	});
+
+	await setViewport(page, 'desktop');
+	await page.goto('/app/home');
+	const post = page.locator('[data-status-id="status-sensitive-media"]');
+	await expect(post).toContainText('body stays readable');
+	await expect(post.locator('.post-photos')).toHaveCount(0);
+	const reveal = post.getByRole('button', { name: 'Show sensitive media' });
+	await expect(reveal).toBeVisible();
+	await reveal.click();
+	await expect(post.locator('img[alt="sensitive photograph"]')).toHaveAttribute('src', 'https://cdn.example/media/sensitive.jpg');
+});
+
 test('home timeline renders boosted Pleroma statuses with attribution and media actions', async ({ page }) => {
 	await authenticate(page);
 	await mockInstance(page);
@@ -2518,7 +2746,7 @@ test('home timeline opens a user stream and queues streamed posts behind the ind
 	expect(requestedSinceIds).toEqual([null]);
 
 	await page.getByRole('link', { name: 'Explore' }).first().click();
-	await expect(page.getByRole('heading', { name: 'Explore the network' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Find people and posts' })).toBeVisible();
 	expect(await page.evaluate(() => {
 		const testWindow = window as typeof window & { __headwaterSockets?: Array<{ closeCalled: boolean }> };
 		return testWindow.__headwaterSockets?.[0]?.closeCalled;
@@ -2623,7 +2851,7 @@ test('home timeline ignores initial responses after leaving home while loading',
 	await page.goto('/app/home');
 	await expect(page.getByRole('status', { name: 'Request status' })).toContainText('Loading Pleroma data');
 	await page.getByRole('link', { name: 'Explore' }).first().click();
-	await expect(page.getByRole('heading', { name: 'Explore the network' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Find people and posts' })).toBeVisible();
 	const socketCountAfterNavigation = await page.evaluate(() => {
 		const testWindow = window as typeof window & { __headwaterSockets?: unknown[] };
 		return testWindow.__headwaterSockets?.length ?? 0;
@@ -2780,7 +3008,7 @@ test('home timeline ignores auth errors from stale new-post checks after the ses
 		window.localStorage.setItem('headwater.session', JSON.stringify(storedSession));
 	}, nextSession);
 	await page.getByRole('link', { name: 'Explore' }).first().click();
-	await expect(page.getByRole('heading', { name: 'Explore the network' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Find people and posts' })).toBeVisible();
 
 	releaseCheck();
 	await expect(page).toHaveURL('/app/explore');
@@ -2840,6 +3068,23 @@ test('home timeline renders retryable API errors and retries with a token', asyn
 	await page.getByRole('button', { name: 'Retry request' }).click();
 	await expect(page.getByTestId('home-timeline-list')).toContainText('quiet CSS can still carry the voice.');
 	expect(attempts).toBe(2);
+});
+
+test('home timeline retries a failed initial load after leaving and returning', async ({ page }) => {
+	await authenticate(page);
+	let requests = 0;
+	await mockHomeTimeline(page, async (route) => {
+		requests += 1;
+		if (requests === 1) await fulfillHome(route, { error: 'temporarily unavailable' }, 503);
+		else await fulfillHome(route, [statusWithText('recovered-home-status', 'home recovered after navigation')]);
+	});
+
+	await page.goto('/app/home');
+	await expect(page.getByText('Pleroma server error')).toBeVisible();
+	await page.getByRole('link', { name: 'Explore', exact: true }).first().click();
+	await page.getByRole('link', { name: 'Home', exact: true }).first().click();
+	await expect(page.locator('[data-status-id="recovered-home-status"]')).toContainText('home recovered after navigation');
+	await expect.poll(() => requests).toBe(2);
 });
 
 test('home timeline 401 response triggers sign-out and root redirect', async ({ page }) => {
@@ -3808,4 +4053,77 @@ test('the boost button is disabled on followers-only posts', async ({ page }) =>
 	await expect(priv.locator('.post-action.boost')).toBeDisabled();
 	const pub = page.locator('.post').filter({ hasText: 'public content' }).first();
 	await expect(pub.locator('.post-action.boost')).toBeEnabled();
+});
+
+test('Home retains pagination and scroll when returning from a thread', async ({ page }) => {
+	await authenticate(page);
+	const firstPage = Array.from({ length: 12 }, (_, index) => statusWithText(`retained-home-${index + 1}`, `retained home post ${index + 1}`));
+	const olderPage = Array.from({ length: 12 }, (_, index) => statusWithText(`retained-home-${index + 13}`, `retained older home post ${index + 13}`));
+	const requestedMaxIds: Array<string | null> = [];
+	await mockHomeTimeline(page, async (route) => {
+		const maxId = new URL(route.request().url()).searchParams.get('max_id');
+		requestedMaxIds.push(maxId);
+		await fulfillHome(route, maxId === 'retained-home-12' ? olderPage : firstPage, 200, maxId
+			? { link: '<https://pleroma.example/api/v1/timelines/home?max_id=retained-home-24>; rel="next"' }
+			: { link: '<https://pleroma.example/api/v1/timelines/home?max_id=retained-home-12>; rel="next"' });
+	});
+	await page.route('https://pleroma.example/api/v1/statuses/retained-home-18', async (route) => fulfillHome(route, olderPage[5]));
+	await page.route('https://pleroma.example/api/v1/statuses/retained-home-18/context', async (route) => fulfillHome(route, { ancestors: [], descendants: [] }));
+
+	await setViewport(page, 'desktop');
+	await page.goto('/app/home');
+	await page.getByRole('button', { name: 'Load more' }).click();
+	const olderPost = page.locator('[data-status-id="retained-home-18"]');
+	await olderPost.scrollIntoViewIfNeeded();
+	const scrollBefore = await page.evaluate(() => window.scrollY);
+	expect(scrollBefore).toBeGreaterThan(500);
+
+	await olderPost.locator('.post-body').click();
+	await expect(page).toHaveURL('/app/thread/retained-home-18');
+	await page.goBack();
+
+	await expect(page).toHaveURL('/app/home');
+	await expect(olderPost).toContainText('retained older home post 18');
+	await expect(page.getByRole('button', { name: 'Load more' })).toBeVisible();
+	await expect.poll(async () => Math.abs((await page.evaluate(() => window.scrollY)) - scrollBefore)).toBeLessThanOrEqual(12);
+	expect(requestedMaxIds).toEqual([null, 'retained-home-12']);
+	expect(await page.evaluate(() => {
+		const sockets = (window as typeof window & { __headwaterSockets?: Array<{ closeCalled: boolean }> }).__headwaterSockets ?? [];
+		return sockets.length >= 2 && sockets[0].closeCalled && !sockets.at(-1)?.closeCalled;
+	})).toBe(true);
+});
+
+test('timeline settings insert incoming posts only while at the top and persist', async ({ page }) => {
+	await authenticate(page);
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, Array.from({ length: 18 }, (_, index) => statusWithText(`auto-${index}`, `existing timeline post ${index}`)));
+	});
+
+	await setViewport(page, 'desktop');
+	await page.goto('/app/home');
+	const list = page.getByTestId('home-timeline-list');
+	const settings = page.getByRole('button', { name: 'Timeline settings' });
+	await settings.click();
+	const autoInsert = page.getByRole('switch', { name: 'Automatically add new posts at the top' });
+	await expect(autoInsert).toHaveAttribute('aria-checked', 'false');
+	await autoInsert.press('Space');
+	await page.keyboard.press('Escape');
+
+	await emitStreamUpdate(page, statusWithText('auto-new', 'automatically inserted post'));
+	await expect(list).toContainText('automatically inserted post');
+	await expect(page.getByRole('button', { name: '1 new posts' })).toHaveCount(0);
+
+	await page.reload();
+	await settings.click();
+	await expect(autoInsert).toHaveAttribute('aria-checked', 'true');
+	await page.keyboard.press('Escape');
+	await page.evaluate(() => {
+		window.scrollTo(0, document.body.scrollHeight);
+		window.dispatchEvent(new Event('scroll'));
+	});
+	await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+
+	await emitStreamUpdate(page, statusWithText('auto-queued', 'queued while reading post'));
+	await expect(list).not.toContainText('queued while reading post');
+	await expect(page.getByRole('button', { name: '1 new posts' })).toBeVisible();
 });

@@ -832,6 +832,34 @@ test('signed-out visitors can view a public profile with sign-in prompts', async
 	await page.waitForURL('/');
 });
 
+test('signed-out public profiles do not offer authenticated parent previews', async ({ page }) => {
+	await page.route('https://pleroma.social/api/v1/accounts/search**', async (route: Route) => fulfillJson(route, [datagramAccount]));
+	const publicReply = {
+		...statusForProfile('public-profile-reply', 'a public reply with context', { in_reply_to_id: 'public-parent', in_reply_to_account_id: 'public-parent-account' }),
+		account: datagramAccount,
+		pleroma: { ...pleromaFixtures.status.pleroma, content: { 'text/plain': 'a public reply with context' }, in_reply_to_account_acct: 'publicparent@pleroma.social' }
+	};
+	await page.route(`https://pleroma.social/api/v1/accounts/${datagramAccount.id}/statuses**`, async (route: Route) => {
+		const url = new URL(route.request().url());
+		await fulfillJson(route, url.searchParams.get('pinned') === 'true' || url.searchParams.get('exclude_replies') === 'true' || url.searchParams.get('only_media') === 'true' ? [] : [publicReply]);
+	});
+	let parentRequests = 0;
+	await page.route('https://pleroma.social/api/v1/statuses/public-parent', async (route: Route) => {
+		parentRequests += 1;
+		await fulfillJson(route, statusForProfile('public-parent', 'private authenticated context'));
+	});
+
+	await page.goto('/app/profiles/datagram@retro.social');
+	const view = page.getByTestId('profile-view');
+	await view.getByRole('tab', { name: /Posts & Replies/ }).click();
+	const context = view.locator('[data-status-id="public-profile-reply"] .post-pinged');
+	await expect(context.locator('.post-pinged-l')).toHaveText('Replying to');
+	await expect(context.getByRole('button', { name: 'Replying to' })).toHaveCount(0);
+	await context.locator('.post-pinged-l').hover();
+	await expect(page.getByRole('tooltip')).toHaveCount(0);
+	expect(parentRequests).toBe(0);
+});
+
 test('signed-out visitors resolve remote profiles through account lookup', async ({ page }) => {
 	await page.route('https://pleroma.social/api/v1/accounts/search**', async (route: Route) => {
 		await fulfillJson(route, [pleromaFixtures.account]);

@@ -22,7 +22,7 @@
 	let tab = $state<NotificationTabId>('all');
 	let sampleList = $state<NotificationData[]>(cloneNotifications());
 	let list = $derived(notifications ?? sampleList);
-	let visible = $derived(status === 'ready' ? filterNotifs(list, tab).slice(0, 8) : []);
+	let visible = $derived(status === 'ready' ? filterNotifs(list, tab) : []);
 	let unreadCount = $derived(list.filter((notification) => !notification.read).length);
 
 	const markAll = () => {

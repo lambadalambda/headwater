@@ -848,6 +848,41 @@ test('real thread route inline reply composer attaches one pasted file and rejec
 	expect(uploadCount).toBe(1);
 });
 
+test('thread teardown revokes inline preview URLs and deletes staged media', async ({ page }) => {
+	let revokedObjectUrls = 0;
+	await page.exposeFunction('__trackRevokedObjectUrl', () => { revokedObjectUrls += 1; });
+	await page.addInitScript(() => {
+		const revokeObjectUrl = URL.revokeObjectURL.bind(URL);
+		URL.revokeObjectURL = (url) => {
+			void (window as typeof window & { __trackRevokedObjectUrl: () => Promise<void> }).__trackRevokedObjectUrl();
+			revokeObjectUrl(url);
+		};
+	});
+	await authenticate(page);
+	await mockThread(page);
+	await page.route('https://pleroma.example/api/v1/media', async (route) => fulfillJson(route, { id: 'thread-staged-media', type: 'image', url: '', preview_url: '', description: null }));
+	const deletedMedia: string[] = [];
+	await page.route('https://pleroma.example/api/v1/media/**', async (route) => {
+		if (route.request().method() === 'DELETE') deletedMedia.push(route.request().url().split('/').at(-1) ?? '');
+		await fulfillJson(route, {});
+	});
+	await page.goto('/app/thread/status-1');
+	await page.getByTestId('focused-post').getByRole('button', { name: 'Reply 2' }).click();
+	const replyForm = page.getByRole('form', { name: 'Inline reply to quiet admin' });
+	await replyForm.getByLabel('Attach reply media').setInputFiles({ name: 'teardown.png', mimeType: 'image/png', buffer: Buffer.from('image') });
+	await expect(replyForm.getByRole('img', { name: 'Preview of teardown.png' })).toBeVisible();
+	await expect(replyForm.getByText('100%')).toBeVisible();
+	await page.evaluate(() => {
+		const link = document.createElement('a');
+		link.href = '/design-system';
+		document.body.append(link);
+		link.click();
+	});
+	await page.waitForURL('/design-system');
+	await expect.poll(() => revokedObjectUrls).toBe(1);
+	await expect.poll(() => deletedMedia).toEqual(['thread-staged-media']);
+});
+
 test('real thread route action failures rollback and show scoped errors', async ({ page }) => {
 	await authenticate(page);
 	await mockThread(page);

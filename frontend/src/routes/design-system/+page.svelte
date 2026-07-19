@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { CUSTOM_THEME_STORAGE_KEY, DEFAULT_THEME_PREFERENCES, THEME_PREFERENCES_STORAGE_KEY, THEME_STORAGE_KEY, applyThemeToDocument, readStoredThemePalette, readStoredThemePreferences, resolveThemePreferences, writeStoredThemePreferences, type BuiltInThemeName, type ThemeName, type ThemePalette, type ThemePreferences } from '$lib/theme';
 	import Avatar from '$lib/rebuild/Avatar.svelte';
 	import AncestorPost from '$lib/rebuild/AncestorPost.svelte';
 	import Button from '$lib/rebuild/Button.svelte';
@@ -51,9 +52,8 @@
 		{ variant: 'focused', size: 56, shape: 'rect', cls: 'focused-av', role: 'Focused thread post · 4px radius' },
 	];
 
-	type ThemeId = 'cream' | 'dusk' | 'drive' | 'simoun';
 	type Theme = {
-		id: ThemeId;
+		id: BuiltInThemeName;
 		label: string;
 		bg: string;
 		panel: string;
@@ -190,16 +190,13 @@
 	];
 	const SAMPLE_AUDIO_SRC = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=';
 
-	const isThemeId = (value: string | null): value is ThemeId => THEMES.some((themeOption) => themeOption.id === value);
+	const applyTheme = (nextTheme: ThemeName) => applyThemeToDocument(document, nextTheme, nextTheme === 'custom' ? customPalette ?? undefined : undefined);
 
-	const applyTheme = (nextTheme: ThemeId) => {
-		document.body.dataset.theme = nextTheme;
-		document.documentElement.dataset.theme = nextTheme;
-	};
-
-	let theme = $state<ThemeId>('cream');
+	let theme = $state<ThemeName>('cream');
+	let themePreferences = $state<ThemePreferences>({ ...DEFAULT_THEME_PREFERENCES });
+	let systemPrefersDark = $state(false);
+	let customPalette = $state<ThemePalette | null>(null);
 	let section = $state('foundations');
-	let mounted = $state(false);
 	let toggleOn = $state(true);
 	let segValue = $state('Popular');
 	let toggleRowOn = $state(true);
@@ -491,17 +488,40 @@
 		{ variant: 'thread', label: 'Thread · ancestor + focused' },
 	];
 
-	onMount(() => {
-		const storedTheme = localStorage.getItem('pn-theme');
-		if (isThemeId(storedTheme)) theme = storedTheme;
-		mounted = true;
+	const applyResolvedTheme = () => {
+		theme = resolveThemePreferences(themePreferences, systemPrefersDark, customPalette);
 		applyTheme(theme);
-	});
+		localStorage.setItem(THEME_STORAGE_KEY, theme);
+	};
+	const selectTheme = (nextTheme: BuiltInThemeName) => {
+		themePreferences = { ...themePreferences, mode: 'fixed', fixedTheme: nextTheme };
+		writeStoredThemePreferences(localStorage, themePreferences);
+		applyResolvedTheme();
+	};
 
-	$effect(() => {
-		if (!mounted) return;
-		applyTheme(theme);
-		localStorage.setItem('pn-theme', theme);
+	onMount(() => {
+		customPalette = readStoredThemePalette(localStorage, CUSTOM_THEME_STORAGE_KEY);
+		themePreferences = readStoredThemePreferences(localStorage, customPalette);
+		writeStoredThemePreferences(localStorage, themePreferences);
+		const colorSchemeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+		systemPrefersDark = colorSchemeMedia.matches;
+		applyResolvedTheme();
+		const applySystemTheme = (event: MediaQueryListEvent) => {
+			systemPrefersDark = event.matches;
+			if (themePreferences.mode === 'system') applyResolvedTheme();
+		};
+		const syncStoredTheme = (event: StorageEvent) => {
+			if (event.key !== THEME_PREFERENCES_STORAGE_KEY && event.key !== CUSTOM_THEME_STORAGE_KEY && event.key !== null) return;
+			customPalette = readStoredThemePalette(localStorage, CUSTOM_THEME_STORAGE_KEY);
+			themePreferences = readStoredThemePreferences(localStorage, customPalette);
+			applyResolvedTheme();
+		};
+		colorSchemeMedia.addEventListener('change', applySystemTheme);
+		window.addEventListener('storage', syncStoredTheme);
+		return () => {
+			colorSchemeMedia.removeEventListener('change', applySystemTheme);
+			window.removeEventListener('storage', syncStoredTheme);
+		};
 	});
 </script>
 
@@ -528,7 +548,7 @@
 						type="button"
 						class:active={theme === themeOption.id}
 						class="ds-theme-chip"
-						onclick={() => (theme = themeOption.id)}
+						onclick={() => selectTheme(themeOption.id)}
 						aria-pressed={theme === themeOption.id}
 					>
 						<span class="ds-theme-swatch" style={`background: ${themeOption.bg}; border-color: ${themeOption.panel};`}>

@@ -6,6 +6,7 @@
 	import AttachmentLightboxHost from '$lib/rebuild/AttachmentLightboxHost.svelte';
 	import Avatar from '$lib/rebuild/Avatar.svelte';
 	import Button from '$lib/rebuild/Button.svelte';
+	import ComposerAttachmentPreview from '$lib/rebuild/ComposerAttachmentPreview.svelte';
 	import ComposerCWPanel from '$lib/rebuild/ComposerCWPanel.svelte';
 	import ComposerMentionEditor from '$lib/rebuild/ComposerMentionEditor.svelte';
 	import EmojiPicker from '$lib/rebuild/EmojiPicker.svelte';
@@ -28,6 +29,9 @@
 	import SurfaceCard from '$lib/rebuild/SurfaceCard.svelte';
 	import TimelineLoadMore from '$lib/rebuild/TimelineLoadMore.svelte';
 	import TimelineNewPostsIndicator from '$lib/rebuild/TimelineNewPostsIndicator.svelte';
+	import TimelineSettings from '$lib/rebuild/TimelineSettings.svelte';
+	import ThemeEditor from '$lib/rebuild/ThemeEditor.svelte';
+	import ThemePreferencesControls from '$lib/rebuild/ThemePreferencesControls.svelte';
 	import { accountsFromPleromaNotifications, accountsFromPleromaStatus, accountsFromPleromaStatuses, createPleromaAccountCache, getCachedPleromaAccount, upsertPleromaAccounts } from '$lib/pleroma/account-cache';
 	import { createPleromaClient } from '$lib/pleroma/client';
 	import { capabilitiesForInstance, mediaTypesForInstance, NO_MUTABLE_CAPABILITIES, supportsMediaType, type InstanceCapabilities } from '$lib/pleroma/capabilities';
@@ -44,7 +48,7 @@
 	} from '$lib/pleroma/headwater';
 	import { LEGACY_NOTIFICATION_POLL_EVENT, NOTIFICATION_POLL_EVENT, NOTIFICATION_POLL_INTERVAL_MS, readNotificationLastSeenAt, writeNotificationLastSeenAt } from '$lib/pleroma/notifications';
 	import { revokeOAuthToken } from '$lib/pleroma/oauth';
-	import { readPleromaSession, removePleromaOAuthClient, signOutPleroma, writePleromaSession } from '$lib/pleroma/session';
+	import { PLEROMA_SESSION_KEY, readPleromaSession, removePleromaOAuthClient, signOutPleroma, writePleromaSession } from '$lib/pleroma/session';
 	import { openPleromaTimelineStream } from '$lib/pleroma/streaming';
 	import {
 		mergeTimelineItems,
@@ -59,15 +63,15 @@
 	import { COMPOSER_MAX_UPLOAD_BYTES, COMPOSER_MAX_UPLOADS, composerPollPayload, customEmojiPack, composerUploadBadge, composerUploadError, composerUploadKind, createComposerPollDraft, getComposerUploadedMediaIds, hasComposerAddressMention, hasComposerUploadsPending, isComposerUploadType, type ComposerEmoji, type ComposerMentionAccount, type ComposerPollDraft, type ComposerUpload } from '$lib/rebuild/composer';
 	import type { IconName } from '$lib/rebuild/icons';
 	import type { ProfileData, ProfileMediaItem, ProfilePost } from '$lib/rebuild/profile';
+	import { replyPreviewLoaderContext, type ReplyPreview, type ReplyPreviewLoader } from '$lib/rebuild/reply-preview';
 	import type { PleromaAccount, PleromaInstance, PleromaNotification, PleromaRelationship, PleromaSession, PleromaStatus, PleromaTag } from '$lib/pleroma/types';
 	import type { CustomEmoji, PostAttachment, SocialNotificationData, SocialPost } from '$lib/social/types';
-	import { onMount, untrack } from 'svelte';
+	import { BUILT_IN_THEME_PALETTES, CUSTOM_THEME_DRAFT_STORAGE_KEY, CUSTOM_THEME_SOURCE_STORAGE_KEY, CUSTOM_THEME_STORAGE_KEY, DEFAULT_THEME_PREFERENCES, THEME_PALETTE_KEYS, THEME_PREFERENCES_STORAGE_KEY, THEME_STORAGE_KEY, applyThemeToDocument, readStoredThemePalette, readStoredThemePreferences, resolveThemePreferences, writeStoredThemePalette, writeStoredThemePreferences, type BuiltInThemeName, type ThemeName, type ThemePalette, type ThemePreferenceMode, type ThemePreferences } from '$lib/theme';
+	import { onMount, setContext, tick, untrack } from 'svelte';
 	import { env } from '$env/dynamic/public';
 
 	type AppRoute = 'home' | 'public' | 'thread' | 'profile' | 'notifications' | 'explore' | 'search' | 'settings' | 'bookmarks' | 'messages';
 	type NavItem = { route: AppRoute; label: string; icon: IconName; href: string; count?: number };
-	type ThemeName = 'cream' | 'dusk' | 'drive' | 'simoun';
-	type ExploreFeed = 'popular' | 'new' | 'active';
 	type SearchTab = 'all' | 'people' | 'posts';
 	type ProfileSettings = PleromaProfileSettingsView;
 	type ReplySort = 'top' | 'newest';
@@ -91,7 +95,7 @@
 		avatarUrl?: string | null;
 	};
 	type InlineReplyComposerData = Omit<InlineReplyComposerProps, 'id'>;
-	type AccountBackedPost = SocialPost & { visibility?: StatusVisibility; account?: PleromaAccountView; rebloggedBy?: PleromaAccountView; reactions?: PleromaReactionView[]; bookmarked?: boolean; url?: string };
+	type AccountBackedPost = SocialPost & { visibility?: StatusVisibility; account?: PleromaAccountView; rebloggedBy?: PleromaAccountView; reactions?: PleromaReactionView[]; bookmarked?: boolean; mediaHidden?: boolean; url?: string };
 	type RebuildPost = PostLike & {
 		id: string | number;
 		actionStatusId?: string;
@@ -105,15 +109,19 @@
 		handle: string;
 		time: string;
 		createdAt?: string;
+		inReplyToId?: string | null;
 		avClass?: string;
 		avBanner?: BannerVariant;
 		avatarUrl?: string | null;
 		body: string;
 		bodyEmojis?: SocialPost['bodyEmojis'];
+		mediaHidden?: boolean;
 		replies: number;
 		boosts: number;
 		favs: number;
 		addressees?: string[];
+		addresseeNames?: Record<string, string>;
+		addresseePetnames?: Record<string, string>;
 		mentionAccts?: Record<string, string>;
 		boostedBy?: PostLike['boostedBy'];
 		copyJson?: unknown;
@@ -181,7 +189,7 @@
 	const SEARCH_PAGE_DEBOUNCE_MS = 260;
 	const SEARCH_RECENTS_STORAGE_KEY = 'pn-search-recents';
 	const accountStatFormatter = new Intl.NumberFormat('en-US');
-	const themeOptions: { id: ThemeName; label: string; grad: string }[] = [
+	const themeOptions: { id: BuiltInThemeName; label: string; grad: string }[] = [
 		{ id: 'cream', label: 'Cream', grad: 'linear-gradient(135deg, #f5f1e8 50%, #a48bd9 50%)' },
 		{ id: 'dusk', label: 'Dusk', grad: 'linear-gradient(135deg, #2a1f4a 50%, #e7a8c9 50%)' },
 		{ id: 'drive', label: 'Drive', grad: 'linear-gradient(135deg, #0c0a28 50%, #7dc4be 50%)' },
@@ -198,6 +206,9 @@
 	};
 
 	const publicInstanceUrl = env.PUBLIC_PLEROMA_INSTANCE_URL ?? 'https://pleroma.social';
+	const TIMELINE_AUTO_INSERT_KEY = 'headwater.timeline.auto-insert-at-top';
+	const THREAD_FROM_TIMELINE_STATE_KEY = 'headwaterThreadFromTimeline';
+	const TIMELINE_TOP_THRESHOLD = 8;
 
 	let sessionReady = $state(false);
 	let mounted = $state(false);
@@ -239,10 +250,22 @@
 	let composerPrivacyOpen = $state(false);
 	let composerPrivacyTrigger = $state<HTMLButtonElement | null>(null);
 	let mobileDrawerOpen = $state(false);
-	let mobileSheetOpen = $state(false);
+	let mobileDrawerTrigger = $state<HTMLButtonElement | null>(null);
+	let mobileDrawerPanel = $state<HTMLElement | null>(null);
+	let mobileDrawerClose = $state<HTMLButtonElement | null>(null);
 	let userMenuOpen = $state(false);
 	let userMenuTrigger = $state<HTMLButtonElement | null>(null);
+	let autoInsertTimelinePosts = $state(false);
+	let timelineAtTop = $state(true);
 	let activeTheme = $state<ThemeName>('cream');
+	let themePreferences = $state<ThemePreferences>({ ...DEFAULT_THEME_PREFERENCES });
+	let systemPrefersDark = $state(false);
+	let customThemePalette = $state<ThemePalette | null>(null);
+	let customThemeDraft = $state<ThemePalette>({ ...BUILT_IN_THEME_PALETTES.cream });
+	let customThemeDraftDirty = $state(false);
+	let customThemeRawDirty = $state(false);
+	let customThemeExternalChange = $state(false);
+	let customThemeSource = $state<BuiltInThemeName>('cream');
 	let notificationsMenuOpen = $state(false);
 	let headerSearchDraft = $state('');
 	let exploreSearchDraft = $state('');
@@ -250,11 +273,8 @@
 	let searchRecents = $state<string[]>([]);
 	let headerSearchOpen = $state(false);
 	let headerSearchSelectedIndex = $state(-1);
-	let searchSidebarOpen = $state(false);
 	let headerSearchInput = $state<HTMLInputElement | null>(null);
 	let headerSearchForm = $state<HTMLFormElement | null>(null);
-	let exploreFeed = $state<ExploreFeed>('popular');
-	let joinedCommunities = $state<Record<string, boolean>>({});
 	let settingsSaveState = $state('Saved');
 	let settingsSaveError = $state<PleromaRequestErrorView | null>(null);
 	let settingsSaveRequestId = 0;
@@ -326,6 +346,7 @@
 	let composerMentionSearchRequestId = 0;
 	let composerCustomEmojiRequestId = 0;
 	let loadedHomeTimelineKey = '';
+	let homeTimelineRouteActive = false;
 	let loadedThreadKey = '';
 	let loadedProfileRouteKey = '';
 	let loadedNotificationsKey = '';
@@ -389,8 +410,17 @@
 		const client = createPleromaClient({ instanceUrl: session.instanceUrl, accessToken: session.accessToken, fetch: window.fetch.bind(window) });
 		void client.deleteMedia(String(upload.media.id)).catch(() => undefined);
 	};
+	const releaseUploadPreview = (upload: ComposerUpload | undefined) => {
+		if (upload?.previewUrl) URL.revokeObjectURL(upload.previewUrl);
+	};
+	const releaseUploadPreviews = (uploads: ComposerUpload[]) => {
+		for (const upload of uploads) releaseUploadPreview(upload);
+	};
 	const discardUploads = (uploads: ComposerUpload[]) => {
-		for (const upload of uploads) discardUploadedMedia(upload);
+		for (const upload of uploads) {
+			discardUploadedMedia(upload);
+			releaseUploadPreview(upload);
+		}
 	};
 	const markUploadsConsumed = (uploads: ComposerUpload[]): ComposerUpload[] => uploads.map((upload) =>
 		upload.status === 'uploaded'
@@ -399,7 +429,9 @@
 	);
 	const clearInlineReply = (route?: StatusActionOrigin, discardMedia = true) => {
 		if (route && inlineReplyTarget?.route !== route) return;
-		if (discardMedia) discardUploads(untrack(() => inlineReplyUploads));
+		const uploads = untrack(() => inlineReplyUploads);
+		if (discardMedia) discardUploads(uploads);
+		else releaseUploadPreviews(uploads);
 		inlineReplyRequestId += 1;
 		inlineReplyTarget = null;
 		inlineReplyDraft = '';
@@ -461,9 +493,19 @@
 		clearStatusActionErrors('profile');
 	};
 	const clearHomeRouteIfLoaded = () => {
-		if (!loadedHomeTimelineKey && homeTimelineState.status === 'idle' && !closeHomeTimelineStream) return;
+		if (!homeTimelineRouteActive) return;
+		homeTimelineRouteActive = false;
 		invalidateHomeTimelineRequests();
-		loadedHomeTimelineKey = '';
+		if (homeTimelineState.status === 'loading' || homeTimelineState.status === 'error') {
+			loadedHomeTimelineKey = '';
+			homeTimelineState = { status: 'idle' };
+		} else if (homeTimelineState.status === 'success') {
+			homeTimelineState = {
+				...homeTimelineState,
+				loadMoreStatus: homeTimelineState.loadMoreStatus === 'loading' ? 'idle' : homeTimelineState.loadMoreStatus,
+				newPostsStatus: 'idle'
+			};
+		}
 		closeHomeTimelineStreaming();
 	};
 	const clearThreadRouteIfLoaded = () => {
@@ -652,12 +694,14 @@
 			handle: account?.handle ?? post.handle,
 			time: post.time,
 			createdAt: post.createdAt,
+			inReplyToId: post.inReplyToId,
 			avClass: avatarClass(post.avatar),
 			avatarUrl: account?.avatarUrl ?? post.avatarUrl,
 			cw: post.cw,
 			body: post.body,
 			bodyEmojis: post.bodyEmojis,
 			media: post.media,
+			mediaHidden: post.mediaHidden,
 			attachments: post.attachments,
 			addressees: post.addressees,
 			addresseeNames: post.addresseeNames,
@@ -691,6 +735,64 @@
 			},
 		};
 	};
+	const REPLY_PREVIEW_NEGATIVE_CACHE_MS = 3_000;
+	type ReplyPreviewCacheEntry = { request: Promise<ReplyPreview | null>; unavailableUntil: number | null };
+	const replyPreviewRequests = new Map<string, ReplyPreviewCacheEntry>();
+	let replyPreviewRequestIdentity = '';
+	const replyPreviewIdentity = () => sessionKey(currentSession);
+	const loadReplyPreviewStatus = (statusId: string): Promise<ReplyPreview | null> => {
+		const session = currentSession;
+		if (!session) return Promise.resolve(null);
+		const requestIdentity = sessionKey(session);
+		if (replyPreviewRequestIdentity !== requestIdentity) {
+			replyPreviewRequests.clear();
+			replyPreviewRequestIdentity = requestIdentity;
+		}
+		const cacheKey = `${requestIdentity}\n${statusId}`;
+		const cached = replyPreviewRequests.get(cacheKey);
+		if (cached && (cached.unavailableUntil == null || cached.unavailableUntil > Date.now())) return cached.request;
+		if (cached) replyPreviewRequests.delete(cacheKey);
+
+		const client = createPleromaClient({ instanceUrl: session.instanceUrl, accessToken: session.accessToken, fetch: window.fetch.bind(window) });
+		const entry: ReplyPreviewCacheEntry = { request: Promise.resolve(null), unavailableUntil: null };
+		entry.request = client.getStatus(statusId)
+			.then((status) => {
+				if (sessionKey(currentSession) !== requestIdentity) {
+					if (replyPreviewRequests.get(cacheKey) === entry) replyPreviewRequests.delete(cacheKey);
+					return null;
+				}
+				const post = postForRebuild(adaptPleromaStatus(status));
+				const replyingTo = post.inReplyToId ? post.addressees?.[0] ?? null : undefined;
+				return {
+					name: post.name,
+					nameEmojis: post.nameEmojis,
+					authName: post.authName,
+					petname: post.petname,
+					handle: post.handle,
+					time: post.time,
+					createdAt: post.createdAt,
+					avatarUrl: post.avatarUrl,
+					avClass: post.avClass,
+					body: post.body,
+					cw: post.cw,
+					replyingTo,
+					replyingToName: replyingTo ? post.addresseeNames?.[replyingTo.toLowerCase()] : undefined,
+					replyingToPetname: replyingTo ? post.addresseePetnames?.[replyingTo.toLowerCase()] : undefined
+				};
+			})
+			.catch(() => {
+				entry.unavailableUntil = Date.now() + REPLY_PREVIEW_NEGATIVE_CACHE_MS;
+				return null;
+			});
+		replyPreviewRequests.set(cacheKey, entry);
+		return entry.request;
+	};
+	const replyPreviewLoader: ReplyPreviewLoader = {
+		available: () => Boolean(currentSession),
+		identity: replyPreviewIdentity,
+		load: loadReplyPreviewStatus
+	};
+	setContext(replyPreviewLoaderContext, replyPreviewLoader);
 	const threadFullTime = (createdAt: string) => {
 		const date = new Date(createdAt);
 		if (Number.isNaN(date.getTime())) return '';
@@ -750,6 +852,7 @@
 			: origin.route === 'thread'
 				? route === 'thread' && threadRequestId === origin.requestId
 				: route === 'profile' && profileRouteRequestId === origin.requestId;
+	const statusActionOriginRetained = (origin: StatusActionOriginSnapshot) => origin.route === 'home' && homeTimelineState.status === 'success';
 	const statusActionTargetId = (post: { id?: string | number; actionStatusId?: string }) => String(post.actionStatusId ?? post.id ?? '');
 	const statusReplyTargetId = (post: { id?: string | number; actionStatusId?: string; threadStatusId?: string }) => String(post.threadStatusId ?? post.actionStatusId ?? post.id ?? '');
 	const inlineReplyTargetHandle = (handle = '') => {
@@ -995,10 +1098,11 @@
 				}
 
 				clearStatusActionPending(pendingKey, requestId);
-				if (!statusActionOriginActive(origin)) return;
+				const originActive = statusActionOriginActive(origin);
+				if (!originActive && !statusActionOriginRetained(origin)) return;
 
 				applyStatusActionUpdate(origin.route, targetId, (post) => setStatusViewAction(post, key, previous), (post) => setRebuildPostAction(post, key, previous));
-				addStatusActionError({ targetId, key, route: origin.route, error: normalized });
+				if (originActive) addStatusActionError({ targetId, key, route: origin.route, error: normalized });
 			}
 		})();
 	};
@@ -1068,10 +1172,11 @@
 				}
 
 				clearStatusActionPending(pendingKey, requestId);
-				if (!statusActionOriginActive(origin)) return;
+				const originActive = statusActionOriginActive(origin);
+				if (!originActive && !statusActionOriginRetained(origin)) return;
 
 				applyReactionToggle(origin.route, previouslyReacted);
-				addStatusActionError({ targetId, key: actionKey, route: origin.route, error: normalized });
+				if (originActive) addStatusActionError({ targetId, key: actionKey, route: origin.route, error: normalized });
 			}
 		})();
 	};
@@ -1370,7 +1475,14 @@
 	};
 	const openThread = (post: { id: string | number; actionStatusId?: string; threadStatusId?: string }) => {
 		const statusId = post.threadStatusId ?? post.actionStatusId ?? String(post.id);
-		goto(`/app/thread/${encodeURIComponent(statusId)}`);
+		goto(`/app/thread/${encodeURIComponent(statusId)}`, { state: route === 'home' || route === 'public' ? { [THREAD_FROM_TIMELINE_STATE_KEY]: true } : {} });
+	};
+	const returnFromThread = () => {
+		if ((page.state as Record<string, unknown>)[THREAD_FROM_TIMELINE_STATE_KEY] === true) {
+			history.back();
+			return;
+		}
+		goto('/app/home');
 	};
 	const route = $derived<AppRoute>(
 		page.url.pathname.startsWith('/app/search') ? 'search' :
@@ -1384,7 +1496,8 @@
 		page.url.pathname.startsWith('/app/messages') ? 'messages' :
 		'home'
 	);
-	const searchShell = $derived(route === 'search');
+	const settingsSection = $derived(route === 'settings' && page.url.pathname.startsWith('/app/settings/appearance') ? 'appearance' : 'profile');
+	const hasRightRail = $derived(timelineRoutes.includes(route) || route === 'profile' || (route === 'settings' && settingsSection === 'profile'));
 	const messagesChatId = $derived(route === 'messages' ? page.url.pathname.split('/')[3] || null : null);
 	const activeChat = $derived(messagesChatId && chatsState.status === 'success' ? chatsState.data.find((chat) => chat.id === messagesChatId) ?? null : null);
 	const bookmarksPosts = $derived(bookmarksState.status === 'success' ? bookmarksState.data.map(postForRebuild) : []);
@@ -1430,11 +1543,6 @@
 	const threadReplyPosts = $derived(threadState.status === 'success' ? threadState.replies : []);
 	const threadReplyCount = $derived(threadState.status === 'success' ? threadPostCount(threadState.replies) : 0);
 	const sortedThreadReplyPosts = $derived(replySort === 'newest' ? [...threadReplyPosts].reverse() : threadReplyPosts);
-	const exploreFeedText = $derived(
-		exploreFeed === 'popular' ? 'Popular across friendly instances' :
-		exploreFeed === 'new' ? 'Fresh instance dispatches' :
-		'Most replied threads'
-	);
 	const searchAccounts = $derived(searchState.status === 'success' ? searchState.accounts : []);
 	const searchPosts = $derived(searchState.status === 'success' ? searchState.posts : []);
 	const visibleSearchAccounts = $derived(searchTab === 'posts' ? [] : searchTab === 'all' ? searchAccounts.slice(0, 2) : searchAccounts);
@@ -1651,6 +1759,7 @@
 			name: file.name,
 			kind: composerUploadKind(file),
 			progress: 5,
+			previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
 			status: 'uploading'
 		}));
 		updateUploads((current) => [...current, ...additions]);
@@ -1661,6 +1770,7 @@
 					const client = createPleromaClient({ instanceUrl: session.instanceUrl, accessToken: session.accessToken, fetch: window.fetch.bind(window) });
 					const media = await client.uploadMedia(file);
 					if (!isCurrentSessionRequest(requestSessionKey) || !isStillCurrent()) {
+						releaseUploadPreview(additions[index]);
 						await client.deleteMedia(String(media.id)).catch(() => undefined);
 						return;
 					}
@@ -1668,10 +1778,14 @@
 					updateUploads((current) => current.map((upload) => {
 						if (upload.localId !== localId) return upload;
 						retained = true;
-						return { localId: upload.localId, name: upload.name, kind: upload.kind, progress: 100, status: 'uploaded', media };
+						return { localId: upload.localId, name: upload.name, kind: upload.kind, progress: 100, previewUrl: upload.previewUrl, status: 'uploaded', media };
 					}));
-					if (!retained) await client.deleteMedia(String(media.id)).catch(() => undefined);
+					if (!retained) {
+						releaseUploadPreview(additions[index]);
+						await client.deleteMedia(String(media.id)).catch(() => undefined);
+					}
 				} catch (error) {
+					releaseUploadPreview(additions[index]);
 					if (!isCurrentSessionRequest(requestSessionKey) || !isStillCurrent()) return;
 					const normalized = normalizePleromaRequestError(error);
 					updateUploads((current) => current.map((upload) => upload.localId === localId ? { localId: upload.localId, name: upload.name, kind: upload.kind, progress: 0, status: 'error', error: normalized.message } : upload));
@@ -1693,11 +1807,15 @@
 		queueUploadFiles(files, inlineReplyUploads, updateInlineReplyUploads, () => inlineReplyRequestId === targetRequestId && inlineReplyTarget?.targetId === target.targetId && inlineReplyTarget?.route === target.route);
 	};
 	const removeComposerUpload = (localId: string) => {
-		discardUploadedMedia(composerUploads.find((upload) => upload.localId === localId));
+		const upload = composerUploads.find((upload) => upload.localId === localId);
+		discardUploadedMedia(upload);
+		releaseUploadPreview(upload);
 		composerUploads = composerUploads.filter((upload) => upload.localId !== localId);
 	};
 	const removeInlineReplyUpload = (localId: string) => {
-		discardUploadedMedia(inlineReplyUploads.find((upload) => upload.localId === localId));
+		const upload = inlineReplyUploads.find((upload) => upload.localId === localId);
+		discardUploadedMedia(upload);
+		releaseUploadPreview(upload);
 		inlineReplyUploads = inlineReplyUploads.filter((upload) => upload.localId !== localId);
 	};
 	const saveUploadAltText = (getUploads: () => ComposerUpload[], updateUploads: (updater: (uploads: ComposerUpload[]) => ComposerUpload[]) => void, localId: string, description: string) => {
@@ -1767,10 +1885,8 @@
 		event.preventDefault();
 		queueComposerFiles(files);
 	};
-	const toggleCommunity = (community: string) => {
-		joinedCommunities = { ...joinedCommunities, [community]: !joinedCommunities[community] };
-	};
 	const resetHomeComposer = () => {
+		releaseUploadPreviews(composerUploads);
 		composerText = '';
 		composerSpoilerActive = false;
 		composerSpoilerText = '';
@@ -2071,15 +2187,97 @@
 		const targetId = statusActionTargetId(post);
 		if (targetId) mutateStatusAction(targetId, key, rebuildPostActionValue(post, key), 'profile');
 	};
+	const mobilePanelFocusable = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+	const focusMobilePanel = async () => {
+		await tick();
+		mobileDrawerClose?.focus();
+		if (!mobileDrawerClose) mobileDrawerPanel?.querySelector<HTMLElement>(mobilePanelFocusable)?.focus();
+	};
+	const openMobileDrawer = () => {
+		mobileDrawerOpen = true;
+		void focusMobilePanel();
+	};
+	const closeMobileDrawer = (restoreFocus = true) => {
+		mobileDrawerOpen = false;
+		if (restoreFocus) void tick().then(() => mobileDrawerTrigger?.focus());
+	};
+	const trapMobilePanelFocus = (event: KeyboardEvent) => {
+		if (event.key !== 'Tab' || !mobileDrawerPanel) return;
+		const focusable = [...mobileDrawerPanel.querySelectorAll<HTMLElement>(mobilePanelFocusable)];
+		if (focusable.length === 0) {
+			event.preventDefault();
+			mobileDrawerPanel.focus();
+			return;
+		}
+		const first = focusable[0];
+		const last = focusable.at(-1);
+		const active = document.activeElement;
+		if (event.shiftKey && (active === first || !mobileDrawerPanel.contains(active))) {
+			event.preventDefault();
+			last?.focus();
+		} else if (!event.shiftKey && (active === last || !mobileDrawerPanel.contains(active))) {
+			event.preventDefault();
+			first.focus();
+		}
+	};
 	const closeMobilePanels = () => {
 		mobileDrawerOpen = false;
-		mobileSheetOpen = false;
+	};
+	const applyResolvedTheme = () => {
+		const theme = resolveThemePreferences(themePreferences, systemPrefersDark, customThemePalette);
+		activeTheme = theme;
+		applyThemeToDocument(document, theme, theme === 'custom' ? customThemePalette ?? undefined : undefined);
+		localStorage.setItem(THEME_STORAGE_KEY, theme);
+	};
+	const updateThemePreferences = (preferences: ThemePreferences) => {
+		themePreferences = preferences;
+		writeStoredThemePreferences(localStorage, preferences);
+		applyResolvedTheme();
 	};
 	const applyTheme = (theme: ThemeName) => {
-		activeTheme = theme;
-		document.documentElement.dataset.theme = theme;
-		document.body.dataset.theme = theme;
-		localStorage.setItem('pn-theme', theme);
+		if (theme === 'custom' && !customThemePalette) return;
+		updateThemePreferences({ ...themePreferences, mode: 'fixed', fixedTheme: theme });
+	};
+	const selectThemeMode = (mode: ThemePreferenceMode) => updateThemePreferences({ ...themePreferences, mode });
+	const selectFixedTheme = (theme: ThemeName) => {
+		if (theme !== 'custom' || customThemePalette) updateThemePreferences({ ...themePreferences, fixedTheme: theme });
+	};
+	const selectSystemTheme = (slot: 'light' | 'dark', theme: ThemeName) => {
+		if (theme === 'custom' && !customThemePalette) return;
+		updateThemePreferences({ ...themePreferences, [slot === 'light' ? 'lightTheme' : 'darkTheme']: theme });
+	};
+	const openThemeSettings = () => {
+		userMenuOpen = false;
+		goto('/app/settings/appearance');
+	};
+	const themePalettesEqual = (left: ThemePalette | null, right: ThemePalette | null) => left === right || Boolean(left && right && THEME_PALETTE_KEYS.every((key) => left[key] === right[key]));
+	const updateCustomThemeDraft = (palette: ThemePalette) => {
+		customThemeDraft = palette;
+		customThemeDraftDirty = true;
+		customThemeRawDirty = false;
+		writeStoredThemePalette(localStorage, palette, CUSTOM_THEME_DRAFT_STORAGE_KEY);
+	};
+	const selectCustomThemeSource = (theme: BuiltInThemeName) => {
+		customThemeSource = theme;
+		localStorage.setItem(CUSTOM_THEME_SOURCE_STORAGE_KEY, theme);
+		updateCustomThemeDraft({ ...BUILT_IN_THEME_PALETTES[theme] });
+	};
+	const saveCustomTheme = () => {
+		customThemePalette = { ...customThemeDraft };
+		writeStoredThemePalette(localStorage, customThemePalette, CUSTOM_THEME_STORAGE_KEY);
+		writeStoredThemePalette(localStorage, customThemePalette, CUSTOM_THEME_DRAFT_STORAGE_KEY);
+		customThemeDraftDirty = false;
+		customThemeRawDirty = false;
+		customThemeExternalChange = false;
+		if (themePreferences.mode === 'fixed') applyTheme('custom');
+		else applyResolvedTheme();
+	};
+	const discardCustomThemeChanges = () => {
+		customThemeDraft = { ...(customThemePalette ?? BUILT_IN_THEME_PALETTES[customThemeSource]) };
+		customThemeDraftDirty = false;
+		customThemeRawDirty = false;
+		customThemeExternalChange = false;
+		writeStoredThemePalette(localStorage, customThemeDraft, CUSTOM_THEME_DRAFT_STORAGE_KEY);
 	};
 	const openUserProfile = () => {
 		const account = currentSession?.account;
@@ -2119,14 +2317,16 @@
 			return;
 		}
 		if (event.key !== 'Escape') return;
+		if (mobileDrawerOpen) {
+			closeMobileDrawer();
+			return;
+		}
 		const restoreUserMenuFocus = userMenuOpen;
 		const restorePrivacyFocus = composerPrivacyOpen;
 		userMenuOpen = false;
 		notificationsMenuOpen = false;
 		composerPrivacyOpen = false;
 		closeHeaderSearch();
-		mobileDrawerOpen = false;
-		mobileSheetOpen = false;
 		if (restoreUserMenuFocus) userMenuTrigger?.focus();
 		if (restorePrivacyFocus) composerPrivacyTrigger?.focus();
 	};
@@ -2149,6 +2349,8 @@
 		localHomePosts = [];
 		resetAccountCache();
 		loadedHomeTimelineKey = '';
+		homeTimelineRouteActive = false;
+		homeTimelineState = { status: 'idle' };
 		homeTimelineFallbackSinceId = null;
 		currentSession = null;
 		sessionReady = false;
@@ -2181,6 +2383,8 @@
 			resetAccountCache();
 			if (session?.account) accountCache = upsertPleromaAccounts(createPleromaAccountCache(), [session.account]);
 			loadedHomeTimelineKey = '';
+			homeTimelineRouteActive = false;
+			homeTimelineState = { status: 'idle' };
 			homeTimelineFallbackSinceId = null;
 			currentSession = session;
 		}
@@ -2476,6 +2680,7 @@
 			flashPostControl('Followed that feed');
 			followInviteInput = '';
 			headerSearchDraft = '';
+			exploreSearchDraft = '';
 			closeHeaderSearch();
 		} catch (error) {
 			const message = error && typeof error === 'object' && 'message' in error ? String((error as { message: unknown }).message) : 'Could not follow that feed.';
@@ -2955,6 +3160,10 @@
 	};
 	const submitExploreSearch = (event: SubmitEvent) => {
 		event.preventDefault();
+		if (isFeedInvite(exploreSearchDraft)) {
+			void confirmFollowInvite(exploreSearchDraft.trim());
+			return;
+		}
 		rememberSearch(exploreSearchDraft);
 		submitSearch(exploreSearchDraft);
 	};
@@ -3511,6 +3720,7 @@
 				newerPosts: queueNewerTimelineItems(homeTimelineState.newerPosts, homeTimelineState.data, posts),
 				newPostsStatus: 'idle'
 			};
+			if (autoInsertTimelinePosts && timelineAtTop) showNewHomePosts(false);
 			return;
 		}
 
@@ -3523,6 +3733,7 @@
 				newerPosts: posts,
 				newPostsStatus: 'idle'
 			};
+			if (autoInsertTimelinePosts && timelineAtTop) showNewHomePosts(false);
 		}
 	};
 	const scheduleHomeTimelineStreamReconnect = (session: PleromaSession, requestSessionKey: string) => {
@@ -3953,6 +4164,7 @@
 				newerPosts: queueNewerTimelineItems(homeTimelineState.newerPosts, homeTimelineState.data, posts),
 				newPostsStatus: 'idle'
 			};
+			if (autoInsertTimelinePosts && timelineAtTop) showNewHomePosts(false);
 		} catch (error) {
 			if (requestId !== homeTimelineNewPostsRequestId || !isCurrentSessionRequest(requestSessionKey)) return;
 
@@ -3967,7 +4179,7 @@
 			homeTimelineState = { ...homeTimelineState, newPostsStatus: 'idle' };
 		}
 	};
-	const showNewHomePosts = () => {
+	const showNewHomePosts = (scrollToTop = true) => {
 		if (homeTimelineState.status !== 'success' || homeTimelineState.newerPosts.length === 0) return;
 
 		homeTimelineState = {
@@ -3975,7 +4187,19 @@
 			data: prependTimelineItems(homeTimelineState.data, homeTimelineState.newerPosts),
 			newerPosts: []
 		};
-		window.scrollTo(window.scrollX, 0);
+		if (scrollToTop) window.scrollTo(window.scrollX, 0);
+	};
+	const flushNewTimelinePostsAtTop = () => {
+		if (autoInsertTimelinePosts && timelineAtTop && route === 'home') showNewHomePosts(false);
+	};
+	const updateTimelineTop = () => {
+		timelineAtTop = window.scrollY <= TIMELINE_TOP_THRESHOLD;
+		flushNewTimelinePostsAtTop();
+	};
+	const setAutoInsertTimelinePosts = (value: boolean) => {
+		autoInsertTimelinePosts = value;
+		localStorage.setItem(TIMELINE_AUTO_INSERT_KEY, String(value));
+		flushNewTimelinePostsAtTop();
 	};
 	const retryHomeTimeline = () => {
 		if (currentSession) void loadHomeTimeline(currentSession);
@@ -4037,23 +4261,72 @@
 				}
 			}
 			if (!active) return;
-		const storedTheme = localStorage.getItem('pn-theme');
-		if (storedTheme === 'cream' || storedTheme === 'dusk' || storedTheme === 'drive' || storedTheme === 'simoun') applyTheme(storedTheme);
+		const storedTheme = localStorage.getItem(THEME_STORAGE_KEY) ?? localStorage.getItem('pn-theme');
+		const storedBuiltInTheme = storedTheme === 'cream' || storedTheme === 'dusk' || storedTheme === 'drive' || storedTheme === 'simoun' ? storedTheme : 'cream';
+		const storedSource = localStorage.getItem(CUSTOM_THEME_SOURCE_STORAGE_KEY);
+		customThemeSource = storedSource === 'cream' || storedSource === 'dusk' || storedSource === 'drive' || storedSource === 'simoun' ? storedSource : storedBuiltInTheme;
+		customThemePalette = readStoredThemePalette(localStorage, CUSTOM_THEME_STORAGE_KEY);
+		const storedCustomThemeDraft = readStoredThemePalette(localStorage, CUSTOM_THEME_DRAFT_STORAGE_KEY);
+		const savedOrSourcePalette = customThemePalette ?? BUILT_IN_THEME_PALETTES[customThemeSource];
+		customThemeDraft = storedCustomThemeDraft ?? { ...savedOrSourcePalette };
+		customThemeDraftDirty = Boolean(storedCustomThemeDraft && !themePalettesEqual(storedCustomThemeDraft, savedOrSourcePalette));
+		customThemeRawDirty = false;
+		themePreferences = readStoredThemePreferences(localStorage, customThemePalette);
+		writeStoredThemePreferences(localStorage, themePreferences);
+		const colorSchemeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+		systemPrefersDark = colorSchemeMedia.matches;
+		applyResolvedTheme();
 		searchRecents = readSearchRecents();
+		autoInsertTimelinePosts = localStorage.getItem(TIMELINE_AUTO_INSERT_KEY) === 'true';
+		updateTimelineTop();
 		mounted = true;
 
 		const triggerHomeTimelineCheck = () => {
 			if (route === 'home') void checkHomeTimelineForNewPosts();
 		};
+		const syncStoredSession = (event: StorageEvent) => {
+			if (event.key === PLEROMA_SESSION_KEY || event.key === null) readSessionOrRedirect({ optional: route === 'profile' });
+			if (event.key === THEME_PREFERENCES_STORAGE_KEY || event.key === CUSTOM_THEME_STORAGE_KEY || event.key === null) {
+				const incomingPalette = readStoredThemePalette(localStorage, CUSTOM_THEME_STORAGE_KEY);
+				if ((event.key === CUSTOM_THEME_STORAGE_KEY || event.key === null) && !themePalettesEqual(incomingPalette, customThemePalette)) {
+					customThemePalette = incomingPalette;
+					if (!customThemeRawDirty && customThemeDraftDirty && themePalettesEqual(incomingPalette, customThemeDraft)) {
+						customThemeDraftDirty = false;
+						customThemeExternalChange = false;
+						writeStoredThemePalette(localStorage, customThemeDraft, CUSTOM_THEME_DRAFT_STORAGE_KEY);
+					} else if (customThemeDraftDirty || customThemeRawDirty) customThemeExternalChange = true;
+					else {
+						customThemeDraft = { ...(incomingPalette ?? BUILT_IN_THEME_PALETTES[customThemeSource]) };
+						customThemeExternalChange = false;
+						writeStoredThemePalette(localStorage, customThemeDraft, CUSTOM_THEME_DRAFT_STORAGE_KEY);
+					}
+				}
+				themePreferences = readStoredThemePreferences(localStorage, customThemePalette);
+				applyResolvedTheme();
+			}
+		};
+		const applySystemTheme = (event: MediaQueryListEvent) => {
+			systemPrefersDark = event.matches;
+			if (themePreferences.mode === 'system') applyResolvedTheme();
+		};
 		window.addEventListener(HOME_TIMELINE_CHECK_EVENT, triggerHomeTimelineCheck);
 		window.addEventListener(LEGACY_HOME_TIMELINE_CHECK_EVENT, triggerHomeTimelineCheck);
 		window.addEventListener(NOTIFICATION_POLL_EVENT, pollNotifications);
 		window.addEventListener(LEGACY_NOTIFICATION_POLL_EVENT, pollNotifications);
+		window.addEventListener('storage', syncStoredSession);
+		window.addEventListener('scroll', updateTimelineTop, { passive: true });
 		const checkInterval = window.setInterval(triggerHomeTimelineCheck, HOME_TIMELINE_FALLBACK_INTERVAL_MS);
 		const notificationInterval = window.setInterval(pollNotifications, NOTIFICATION_POLL_INTERVAL_MS);
+		const mobileNavigationMedia = window.matchMedia('(max-width: 880px)');
+		const closeMobilePanelsOutsideMobile = (event: MediaQueryListEvent) => {
+			if (!event.matches) closeMobilePanels();
+		};
+		mobileNavigationMedia.addEventListener('change', closeMobilePanelsOutsideMobile);
+		colorSchemeMedia.addEventListener('change', applySystemTheme);
 
 		cleanup = () => {
 			invalidateHomeTimelineRequests();
+			invalidateThreadRequests();
 			invalidateProfileRouteRequests();
 			invalidateStatusActionRequests();
 			invalidateNotificationRequests();
@@ -4064,6 +4337,10 @@
 			window.removeEventListener(LEGACY_HOME_TIMELINE_CHECK_EVENT, triggerHomeTimelineCheck);
 			window.removeEventListener(NOTIFICATION_POLL_EVENT, pollNotifications);
 			window.removeEventListener(LEGACY_NOTIFICATION_POLL_EVENT, pollNotifications);
+			window.removeEventListener('storage', syncStoredSession);
+			window.removeEventListener('scroll', updateTimelineTop);
+			mobileNavigationMedia.removeEventListener('change', closeMobilePanelsOutsideMobile);
+			colorSchemeMedia.removeEventListener('change', applySystemTheme);
 			window.clearInterval(checkInterval);
 			window.clearInterval(notificationInterval);
 		};
@@ -4114,11 +4391,12 @@
 			if (route === 'thread' || route === 'profile') ensureComposerCustomEmojis(session);
 		}
 		if (session && pathname.startsWith('/app/home')) {
+			homeTimelineRouteActive = true;
 			const loadKey = `${sessionKey(session)}\n${pathname}`;
 			if (loadedHomeTimelineKey !== loadKey) {
 				loadedHomeTimelineKey = loadKey;
 				void loadHomeTimeline(session);
-			}
+			} else connectHomeTimelineStreaming(session);
 		} else {
 			clearHomeRouteIfLoaded();
 		}
@@ -4279,11 +4557,11 @@
 	{/if}
 {:else if sessionReady}
 	<div class="app-route-shell">
-		<header class="app-header" data-testid="app-header">
+		<header class="app-header" data-testid="app-header" inert={mobileDrawerOpen}>
 			<div class="app-header-shell">
 				<div class="app-header-inner">
 					<div class="app-brand">
-						<button type="button" class="menu-btn app-mobile-menu" aria-label="Open navigation menu" onclick={() => (mobileDrawerOpen = true)}>
+						<button bind:this={mobileDrawerTrigger} type="button" class="menu-btn app-mobile-menu" aria-label="Open navigation menu" onclick={openMobileDrawer}>
 							<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
 						</button>
 						<a href="/app/home" class="brand-core" onclick={closeMobilePanels}>
@@ -4309,8 +4587,8 @@
 									{:else if !headerSearchDraft.trim()}
 										{#if searchRecents.length === 0}
 											<div class="se-dd-empty">
-												<div class="se-dd-empty-h">Search across Headwater</div>
-												<div class="se-dd-empty-s">Find people and posts on this instance and across the federation. Hashtags are ignored.</div>
+												<div class="se-dd-empty-h">Search this Headwater node</div>
+												<div class="se-dd-empty-s">Find people and posts already known here, or paste a feed invite. Hashtags are ignored.</div>
 											</div>
 										{:else}
 											<div class="se-dd-section">
@@ -4412,14 +4690,20 @@
 								<div class="user-menu-sec">
 									<div class="user-menu-label">Appearance</div>
 									<div class="user-menu-themes">
-										{#each themeOptions as theme}
+									{#each themeOptions as theme}
 											<button type="button" aria-pressed={activeTheme === theme.id} class="user-menu-theme" class:active={activeTheme === theme.id} title={theme.label} onclick={() => applyTheme(theme.id)}>
 												<span style={`background: ${theme.grad}`}></span>
 												<span>{theme.label}</span>
 											</button>
-										{/each}
-									</div>
+									{/each}
+									{#if customThemePalette}
+										<button type="button" aria-pressed={activeTheme === 'custom'} class="user-menu-theme" class:active={activeTheme === 'custom'} title="Custom" onclick={() => applyTheme('custom')}>
+											<span style={`background: linear-gradient(135deg, ${customThemePalette.bg} 50%, ${customThemePalette.accent} 50%)`}></span><span>Custom</span>
+										</button>
+									{/if}
 								</div>
+								<button type="button" class="user-menu-customize" onclick={openThemeSettings}>Customize theme…</button>
+							</div>
 								<div class="user-menu-sec">
 									<button type="button" class="user-menu-item" onclick={openUserSettings}><Icon name="gear" width={16} height={16} /><span>Settings</span><span class="kbd user-menu-kbd">S</span></button>
 									<button type="button" class="user-menu-item" disabled><Icon name="info" width={16} height={16} /><span>Keyboard shortcuts</span><span class="kbd user-menu-kbd">?</span></button>
@@ -4444,7 +4728,7 @@
 			</div>
 		</header>
 
-		<div class="app-shell-grid" class:search-grid={searchShell}>
+		<div class="app-shell-grid" class:content-wide={!hasRightRail} class:mobile-full-bleed={route === 'home'} inert={mobileDrawerOpen}>
 			<aside class="app-left-sidebar" data-testid="left-sidebar">
 				<ProfileMini account={currentSession?.account} instanceUrl={currentSession?.instanceUrl} />
 				<div class="card rail-card invite-card" data-testid="invite-card">
@@ -4484,7 +4768,7 @@
 					{#if route === 'settings'}
 						<div class="side-sub" data-testid="settings-subnav">
 							{#each settingsSubnav as item, i}
-								<button type="button" class:active={i === 0} class="side-sub-item">{item}</button>
+								<button type="button" class:active={(i === 0 && settingsSection === 'profile') || (i === 1 && settingsSection === 'appearance')} class="side-sub-item" disabled={i > 1} onclick={() => i === 0 ? goto('/app/settings') : i === 1 ? goto('/app/settings/appearance') : undefined}>{item}</button>
 							{/each}
 						</div>
 					{:else}
@@ -4505,7 +4789,7 @@
 								{#if homeTimelineState.status === 'success'}
 									<TimelineNewPostsIndicator count={homeTimelineState.newerPosts.length} onActivate={showNewHomePosts} />
 								{/if}
-								<button type="button" class="tab-action" title="Filters"><Icon name="sliders" width={16} height={16} /></button>
+								<TimelineSettings autoInsertAtTop={autoInsertTimelinePosts} onAutoInsertChange={setAutoInsertTimelinePosts} />
 							</div>
 						</div>
 
@@ -4526,7 +4810,9 @@
 								{#if composerUploads.length > 0}
 									<div class="composer-uploads" aria-live="polite">
 										{#each composerUploads as upload (upload.localId)}
-											<div class="composer-upload-row" class:error={upload.status === 'error'} title={upload.error}>
+											{#if upload.kind === 'photo'}
+												<ComposerAttachmentPreview {upload} onRemove={removeComposerUpload} onAltText={instanceCapabilities.mediaDescription ? saveComposerUploadAlt : undefined} />
+											{:else}<div class="composer-upload-row" class:error={upload.status === 'error'} title={upload.error}>
 												<div class={`composer-upload-thumb ${upload.kind}`}>{composerUploadBadge(upload.kind)}</div>
 												<div class="composer-upload-meta">
 													<div class="composer-upload-name">{upload.name}</div>
@@ -4540,7 +4826,7 @@
 													{/if}
 												</div>
 												<button type="button" class="composer-upload-rm" aria-label={`Remove ${upload.name}`} onclick={() => removeComposerUpload(upload.localId)}>×</button>
-											</div>
+											</div>{/if}
 										{/each}
 									</div>
 								{/if}
@@ -4639,48 +4925,17 @@
 						{/if}
 					</section>
 				{:else if route === 'explore'}
-					<section class="card app-panel app-explore-panel">
-						<div class="app-page-kicker">Explore</div>
-						<h1>Explore the network</h1>
-						<p>Discover people, topics, and small communities across friendly Pleroma instances.</p>
-						<form class="hero-search" role="search" onsubmit={submitExploreSearch}>
-							<Icon name="search" width={16} height={16} />
-							<input bind:value={exploreSearchDraft} type="search" aria-label="Search topics, people, and posts" placeholder="Search topics, people, and posts" />
-							<Button variant="primary" type="submit">Search</Button>
-						</form>
-						<div class="hero-tags">
-							<button type="button" class="tag">#fediverse</button>
-							<button type="button" class="tag">#privacy</button>
-							<button type="button" class="tag">#music</button>
-						</div>
-						<div class="explore-artwork" data-testid="explore-artwork"><Icon name="planet" width={58} height={58} /></div>
-						<div class="explore-section-title">Suggested topics</div>
-						<div class="explore-card-grid">
-							{#each ['Small web', 'Pleroma admins', 'Cassette culture'] as topic}
-								<article class="explore-card" data-testid="explore-topic-card">
-									<strong>{topic}</strong>
-									<span>Posts and people from friendly instances.</span>
-								</article>
-							{/each}
-						</div>
-						<div class="explore-section-title">Communities</div>
-						<div class="explore-card-grid">
-							{#each ['Federated CSS Garden', 'Retro Social Club', 'Instance Gardeners'] as community}
-								<article class="explore-card explore-community" data-testid="explore-community-card">
-									<div><strong>{community}</strong><span>Open community · weekly posts</span></div>
-									<button type="button" aria-pressed={joinedCommunities[community] ? 'true' : 'false'} onclick={() => toggleCommunity(community)}>
-										{joinedCommunities[community] ? `Joined ${community}` : `Join ${community}`}
-									</button>
-								</article>
-							{/each}
-						</div>
-						<div class="explore-feed" data-testid="explore-feed">
-							<div class="seg" role="tablist" aria-label="Discover feed">
-								<button type="button" role="tab" aria-selected={exploreFeed === 'popular'} class:active={exploreFeed === 'popular'} onclick={() => (exploreFeed = 'popular')}>Popular</button>
-								<button type="button" role="tab" aria-selected={exploreFeed === 'new'} class:active={exploreFeed === 'new'} onclick={() => (exploreFeed = 'new')}>New</button>
-								<button type="button" role="tab" aria-selected={exploreFeed === 'active'} class:active={exploreFeed === 'active'} onclick={() => (exploreFeed = 'active')}>Active</button>
-							</div>
-							<p>{exploreFeedText}</p>
+					<section class="card app-explore-search">
+						<div class="explore-search-content">
+							<div class="app-page-kicker">Explore</div>
+							<h1>Find people and posts</h1>
+							<p>Search people and posts already known to this Headwater node, or paste a Delta Chat feed invite to follow it.</p>
+							<form class="explore-search-form" role="search" aria-label="Explore search" onsubmit={submitExploreSearch}>
+								<Icon name="search" width={22} height={22} />
+								<input bind:value={exploreSearchDraft} type="search" aria-label="Search known people and posts" aria-describedby="explore-search-hint" placeholder="Name, address, post text, or feed invite" />
+								<Button variant="primary" type="submit" disabled={followInvitePending}>{isFeedInvite(exploreSearchDraft) ? (followInvitePending ? 'Following…' : 'Follow feed') : 'Search'}</Button>
+							</form>
+							<div id="explore-search-hint" class="explore-search-hint">Search is limited to content this node already holds; feed invites add new people.</div>
 						</div>
 					</section>
 				{:else if route === 'search'}
@@ -4688,39 +4943,21 @@
 						<div class="se-pageframe card" data-testid="search-pageframe">
 							<form class="se-bar" role="search" onsubmit={submitSearchPage}>
 								<Icon name="search" width={18} height={18} />
-								<input class="se-bar-input" value={searchPageDraft} type="search" aria-label="Search this instance and federation" placeholder="Search Headwater..." oninput={(event) => updateSearchPageDraft(event.currentTarget.value)} />
+								<input class="se-bar-input" value={searchPageDraft} type="search" aria-label="Search people and posts known to this Headwater node" placeholder="Search Headwater..." oninput={(event) => updateSearchPageDraft(event.currentTarget.value)} />
 								<span class="se-bar-count">{searchResultTotal} {searchResultTotal === 1 ? 'result' : 'results'}</span>
 							</form>
 							<div class="se-tabs" role="tablist" aria-label="Search result types">
 								<button type="button" role="tab" aria-selected={searchTab === 'all'} class="se-tab" class:active={searchTab === 'all'} onclick={() => setSearchTab('all')}>All <span class="se-tab-count">{searchResultTotal}</span></button>
 								<button type="button" role="tab" aria-selected={searchTab === 'people'} class="se-tab" class:active={searchTab === 'people'} onclick={() => setSearchTab('people')}>People <span class="se-tab-count">{searchAccounts.length}</span></button>
 								<button type="button" role="tab" aria-selected={searchTab === 'posts'} class="se-tab" class:active={searchTab === 'posts'} onclick={() => setSearchTab('posts')}>Posts <span class="se-tab-count">{searchPosts.length}</span></button>
-								<span class="se-tabs-spacer"></span>
-								<button type="button" class="se-tab-tool" class:on={searchSidebarOpen} aria-expanded={searchSidebarOpen} aria-controls="search-filter-sidebar" onclick={() => (searchSidebarOpen = !searchSidebarOpen)}>{searchSidebarOpen ? 'Hide filters ◂' : 'More filters ▸'}</button>
 							</div>
-							{#if searchSidebarOpen}
-								<div class="se-v2-cols">
-									<aside id="search-filter-sidebar" class="se-v2-side" data-testid="search-filter-sidebar">
-										<div class="se-v2-side-head"><span class="se-v2-side-h">Filters</span><button type="button" class="se-v2-side-close" title="Close filters" onclick={() => (searchSidebarOpen = false)}>◂</button></div>
-										<div class="se-v2-note">Filter controls are preview-only for now. Tabs and the search term are active.</div>
-										<div class="se-v2-group"><div class="se-v2-group-l">Source</div><div class="se-v2-opt on">Federated</div><div class="se-v2-opt">This instance</div><div class="se-v2-opt">People you follow</div></div>
-										<div class="se-v2-group"><div class="se-v2-group-l">Date</div><div class="se-v2-opt">Past 24 hours</div><div class="se-v2-opt on">Past week</div><div class="se-v2-opt">Past month</div><div class="se-v2-opt">All time</div></div>
-										<div class="se-v2-group"><label class="se-v2-group-l" for="search-filter-user">From user</label><input id="search-filter-user" class="se-v2-input" placeholder="@user@server" disabled /></div>
-										<div class="se-v2-group"><div class="se-v2-group-l">Has media</div><div class="se-v2-opt">Photos</div><div class="se-v2-opt">Audio</div><div class="se-v2-opt">Video</div></div>
-										<div class="se-v2-group"><div class="se-v2-group-l">Sort</div><div class="se-v2-opt on">Most relevant</div><div class="se-v2-opt">Newest first</div><div class="se-v2-opt">Most boosted</div></div>
-										<button type="button" class="se-v2-clear" disabled>CLEAR ALL</button>
-									</aside>
-									<div>{@render searchResultsBody()}</div>
-								</div>
-							{:else}
-								{@render searchResultsBody()}
-							{/if}
+							{@render searchResultsBody()}
 						</div>
 					</section>
 				{:else if route === 'thread'}
 					<section class="card thread-view" data-testid="thread-view">
 						<div class="thread-head-title">
-							<button type="button" class="thread-back" aria-label="Back to home timeline" onclick={() => goto('/app/home')}><Icon name="arrowL" width={15} height={15} /></button>
+							<button type="button" class="thread-back" aria-label="Back to home timeline" onclick={returnFromThread}><Icon name="arrowL" width={15} height={15} /></button>
 							<h1>Thread</h1>
 						</div>
 						{#each threadStatusActionErrors as actionError (`${actionError.targetId}:${actionError.key}`)}
@@ -4985,6 +5222,10 @@
 						{/if}
 					</section>
 				{:else if route === 'settings'}
+					{#if settingsSection === 'appearance'}
+						<ThemePreferencesControls preferences={themePreferences} resolvedTheme={activeTheme} {systemPrefersDark} customAvailable={Boolean(customThemePalette)} onModeChange={selectThemeMode} onFixedThemeChange={selectFixedTheme} onSystemThemeChange={selectSystemTheme} />
+						<ThemeEditor palette={customThemeDraft} sourceTheme={customThemeSource} onPaletteChange={updateCustomThemeDraft} onSourceChange={selectCustomThemeSource} onSave={saveCustomTheme} onDiscard={discardCustomThemeChanges} onRawEdit={() => (customThemeRawDirty = true)} saveLabel={themePreferences.mode === 'system' ? 'Save custom theme' : 'Save as active theme'} externalChangeMessage={customThemeExternalChange ? 'The saved custom theme changed in another tab. Your unsaved draft is preserved; discard it to use the external palette.' : null} />
+					{:else}
 					<section class="card app-panel settings-panel">
 						<div class="crumbs">Settings / Profile</div>
 						<h1>Profile settings</h1>
@@ -5101,6 +5342,7 @@
 								Restoring: on a fresh node, choose “Restore from a backup” on the landing page instead of creating an account.
 							</p>
 					</section>
+					{/if}
 				{:else}
 					<section class="card app-panel">
 						<div class="app-page-kicker">App route</div>
@@ -5110,18 +5352,14 @@
 				{/if}
 			</main>
 
-			<aside class="app-right-rail" data-testid="right-rail">
+			{#if hasRightRail}
+				<aside class="app-right-rail" data-testid="right-rail">
 				{#if isTimelineRoute(route)}
 					<div class="rail-title">Trends &amp; Activity</div>
 					<SurfaceCard kind="trends" trendsState={trendsState} />
 					{#if railSuggestions.length > 0}
 						<SurfaceCard kind="who-to-follow" suggestions={railSuggestions} onSuggestionFollow={toggleSuggestionFollow} />
 					{/if}
-				{:else if route === 'explore'}
-					<div class="rail-title">Discover</div>
-					<div aria-label="Quick search Explore"><SurfaceCard kind="quick-search" /></div>
-					<div class="card rail-card"><div class="card-head"><span class="card-title">Known instances</span></div><div class="card-body">pleroma.example · retro.social</div></div>
-					<div class="card rail-card"><div class="card-head"><span class="card-title">Discovery mode</span></div><div class="card-body">Popular across friendly instances</div></div>
 				{:else if route === 'profile'}
 					{#if profileRouteState.status === 'success'}
 						<ProfileSideRail profile={profileRouteState.data.profile} pinned={profileRouteState.data.pinned} />
@@ -5142,49 +5380,28 @@
 						<div class="card-head surface-head-quiet"><span class="surface-tip-title"><Icon name="info" width={14} height={14} />Profile tips</span></div>
 						<div class="surface-tip-list"><div class="surface-tip"><Icon name="image" width={14} height={14} /><span>Your avatar will be shown at 96×96px.</span></div></div>
 					</div>
-				{:else if route !== 'search'}
-					<SurfaceCard kind="profile-preview" />
-					<SurfaceCard kind="profile-tips" />
 				{/if}
-			</aside>
+				</aside>
+			{/if}
 		</div>
 
-		<nav class="mobile-bottom" data-testid="mobile-bottom-nav" aria-label="Mobile app navigation">
-			<a href="/app/home" class:active={route === 'home'} class="mob-tab"><Icon name="home" /><span>Home</span></a>
-			<a href="/app/explore" class:active={route === 'explore'} class="mob-tab"><Icon name="search" /><span>Explore</span></a>
-			<a href="/app/settings" class:active={route === 'settings'} class="mob-tab"><Icon name="gear" /><span>Settings</span></a>
-			<button type="button" class="mob-tab" onclick={() => (mobileSheetOpen = true)}><Icon name="list" /><span>More</span></button>
-		</nav>
-
 		{#if mobileDrawerOpen}
-			<button type="button" class="mobile-drawer-bg open" aria-label="Close navigation menu" onclick={() => (mobileDrawerOpen = false)}></button>
-			<aside class="mobile-drawer open" data-testid="mobile-drawer">
+			<button type="button" tabindex="-1" class="mobile-drawer-bg open" aria-hidden="true" aria-label="Close navigation menu" onclick={() => closeMobileDrawer()}></button>
+			<div bind:this={mobileDrawerPanel} class="mobile-drawer open" data-testid="mobile-drawer" role="dialog" aria-modal="true" aria-label="Navigation menu" tabindex="-1" onkeydown={trapMobilePanelFocus}>
 				<div class="drawer-head">
 					<div class="drawer-brand"><span class="brand-mark"><HeadwaterLogo /></span><span class="brand-name">Headwater<sup>™</sup></span></div>
-					<button type="button" class="drawer-close" aria-label="Close navigation menu" onclick={() => (mobileDrawerOpen = false)}>×</button>
+					<button bind:this={mobileDrawerClose} type="button" class="drawer-close" aria-label="Close navigation menu" onclick={() => closeMobileDrawer()}>×</button>
 				</div>
 				<nav class="side-nav" aria-label="Mobile sections">
 					{#each navItems as item}
-						<a href={item.href} class:active={isActive(item)} class="side-nav-item" onclick={() => (mobileDrawerOpen = false)}>
+						<a href={item.href} class:active={isActive(item)} class="side-nav-item" onclick={() => closeMobileDrawer(false)}>
 							<span class="ico"><Icon name={item.icon} width={18} height={18} /></span>
 							<span>{item.label}</span>
 							{#if item.count}<span class="count">{item.count}</span>{/if}
 						</a>
 					{/each}
 				</nav>
-			</aside>
-		{/if}
-
-		{#if mobileSheetOpen}
-			<button type="button" class="mobile-sheet-bg open" aria-label="Dismiss details sheet" onclick={() => (mobileSheetOpen = false)}></button>
-			<aside class="mobile-sheet open" data-testid="mobile-sheet">
-				<div class="sheet-grip"></div>
-				<div class="sheet-head"><span class="sheet-title">Details</span><button type="button" class="drawer-close" aria-label="Close details sheet" onclick={() => (mobileSheetOpen = false)}>×</button></div>
-				<SurfaceCard kind="trends" trendsState={trendsState} />
-				{#if railSuggestions.length > 0}
-					<SurfaceCard kind="who-to-follow" suggestions={railSuggestions} onSuggestionFollow={toggleSuggestionFollow} />
-				{/if}
-			</aside>
+			</div>
 		{/if}
 	</div>
 {/if}

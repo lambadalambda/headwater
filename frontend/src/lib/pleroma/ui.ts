@@ -893,7 +893,7 @@ export const adaptPleromaStatus = (status: PleromaStatus, options: AdaptPleromaS
 		quotedPost: quotedPost ? adaptQuotedPost(quotedPost, options.now) : undefined,
 		avatar: avatarVariant(source.account),
 		avatarUrl: account.avatarUrl,
-		attachments: source.sensitive && !warning ? undefined : postAttachments,
+		attachments: postAttachments,
 		media: undefined,
 		boostedBy: booster ? {
 			name: booster.displayName,
