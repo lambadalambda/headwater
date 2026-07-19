@@ -48,6 +48,74 @@ TypeScript or `tsx`. Run `mise run build` first after source changes. For daemon
 development with watch-mode TypeScript execution, use
 `mise exec -- pnpm --dir daemon dev` instead.
 
+## Docker and Podman
+
+The production container includes the compiled daemon, static frontend, and
+matching Delta Chat RPC runtime. It runs as the unprivileged `node` user and
+stores identity, credentials, OAuth state, message databases, and daemon state
+in `/data`. Keep that volume: deleting it deletes the local Headwater identity.
+
+The same `compose.yaml` works with Docker Compose and Podman Compose:
+
+```sh
+# Docker
+docker compose up -d
+
+# Podman (requires a Compose provider such as podman-compose)
+podman compose up -d
+```
+
+This pulls `ghcr.io/lambadalambda/headwater:latest`, publishes Headwater only on
+host loopback at http://localhost:4030, and creates the named
+`headwater-data` volume. Follow startup and enrollment output with
+`docker compose logs -f` or `podman compose logs -f`; stop without deleting data
+with `docker compose down` or `podman compose down`.
+
+Podman can also run Headwater directly without a Compose provider:
+
+```sh
+podman volume create headwater-data
+podman run -d --name headwater \
+  --restart=unless-stopped \
+  -p 127.0.0.1:4030:4030 \
+  -v headwater-data:/data \
+  ghcr.io/lambadalambda/headwater:latest
+podman logs -f headwater
+```
+
+Use `podman stop --time 15 headwater` for graceful shutdown and
+`podman rm headwater` before recreating it with a newer image. Do not remove the
+`headwater-data` volume unless you intend to delete the node.
+
+Build the same image locally instead of pulling GHCR:
+
+```sh
+docker compose build
+# or
+podman compose build
+```
+
+To update, pull the new image and recreate the container while retaining the
+volume:
+
+```sh
+docker compose pull && docker compose up -d
+# or
+podman compose pull && podman compose up -d
+```
+
+Set `HEADWATER_PORT` to change the host-side loopback port. If the browser uses
+a different public origin, also set `HEADWATER_BASE_URL` to that exact origin;
+for example:
+
+```sh
+HEADWATER_PORT=8080 HEADWATER_BASE_URL=http://localhost:8080 docker compose up -d
+```
+
+For an HTTPS reverse proxy, keep the container port bound to loopback and set
+`HEADWATER_BASE_URL=https://headwater.example`. Back up through Headwater's
+encrypted `.dnbk` export in addition to backing up the container volume.
+
 The reusable lifecycle is exported from `daemon/dist/daemon.js` as
 `startDaemon(config)`. Managed callers pass absolute state, credential, auth,
 static-asset, lock, restore-journal, and optional native-helper paths. Readiness
@@ -285,6 +353,13 @@ jobs:
   Podman can launch an image containing `systemctl`; the integration job itself
   is the test that the relay can boot under systemd.
 
+`.github/workflows/container.yml` builds and boots the production image on both
+supported architectures. After the main CI workflow succeeds, pushes to `main`
+publish multi-architecture Linux images for `amd64` and `arm64` to
+`ghcr.io/lambadalambda/headwater` with `latest` and full commit-SHA tags; `v*`
+tags also publish a matching release tag. Pull requests build and smoke-test the
+image without publishing it.
+
 ## Repo layout
 
 - `daemon/` — TypeScript daemon: Mastodon client API in front,
@@ -296,6 +371,8 @@ jobs:
   Pleroma compatibility check.
 - `daemon/testenv/` — Podman chatmail relay image and lifecycle scripts used by
   daemon integration tests.
+- `Containerfile`, `compose.yaml` — production Docker/Podman image and persistent
+  single-node runtime setup.
 - `docs/` — architecture decisions, substrate audit, comparisons, and design
   sketches.
 - `meta/` — repository-local issue tracker and the frontend/daemon capability
@@ -334,6 +411,11 @@ jobs:
 See `meta/frontend-daemon-capabilities.md` for the exact API contract,
 `docs/decisions.md` for standing decisions, and `DEVLOG.md` for implementation
 history.
+
+## License
+
+Headwater is released into the public domain under the
+[Unlicense](LICENSE).
 
 ## DeltaNet migration compatibility
 

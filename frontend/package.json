@@ -2,6 +2,7 @@
 	"name": "headwater",
 	"private": true,
 	"version": "0.0.1",
+	"license": "Unlicense",
 	"type": "module",
 	"packageManager": "pnpm@11.5.2",
 	"engines": {

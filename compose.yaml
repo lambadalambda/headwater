@@ -1,0 +1,30 @@
+name: headwater
+
+services:
+  headwater:
+    image: ghcr.io/lambadalambda/headwater:latest
+    build:
+      context: .
+      dockerfile: Containerfile
+    restart: unless-stopped
+    stop_grace_period: 15s
+    environment:
+      HEADWATER_BASE_URL: ${HEADWATER_BASE_URL:-http://localhost:4030}
+    ports:
+      - "127.0.0.1:${HEADWATER_PORT:-4030}:4030"
+    volumes:
+      - headwater-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4030/api/headwater/status').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      start_period: 20s
+      retries: 6
+
+volumes:
+  headwater-data:
+    name: headwater-data

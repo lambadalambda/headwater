@@ -4,6 +4,31 @@ DeltaNet-era entries retained after the current entry preserve the former name
 and deployed identifiers as written. They document implementation history, not
 current naming.
 
+## 2026-07-19 - licensed container distribution
+
+Headwater now has an explicit public-domain dedication and a production
+Docker/Podman distribution path (`meta/issues/add-unlicense.md`,
+`meta/issues/container-runtime-image.md`):
+
+- The repository and package metadata declare the canonical Unlicense. Imported
+  handoff media with unclear redistribution rights was removed and the live
+  design system now uses original SVG sample illustrations.
+- A pinned, multi-stage Node 24 image compiles the frontend and daemon from
+  frozen pnpm lockfiles, retains only production dependencies, runs as UID 1000,
+  and stores all mutable account state in the pre-owned `/data` volume.
+- The shared Compose configuration binds only to host loopback by default and
+  gives Docker and Podman the same stable volume name. README operations cover
+  pull/build, startup, logs, shutdown, upgrades, base URLs, reverse proxies,
+  persistence, and backups.
+- Container CI smoke-tests fresh-volume writes, the status endpoint, the native
+  Delta Chat helper, graceful shutdown, and replacement persistence on both
+  amd64 and arm64. Publishing waits for successful main CI, grants package write
+  access only to the publish job, and protects `latest` from stale runs.
+- Local verification passed root typechecks, actionlint, Docker Compose config
+  parsing, all 21 affected design-system browser tests, and a final NAS Podman
+  build/runtime smoke including UID 1000 writes, Delta Chat 2.53.0 execution,
+  graceful shutdown, and named-volume persistence.
+
 ## 2026-07-18 - focused desktop first run and recovery gate
 
 Desktop onboarding now presents the account lifecycle rather than its daemon and

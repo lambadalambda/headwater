@@ -2,6 +2,7 @@
   "name": "headwater",
   "version": "0.0.1",
   "description": "Headwater single-user social network federating over encrypted email (chatmail), with daemon and web frontend",
+  "license": "Unlicense",
   "private": true,
   "packageManager": "pnpm@11.5.2",
   "engines": {

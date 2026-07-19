@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 720" role="img" aria-labelledby="title">
+  <title id="title">Night score concert poster</title>
+  <rect width="1000" height="720" fill="#edf0e3"/>
+  <path d="M0 0h1000v125H0zm0 595h1000v125H0z" fill="#3d3765"/>
+  <text x="500" y="82" fill="#f2b468" font-family="sans-serif" font-size="54" font-weight="700" text-anchor="middle">NIGHT SCORE</text>
+  <g fill="none" stroke="#42395d" stroke-width="9">
+    <path d="M120 250h760M120 320h760M120 390h760M120 460h760"/>
+    <path d="M270 205v225q0 75-70 75t-70-55q0-58 62-58 42 0 78 22"/>
+    <path d="M590 260v220q0 70-66 70t-66-52q0-55 58-55 38 0 74 20"/>
+  </g>
+  <circle cx="810" cy="250" r="70" fill="#df716f"/>
+  <text x="500" y="665" fill="#f7e4bd" font-family="sans-serif" font-size="34" letter-spacing="10" text-anchor="middle">FIELD RECORDINGS</text>
+</svg>

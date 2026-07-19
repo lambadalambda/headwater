@@ -4,6 +4,7 @@
   "desktopName": "social.pleroma.Headwater.desktop",
   "version": "0.0.1",
   "description": "Single-user social networking over encrypted email",
+  "license": "Unlicense",
   "author": "Headwater contributors",
   "private": true,
   "type": "module",

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 760" role="img" aria-labelledby="title">
+  <title id="title">Cat beside a river bank</title>
+  <rect width="1000" height="760" fill="#f0cf79"/>
+  <path d="M0 370q210-85 430 5t570-15v400H0Z" fill="#4f8f92"/>
+  <path d="M0 500q250-75 470 5t530-30v285H0Z" fill="#315d72"/>
+  <path d="M0 585q250-80 480 15t520-5v165H0Z" fill="#d77b5d"/>
+  <g fill="none" stroke="#f5dca2" stroke-width="12" opacity="0.8">
+    <path d="M40 465q220-75 400 0t510-20"/>
+    <path d="M20 550q200-55 390 10t540-10"/>
+  </g>
+  <path d="M560 525c0-132 210-132 210 0v170H560Z" fill="#232036"/>
+  <path d="m578 445 42-75 45 88m87-13-42-75-45 88" fill="#232036"/>
+  <circle cx="630" cy="510" r="12" fill="#f2b84b"/>
+  <circle cx="704" cy="510" r="12" fill="#f2b84b"/>
+  <path d="M755 655q120-150 180-35" fill="none" stroke="#232036" stroke-width="34" stroke-linecap="round"/>
+</svg>

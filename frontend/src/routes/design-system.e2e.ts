@@ -253,7 +253,7 @@ test('renders canonical audio attachment specimens', async ({ page }) => {
 	const audioSource = singleAudio.locator('audio');
 	const audioWaveform = singleAudio.getByRole('slider', { name: 'Seek audio' });
 	await expect(singleAudio.locator('.post-audio')).toBeVisible();
-	await expect(singleAudio.locator('.pa-cover-img')).toHaveAttribute('src', 'samples/encardia-99.png');
+	await expect(singleAudio.locator('.pa-cover-img')).toHaveAttribute('src', 'samples/album.svg');
 	await expect(audioWaveform).toBeVisible();
 	await expect(singleAudio.locator('.pa-bar')).toHaveCount(56);
 	await expect(singleAudio.locator('.pa-title')).toHaveText('after the storm (demo)');
@@ -416,7 +416,7 @@ test('renders canonical boosted post specimens', async ({ page }) => {
 	await boostedPhoto.locator('.post-photos button').click();
 	const dialog = page.getByRole('dialog', { name: 'Attachment lightbox' });
 	await expect(dialog).toBeVisible();
-	await expect(dialog.locator('.lightbox-photo')).toHaveAttribute('src', 'samples/falco.png');
+	await expect(dialog.locator('.lightbox-photo')).toHaveAttribute('src', 'samples/station.svg');
 	await dialog.getByRole('button', { name: 'Close', exact: true }).click();
 
 	await setViewport(page, 'mobile');

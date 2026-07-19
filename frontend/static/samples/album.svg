@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-labelledby="title">
+  <title id="title">After the Storm album cover</title>
+  <rect width="800" height="800" fill="#1c2848"/>
+  <circle cx="595" cy="205" r="120" fill="#efb35f"/>
+  <path d="M0 510q160-180 325-35t305-40q110-130 170-65v430H0Z" fill="#476a7c"/>
+  <path d="M0 610q170-125 350-20t450-35v245H0Z" fill="#d46268"/>
+  <path d="M0 695q220-95 415-15t385-10v130H0Z" fill="#eaa75e"/>
+  <g fill="none" stroke="#f2dfb2" stroke-width="10" opacity="0.85">
+    <path d="M60 570q155-100 300-10t380-20"/>
+    <path d="M45 650q175-80 340 0t355-20"/>
+  </g>
+  <text x="58" y="105" fill="#f5e8c7" font-family="sans-serif" font-size="64" font-weight="700">AFTER</text>
+  <text x="58" y="171" fill="#f5e8c7" font-family="sans-serif" font-size="64" font-weight="700">THE STORM</text>
+  <text x="64" y="225" fill="#e5a35f" font-family="sans-serif" font-size="28" letter-spacing="9">KESTREL · LIVE</text>
+</svg>

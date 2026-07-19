@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" role="img" aria-labelledby="title">
+  <title id="title">A curious cat opening a tiny door</title>
+  <rect width="800" height="1000" fill="#d8c4a2"/>
+  <path d="M130 100h540v830H130z" fill="#f5ead7" stroke="#593b4d" stroke-width="28"/>
+  <path d="M230 220h380v710H230z" fill="#241d31"/>
+  <path d="m250 530 120-170 84 80 110-105 46 195v400H230V600Z" fill="#e36371"/>
+  <path d="M260 560c0-180 320-180 320 0v260H260Z" fill="#171523"/>
+  <path d="m298 420 70-95 45 112m129-17-68-95-46 112" fill="#171523"/>
+  <ellipse cx="420" cy="575" rx="128" ry="105" fill="#fff4df"/>
+  <circle cx="370" cy="555" r="18" fill="#8dbb7b"/>
+  <circle cx="470" cy="555" r="18" fill="#8dbb7b"/>
+  <path d="m420 590-18 20h36Z" fill="#e58f91"/>
+  <path d="M650 110h70v210h-70z" fill="#f0a45d"/>
+</svg>

@@ -1,0 +1,185 @@
+name: Container Image
+
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ github.event.workflow_run.id || github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    name: Smoke-test image (${{ matrix.architecture }})
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build local test image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          platforms: linux/${{ matrix.architecture }}
+          load: true
+          tags: headwater:test-${{ matrix.architecture }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke-test runtime and persistence
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          set -euo pipefail
+          container="headwater-test-${ARCHITECTURE}-${GITHUB_RUN_ID}"
+          volume="headwater-test-${ARCHITECTURE}-${GITHUB_RUN_ID}"
+          image="headwater:test-${ARCHITECTURE}"
+          docker volume create "$volume" >/dev/null
+          docker run --detach --name "$container" \
+            --platform "linux/${ARCHITECTURE}" \
+            --publish 127.0.0.1:4030:4030 \
+            --volume "$volume:/data" \
+            "$image" >/dev/null
+          cleanup() {
+            if [ -n "$container" ]; then
+              docker logs "$container" || true
+              docker rm --force "$container" >/dev/null 2>&1 || true
+            fi
+            docker volume rm "$volume" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4030/api/headwater/status \
+              | grep --quiet '"configured":false'; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then exit 1; fi
+            sleep 2
+          done
+          docker exec "$container" sh -c \
+            'set -- /app/daemon/node_modules/.pnpm/@deltachat+stdio-rpc-server-linux-*/node_modules/@deltachat/stdio-rpc-server-linux-*/deltachat-rpc-server; [ "$#" -eq 1 ] && [ -x "$1" ] && [ "$("$1" --version 2>&1)" = 2.53.0 ]'
+          docker exec "$container" node -e \
+            "require('node:fs').writeFileSync('/data/persistence-smoke', 'ok')"
+          docker stop --time 15 "$container" >/dev/null
+          docker logs "$container"
+          docker rm "$container" >/dev/null
+          container=""
+          docker run --rm --platform "linux/${ARCHITECTURE}" \
+            --volume "$volume:/data" --entrypoint node "$image" \
+            -e "if(require('node:fs').readFileSync('/data/persistence-smoke','utf8')!=='ok')process.exit(1)"
+
+  publish:
+    name: Publish multi-architecture image
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Sign in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve published references
+        id: refs
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          release_tag=$(git tag --points-at "$HEAD_SHA" --list 'v*' | sort -V | tail -n 1)
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.refs.outputs.sha }}
+            type=raw,value=${{ steps.refs.outputs.release_tag }},enable=${{ steps.refs.outputs.release_tag != '' }}
+          labels: |
+            org.opencontainers.image.licenses=Unlicense
+      - name: Build and publish
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  latest:
+    name: Promote current main image
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.head_branch == 'main'
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: container-publish-latest
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: docker/setup-buildx-action@v3
+      - name: Sign in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Reconcile latest to current main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          current_sha=$(git rev-parse origin/main)
+          if ! docker buildx imagetools inspect \
+            "${REGISTRY}/${IMAGE_NAME}:${current_sha}" >/dev/null 2>&1; then
+            echo "Skipping latest: ${current_sha} has no published image yet"
+            exit 0
+          fi
+          docker buildx imagetools create \
+            --tag "${REGISTRY}/${IMAGE_NAME}:latest" \
+            "${REGISTRY}/${IMAGE_NAME}:${current_sha}"

@@ -2,6 +2,7 @@
   "name": "headwater",
   "version": "0.0.1",
   "description": "Headwater, a single-user Pleroma-style backend federating over chatmail (Delta Chat transport)",
+  "license": "Unlicense",
   "type": "module",
   "private": true,
   "engines": {

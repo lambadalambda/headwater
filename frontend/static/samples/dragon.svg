@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 720" role="img" aria-labelledby="title">
+  <title id="title">Blue dragon circling a moonlit shrine</title>
+  <rect width="1000" height="720" fill="#e4b84f"/>
+  <circle cx="750" cy="170" r="105" fill="#f7e6a6"/>
+  <path d="M205 520c-70-230 140-385 345-276 190 101 84 290-54 230-98-43-75-151 22-167 98-17 165 54 205 131" fill="none" stroke="#315c91" stroke-width="82" stroke-linecap="round"/>
+  <path d="m190 500-95 38 60-86 15-103 52 87 101 21-92 43Z" fill="#315c91"/>
+  <path d="m697 390 78-34-28 79 57 63-84-4-44 72-20-82-82-19 72-45Z" fill="#315c91"/>
+  <path d="M420 560h250v40H420zm45-150h160v150H465z" fill="#51384c"/>
+  <path d="m440 410 105-95 105 95Z" fill="#9a4d57"/>
+  <rect x="520" y="455" width="50" height="105" fill="#f3cf72"/>
+</svg>

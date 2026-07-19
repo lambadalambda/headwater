@@ -240,16 +240,16 @@
 		{ input: 'anything else', layout: 'heroStrip', highlight: false },
 	];
 	const DS_MENTION_ACCOUNTS: ComposerMentionAccount[] = [
-		{ id: 'soft-hertz', username: 'soft.hertz', displayName: 'soft.hertz ✦', acct: 'soft.hertz@kolektiva.social', avatarUrl: 'samples/cat-door.webp', avClass: 'av-grad-3' },
+		{ id: 'soft-hertz', username: 'soft.hertz', displayName: 'soft.hertz ✦', acct: 'soft.hertz@kolektiva.social', avatarUrl: 'samples/cat-door.svg', avClass: 'av-grad-3' },
 		{ id: 'softie', username: 'softie', displayName: 'softie ◌', acct: 'softie@graz.dev', avClass: 'av-orb' },
 		{ id: 'softwave', username: 'softwave', displayName: 'softwave', acct: 'softwave@retro.social', avClass: 'av-grad-2' },
 		{ id: 'softstack', username: 'softstack', displayName: 'softstack', acct: 'softstack@hub.dev', avClass: 'av-pixel-pc' }
 	];
 	const DS_CUSTOM_EMOJI: ComposerEmoji[] = [
-		{ shortcode: 'blobcat', url: 'samples/cat-door.webp', pack: 'blobcats' },
-		{ shortcode: 'blobfox', url: 'samples/cats-pair.webp', pack: 'blobcats' },
-		{ shortcode: 'blobmoon', url: 'samples/cat-bank.webp', pack: 'blobcats' },
-		{ shortcode: 'slowweb', url: 'samples/falco.png', pack: 'headwater' }
+		{ shortcode: 'blobcat', url: 'samples/cat-door.svg', pack: 'blobcats' },
+		{ shortcode: 'blobfox', url: 'samples/cats-pair.svg', pack: 'blobcats' },
+		{ shortcode: 'blobmoon', url: 'samples/cat-bank.svg', pack: 'blobcats' },
+		{ shortcode: 'slowweb', url: 'samples/station.svg', pack: 'headwater' }
 	];
 	const DS_SHORTCODE_QUERY = 'bl';
 	const DS_SHORTCODE_EMOJI = DS_CUSTOM_EMOJI.filter((emoji) => emoji.shortcode.startsWith(DS_SHORTCODE_QUERY));
@@ -269,16 +269,16 @@
 	};
 	const PHOTO_POST: DemoPostData = {
 		...SAMPLE_POST, id: '2', body: "dusk in the city 🌆",
-		attachments: [{ kind: 'photo', src: 'samples/falco.png', alt: 'still 1985' }],
+		attachments: [{ kind: 'photo', src: 'samples/station.svg', alt: 'station platform at dusk' }],
 	};
 	const PHOTOS3_POST: DemoPostData = {
 		...SAMPLE_POST, id: '3', name: 'sysadmin', handle: '@root@pleroma.social',
 		avClass: 'av-pc-old',
 		body: "Backup your data. Hug your cat. Update Headwater™.",
 		attachments: [
-			{ kind: 'photo', src: 'samples/cat-door.webp', alt: '' },
-			{ kind: 'photo', src: 'samples/cat-bank.webp', alt: '' },
-			{ kind: 'photo', src: 'samples/cats-pair.webp', alt: '' },
+			{ kind: 'photo', src: 'samples/cat-door.svg', alt: '' },
+			{ kind: 'photo', src: 'samples/cat-bank.svg', alt: '' },
+			{ kind: 'photo', src: 'samples/cats-pair.svg', alt: '' },
 		],
 	};
 	const VIDEO_POST: DemoPostData = {
@@ -291,7 +291,7 @@
 		...SAMPLE_POST, id: '5', name: 'kestrel.fm', handle: '@kestrel@audio.garden',
 		avClass: 'av-grad-3',
 		body: "demo from last night's basement set.",
-		attachments: [{ kind: 'audio', title: 'after the storm (demo)', byline: 'kestrel · live take · 2026', duration: '4:18', start: 0.28, cover: 'samples/encardia-99.png' }],
+		attachments: [{ kind: 'audio', title: 'after the storm (demo)', byline: 'kestrel · live take · 2026', duration: '4:18', start: 0.28, cover: 'samples/album.svg' }],
 	};
 	const BANNER_POST: DemoPostData = {
 		...SAMPLE_POST, id: '6', name: 'dreambyte', handle: '@dreambyte@headwater.example',
@@ -448,7 +448,7 @@
 	];
 	const PROFILE_MEDIA: ProfileMediaItem[] = [
 		{ kind: 'audio', title: 'rain on glass · take 2' },
-		{ kind: 'photo', src: 'samples/cat-door.webp', alt: 'door with cat at dusk' }
+		{ kind: 'photo', src: 'samples/cat-door.svg', alt: 'door with cat at dusk' }
 	];
 
 	const sampleNotification = (kind: NotificationKind): NotificationData =>
@@ -949,7 +949,7 @@
 					<div class="ds-grid ds-grid-3">
 						<div class="ds-spec">
 							<div class="ds-spec-stage">
-								<Post post={demoPost([{kind:'photo', src:'samples/falco.png', alt:'still 1985'}])} />
+								<Post post={demoPost([{kind:'photo', src:'samples/station.svg', alt:'station platform at dusk'}])} />
 							</div>
 							<div class="ds-spec-foot">
 								<span class="ds-spec-label">1 photo</span>
@@ -967,7 +967,7 @@
 						</div>
 						<div class="ds-spec">
 							<div class="ds-spec-stage">
-								<Post post={demoPost([{kind:'audio', src:SAMPLE_AUDIO_SRC, title:'after the storm (demo)', byline:'kestrel · 2026', duration:'4:18', start:0.28, cover:'samples/encardia-99.png'}])} />
+								<Post post={demoPost([{kind:'audio', src:SAMPLE_AUDIO_SRC, title:'after the storm (demo)', byline:'kestrel · 2026', duration:'4:18', start:0.28, cover:'samples/album.svg'}])} />
 							</div>
 							<div class="ds-spec-foot">
 								<span class="ds-spec-label">1 audio</span>
@@ -980,7 +980,7 @@
 					<div class="ds-grid ds-grid-3">
 						<div class="ds-spec">
 							<div class="ds-spec-stage">
-								<Post post={demoPost([{kind:'photo', src:'samples/dragon.png'},{kind:'photo', src:'samples/flute-text.png'}])} />
+								<Post post={demoPost([{kind:'photo', src:'samples/dragon.svg'},{kind:'photo', src:'samples/night-score.svg'}])} />
 							</div>
 							<div class="ds-spec-foot">
 								<span class="ds-spec-label">2 photos</span>
@@ -989,7 +989,7 @@
 						</div>
 						<div class="ds-spec">
 							<div class="ds-spec-stage">
-								<Post post={demoPost([{kind:'photo', src:'samples/cat-door.webp'},{kind:'photo', src:'samples/cat-bank.webp'},{kind:'photo', src:'samples/cats-pair.webp'}])} />
+								<Post post={demoPost([{kind:'photo', src:'samples/cat-door.svg'},{kind:'photo', src:'samples/cat-bank.svg'},{kind:'photo', src:'samples/cats-pair.svg'}])} />
 							</div>
 							<div class="ds-spec-foot">
 								<span class="ds-spec-label">3 photos</span>
@@ -998,7 +998,7 @@
 						</div>
 						<div class="ds-spec">
 							<div class="ds-spec-stage">
-								<Post post={demoPost([{kind:'photo', src:'samples/cat-door.webp'},{kind:'photo', src:'samples/cat-bank.webp'},{kind:'photo', src:'samples/cats-pair.webp'},{kind:'photo', src:'samples/falco.png'}])} />
+								<Post post={demoPost([{kind:'photo', src:'samples/cat-door.svg'},{kind:'photo', src:'samples/cat-bank.svg'},{kind:'photo', src:'samples/cats-pair.svg'},{kind:'photo', src:'samples/station.svg'}])} />
 							</div>
 							<div class="ds-spec-foot">
 								<span class="ds-spec-label">4 photos</span>
@@ -1011,7 +1011,7 @@
 					<div class="ds-grid ds-grid-2">
 						<div class="ds-spec">
 							<div class="ds-spec-stage">
-								<Post post={demoPost([{kind:'photo', src:'samples/cat-door.webp', alt:'window in the rain'},{kind:'audio', title:'rain on glass', byline:'lumen · field · 2026', duration:'5:12'}])} />
+								<Post post={demoPost([{kind:'photo', src:'samples/cat-door.svg', alt:'window in the rain'},{kind:'audio', title:'rain on glass', byline:'lumen · field · 2026', duration:'5:12'}])} />
 							</div>
 							<div class="ds-spec-foot">
 								<span class="ds-spec-label">★ 1 photo + 1 audio</span>
@@ -1020,7 +1020,7 @@
 						</div>
 						<div class="ds-spec">
 							<div class="ds-spec-stage">
-								<Post post={demoPost([{kind:'photo', src:'samples/falco.png'},{kind:'photo', src:'samples/dragon.png'},{kind:'photo', src:'samples/cat-door.webp'},{kind:'audio', title:'evening crickets', byline:'orbit · field', duration:'3:48'}])} />
+								<Post post={demoPost([{kind:'photo', src:'samples/station.svg'},{kind:'photo', src:'samples/dragon.svg'},{kind:'photo', src:'samples/cat-door.svg'},{kind:'audio', title:'evening crickets', byline:'orbit · field', duration:'3:48'}])} />
 							</div>
 							<div class="ds-spec-foot">
 								<span class="ds-spec-label">3 photos + 1 audio</span>
@@ -1032,7 +1032,7 @@
 					<div class="ds-sub-h">General (anything else) — hero + strip</div>
 					<div class="ds-spec">
 						<div class="ds-spec-stage">
-							<Post post={demoPost([{kind:'photo', src:'samples/falco.png', alt:'station platform at dusk'},{kind:'photo', src:'samples/dragon.png', alt:'shrine path'},{kind:'photo', src:'samples/cat-door.webp', alt:'door with cat'},{kind:'video', poster:'sunset', duration:'0:42', cc:true, caption:'A pan across a windowsill at dusk.'},{kind:'audio', title:'kettle whistle', byline:'orbit · field · 2026', duration:'2:14'},{kind:'audio', title:'evening crickets', byline:'orbit · field · 2026', duration:'3:48'}])} />
+							<Post post={demoPost([{kind:'photo', src:'samples/station.svg', alt:'station platform at dusk'},{kind:'photo', src:'samples/dragon.svg', alt:'shrine path'},{kind:'photo', src:'samples/cat-door.svg', alt:'door with cat'},{kind:'video', poster:'sunset', duration:'0:42', cc:true, caption:'A pan across a windowsill at dusk.'},{kind:'audio', title:'kettle whistle', byline:'orbit · field · 2026', duration:'2:14'},{kind:'audio', title:'evening crickets', byline:'orbit · field · 2026', duration:'3:48'}])} />
 						</div>
 						<div class="ds-spec-foot">
 							<span class="ds-spec-label">3 photos + 1 video + 2 audio</span>
@@ -1057,7 +1057,7 @@
 							<div class="ds-spec-stage padded">
 								<div style="display:flex;gap:8px">
 									<div class="ds-media-thumb-cell" style="position:relative;width:56px;height:56px;border-radius:3px;overflow:hidden;border:1px solid var(--border)">
-										<MediaStripThumb att={{kind:'photo', src:'samples/falco.png'}} />
+										<MediaStripThumb att={{kind:'photo', src:'samples/station.svg'}} />
 										<MediaStripKindBadge kind="photo" />
 									</div>
 									<div class="ds-media-thumb-cell" style="position:relative;width:56px;height:56px;border-radius:3px;overflow:hidden;border:1px solid var(--border)">
@@ -1065,7 +1065,7 @@
 										<MediaStripKindBadge kind="video" />
 									</div>
 									<div class="ds-media-thumb-cell" style="position:relative;width:56px;height:56px;border-radius:3px;overflow:hidden;border:1px solid var(--border)">
-										<MediaStripThumb att={{kind:'audio', cover:'samples/encardia-99.png'}} />
+										<MediaStripThumb att={{kind:'audio', cover:'samples/album.svg'}} />
 										<MediaStripKindBadge kind="audio" />
 									</div>
 								</div>
@@ -1164,9 +1164,9 @@
 						<div class="ds-spec-stage">
 							<div style="padding:18px;text-align:center">
 								<Button variant="primary" onclick={() => openLightbox([
-									{kind:'photo', src:'samples/falco.png', alt:'station platform at dusk'},
-									{kind:'photo', src:'samples/dragon.png', alt:'shrine path'},
-									{kind:'photo', src:'samples/cat-door.webp', alt:'door with cat'},
+									{kind:'photo', src:'samples/station.svg', alt:'station platform at dusk'},
+									{kind:'photo', src:'samples/dragon.svg', alt:'shrine path'},
+									{kind:'photo', src:'samples/cat-door.svg', alt:'door with cat'},
 									{kind:'video', poster:'sunset', duration:'0:42', cc:true},
 									{kind:'audio', title:'kettle whistle', byline:'orbit · field', duration:'2:14'},
 								], 0, {name:'orbit', handle:'@orbit@spacebear.net', avClass:'av-orb'})}>Open lightbox →</Button>
@@ -1183,7 +1183,7 @@
 					<div class="ds-grid ds-grid-3" data-testid="media-treatments">
 						<div class="ds-spec">
 							<div class="ds-spec-stage">
-								<img src="samples/cat-bank.webp" alt="cat on a river bank" width="280" height="200" style="display:block;width:100%;height:200px;object-fit:cover;border-radius:6px" />
+								<img src="samples/cat-bank.svg" alt="cat on a river bank" width="280" height="200" style="display:block;width:100%;height:200px;object-fit:cover;border-radius:6px" />
 							</div>
 							<div class="ds-spec-foot">
 								<span class="ds-spec-label">Original</span>
@@ -1192,7 +1192,7 @@
 						</div>
 						<div class="ds-spec">
 							<div class="ds-spec-stage">
-								<img src="samples/cat-bank.webp" alt="cat on a river bank" width="280" height="200" style="display:block;width:100%;height:200px;object-fit:cover;border-radius:6px;filter:var(--photo-filter)" data-testid="treatment-duotone" />
+								<img src="samples/cat-bank.svg" alt="cat on a river bank" width="280" height="200" style="display:block;width:100%;height:200px;object-fit:cover;border-radius:6px;filter:var(--photo-filter)" data-testid="treatment-duotone" />
 							</div>
 							<div class="ds-spec-foot">
 								<span class="ds-spec-label">Duotone · feed default</span>
@@ -1201,7 +1201,7 @@
 						</div>
 						<div class="ds-spec">
 							<div class="ds-spec-stage">
-								<HalftoneImage src="samples/cat-bank.webp" alt="cat on a river bank" width={280} height={200} />
+								<HalftoneImage src="samples/cat-bank.svg" alt="cat on a river bank" width={280} height={200} />
 							</div>
 							<div class="ds-spec-foot">
 								<span class="ds-spec-label">Halftone · 9px hex classic</span>
@@ -1494,7 +1494,7 @@
 									<div class="me-editor composer-input" role="textbox" aria-label="Inserted mention demo" aria-readonly="true">
 										thanks for the recs
 										<span class="me-pill" contenteditable="false" data-acct="soft.hertz@kolektiva.social" title="@soft.hertz@kolektiva.social">
-											<Avatar variant="plain" element="span" className="me-pill-av" avClass="av-grad-3" avatarUrl="samples/cat-door.webp" alt="soft.hertz ✦ avatar" />
+											<Avatar variant="plain" element="span" className="me-pill-av" avClass="av-grad-3" avatarUrl="samples/cat-door.svg" alt="soft.hertz ✦ avatar" />
 											<span class="me-pill-at">@</span><span class="me-pill-handle">soft.hertz</span>
 										</span>
 										— going to try qwen 0.5b first.
@@ -1671,7 +1671,7 @@
 					<div class="ds-grid ds-grid-2">
 						<div class="ds-spec">
 							<div class="ds-spec-stage">
-								<Post post={demoPost([], "this perfectly captures my feelings about saturday morning", { name: 'kestrel.fm', handle: '@kestrel@audio.garden', avClass: 'av-grad-3', time: '2h', body: "the moment between waking up and remembering you have responsibilities is the most peaceful state known to humanity", attachments: [{ kind: 'photo', src: 'samples/cat-door.webp' }], replies: 12, boosts: 87, favs: 312 })} />
+								<Post post={demoPost([], "this perfectly captures my feelings about saturday morning", { name: 'kestrel.fm', handle: '@kestrel@audio.garden', avClass: 'av-grad-3', time: '2h', body: "the moment between waking up and remembering you have responsibilities is the most peaceful state known to humanity", attachments: [{ kind: 'photo', src: 'samples/cat-door.svg' }], replies: 12, boosts: 87, favs: 312 })} />
 							</div>
 							<div class="ds-spec-foot">
 								<span class="ds-spec-label">With 1 photo</span>
@@ -1689,7 +1689,7 @@
 						</div>
 						<div class="ds-spec">
 							<div class="ds-spec-stage">
-								<Post post={demoPost([], "this whole walk was great. photos + the kettle audio.", { name: 'orbit', handle: '@orbit@spacebear.net', avClass: 'av-orb', time: '5h', body: "field walk yesterday — a couple of photos and the kettle clip i mentioned.", attachments: [{ kind: 'photo', src: 'samples/falco.png' }, { kind: 'photo', src: 'samples/dragon.png' }, { kind: 'video', poster: 'sunset', duration: '0:42' }, { kind: 'audio', title: 'kettle whistle', duration: '2:14' }], replies: 7, boosts: 24, favs: 116 })} />
+								<Post post={demoPost([], "this whole walk was great. photos + the kettle audio.", { name: 'orbit', handle: '@orbit@spacebear.net', avClass: 'av-orb', time: '5h', body: "field walk yesterday — a couple of photos and the kettle clip i mentioned.", attachments: [{ kind: 'photo', src: 'samples/station.svg' }, { kind: 'photo', src: 'samples/dragon.svg' }, { kind: 'video', poster: 'sunset', duration: '0:42' }, { kind: 'audio', title: 'kettle whistle', duration: '2:14' }], replies: 7, boosts: 24, favs: 116 })} />
 							</div>
 							<div class="ds-spec-foot">
 								<span class="ds-spec-label">With multiple media</span>
@@ -1707,7 +1707,7 @@
 						</div>
 						<div class="ds-spec ds-spec-span-2">
 							<div class="ds-spec-stage">
-								<Post post={demoPost([], "have not stopped listening to this all week.", { name: 'kestrel.fm', handle: '@kestrel@audio.garden', avClass: 'av-grad-3', time: '3d', body: "demo from last night's basement set. 12 minutes of synths, one take, no edits.", attachments: [{ kind: 'audio', title: 'after the storm (demo)', byline: 'kestrel · 2026', duration: '4:18', cover: 'samples/encardia-99.png' }], replies: 6, boosts: 19, favs: 84 })} />
+								<Post post={demoPost([], "have not stopped listening to this all week.", { name: 'kestrel.fm', handle: '@kestrel@audio.garden', avClass: 'av-grad-3', time: '3d', body: "demo from last night's basement set. 12 minutes of synths, one take, no edits.", attachments: [{ kind: 'audio', title: 'after the storm (demo)', byline: 'kestrel · 2026', duration: '4:18', cover: 'samples/album.svg' }], replies: 6, boosts: 19, favs: 84 })} />
 							</div>
 							<div class="ds-spec-foot">
 								<span class="ds-spec-label">With audio hero</span>
@@ -1789,8 +1789,8 @@
 									cw: 'food, plated photos',
 									body: 'every restaurant photo I take ends up looking like a NYT food review somehow. is there a special app for that or is it just learned posture',
 									attachments: [
-										{ kind: 'photo', src: 'samples/cat-bank.webp', alt: '' },
-										{ kind: 'photo', src: 'samples/cat-door.webp', alt: '' }
+										{ kind: 'photo', src: 'samples/cat-bank.svg', alt: '' },
+										{ kind: 'photo', src: 'samples/cat-door.svg', alt: '' }
 									],
 									replies: 4,
 									boosts: 3,
@@ -1895,7 +1895,7 @@
 									avClass: 'av-orb',
 									boostedBy: { name: 'datagram', handle: '@datagram@retro.social', avClass: 'av-pixel-pc', time: '12m' },
 									body: 'dusk in the city 🌆',
-									attachments: [{ kind: 'photo', src: 'samples/falco.png', alt: 'station platform at dusk' }],
+									attachments: [{ kind: 'photo', src: 'samples/station.svg', alt: 'station platform at dusk' }],
 									replies: 4,
 									boosts: 15,
 									favs: 120
@@ -1918,9 +1918,9 @@
 									body: "the algorithm doesn't care about you. the timeline doesn't either. but the people in it do, and that's worth keeping.",
 									reactions: [
 										{ name: '❤️', glyph: '❤️', url: null, staticUrl: null, count: 24, me: true },
-										{ name: 'pleromasummer', glyph: null, url: 'samples/dragon.png', staticUrl: 'samples/dragon.png', count: 18, me: false },
+										{ name: 'pleromasummer', glyph: null, url: 'samples/dragon.svg', staticUrl: 'samples/dragon.svg', count: 18, me: false },
 										{ name: '🔥', glyph: '🔥', url: null, staticUrl: null, count: 12, me: false },
-										{ name: 'blobcat', glyph: null, url: 'samples/dragon.png', staticUrl: 'samples/dragon.png', count: 9, me: false },
+										{ name: 'blobcat', glyph: null, url: 'samples/dragon.svg', staticUrl: 'samples/dragon.svg', count: 9, me: false },
 										{ name: '😂', glyph: '😂', url: null, staticUrl: null, count: 6, me: false },
 										{ name: '🌆', glyph: '🌆', url: null, staticUrl: null, count: 3, me: false }
 									],

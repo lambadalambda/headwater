@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 760" role="img" aria-labelledby="title">
+  <title id="title">Two cats meeting in an alley</title>
+  <rect width="900" height="760" fill="#b9b1c8"/>
+  <path d="M0 0h250v760H0zm650 0h250v760H650z" fill="#514562"/>
+  <path d="M250 0h400v760H250z" fill="#df916d"/>
+  <path d="m250 520 400-110v350H250Z" fill="#3c354e"/>
+  <g fill="#f4e3bd">
+    <path d="M275 520c0-145 220-145 220 0v190H275Z"/>
+    <path d="m292 425 48-90 42 105m96-15-48-90-42 105"/>
+  </g>
+  <g fill="#242033">
+    <path d="M455 545c0-145 220-145 220 0v165H455Z"/>
+    <path d="m472 450 48-90 42 105m96-15-48-90-42 105"/>
+    <circle cx="344" cy="515" r="12"/>
+    <circle cx="420" cy="515" r="12"/>
+  </g>
+  <circle cx="525" cy="540" r="12" fill="#8fc3a4"/>
+  <circle cx="602" cy="540" r="12" fill="#8fc3a4"/>
+</svg>
