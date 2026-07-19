@@ -158,6 +158,8 @@ export interface Transport {
   /** Initial + stable color for the avatar placeholder; null if the contact is unknown. */
   contactBadge(contactId: number): Promise<{ initial: string; color: string } | null>;
   blobPath(msgId: number): Promise<string | null>;
+  /** Ask core to fetch the complete bytes for an available pre-message. */
+  downloadFullMessage(msgId: number): Promise<void>;
   /** Real follower/following/post counts for the self account. */
   stats(): Promise<{ followers: number; following: number; statuses: number }>;
   /**

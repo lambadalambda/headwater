@@ -2356,6 +2356,112 @@ test('home timeline renders real media attachments from Pleroma statuses', async
 	await expectNoHorizontalOverflow(page);
 });
 
+test('home timeline replaces a pending image placeholder when its blob becomes available', async ({ page }) => {
+	await authenticate(page);
+	let blobRequests = 0;
+	let releaseBlob!: () => void;
+	const blobAvailable = new Promise<void>((resolve) => (releaseBlob = resolve));
+	await page.route('https://pleroma.example/headwater/blob/99**', async (route) => {
+		blobRequests += 1;
+		if (blobRequests === 1) {
+			await fulfillHome(route, { status: 'downloading' }, 202, {
+				'cache-control': 'private, no-store',
+				'retry-after': '1'
+			});
+			return;
+		}
+		await blobAvailable;
+		await route.fulfill({
+			status: 200,
+			contentType: 'image/svg+xml',
+			headers: { 'cache-control': 'private, no-store' },
+			body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="24"><rect width="32" height="24" fill="red"/></svg>'
+		});
+	});
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [{
+			...pleromaFixtures.status,
+			id: 'status-pending-photo',
+			content: '<p>incoming photo</p>',
+			pleroma: { ...pleromaFixtures.status.pleroma, content: { 'text/plain': 'incoming photo' } },
+			media_attachments: [{
+				id: '99',
+				type: 'image',
+				url: 'https://pleroma.example/headwater/blob/99',
+				preview_url: 'https://pleroma.example/headwater/blob/99',
+				description: null,
+				file_name: 'train-window.png',
+				file_bytes: 1536,
+				download_state: 'Available'
+			}]
+		}]);
+	});
+
+	await page.goto('/app/home');
+	const post = page.locator('[data-status-id="status-pending-photo"]');
+	const placeholder = post.getByTestId('pending-photo');
+	await expect(placeholder).toContainText('train-window.png');
+	await expect(placeholder).toContainText('1.5 KB');
+	await expect(post.locator('.post-photos img')).toHaveCount(0);
+	releaseBlob();
+	await expect(post.locator('.post-photos .ph-raw')).toBeVisible();
+	await expect(placeholder).toHaveCount(0);
+	expect(blobRequests).toBeGreaterThanOrEqual(2);
+	expect(blobRequests).toBeLessThanOrEqual(4);
+});
+
+test('home timeline does not retry a terminal attachment or retry after unmount', async ({ page }) => {
+	await authenticate(page);
+	let terminalRequests = 0;
+	let pendingRequests = 0;
+	await page.route('https://pleroma.example/headwater/blob/100**', async (route) => {
+		terminalRequests += 1;
+		await fulfillHome(route, { status: 'unavailable' }, 404);
+	});
+	await page.route('https://pleroma.example/headwater/blob/101**', async (route) => {
+		pendingRequests += 1;
+		await fulfillHome(route, { status: 'downloading' }, 202);
+	});
+	await mockHomeTimeline(page, async (route) => {
+		await fulfillHome(route, [
+			{
+				...pleromaFixtures.status,
+				id: 'status-undecipherable-photo',
+				media_attachments: [{
+					id: '100',
+					type: 'image',
+					url: 'https://pleroma.example/headwater/blob/100',
+					file_name: 'locked-image.png',
+					file_bytes: 2048,
+					download_state: 'Undecipherable'
+				}]
+			},
+			{
+				...pleromaFixtures.status,
+				id: 'status-unmounted-photo',
+				media_attachments: [{
+					id: '101',
+					type: 'image',
+					url: 'https://pleroma.example/headwater/blob/101',
+					file_name: 'still-downloading.png',
+					download_state: 'InProgress'
+				}]
+			}
+		]);
+	});
+
+	await page.goto('/app/home');
+	const terminal = page.locator('[data-status-id="status-undecipherable-photo"]');
+	await expect(terminal.getByTestId('pending-photo')).toContainText('Attachment unavailable');
+	await expect(terminal.locator('.post-photos img')).toHaveCount(0);
+	expect(terminalRequests).toBe(0);
+	await expect.poll(() => pendingRequests).toBe(1);
+
+	await page.goto('/app/settings');
+	await page.waitForTimeout(1200);
+	expect(pendingRequests).toBe(1);
+});
+
 test('home timeline renders poll attachments below media without opening the thread', async ({ page }) => {
 	await authenticate(page);
 	await mockHomeTimeline(page, async (route) => {

@@ -231,6 +231,34 @@ describe('messageToStatus', () => {
         preview_url: `${BASE}/headwater/blob/42`,
         remote_url: null,
         description: null,
+        file_name: null,
+        file_bytes: 0,
+        download_state: 'Done',
+      },
+    ]);
+  });
+
+  it('exposes image metadata while its bytes are still pending', () => {
+    const msg = makeMessage({
+      file: null,
+      fileMime: null,
+      fileName: 'train-window.png',
+      fileBytes: 1536,
+      downloadState: 'Available',
+      viewType: 'Image',
+    });
+
+    expect(messageToStatus(msg, BASE).media_attachments).toEqual([
+      {
+        id: '42',
+        type: 'image',
+        url: `${BASE}/headwater/blob/42`,
+        preview_url: `${BASE}/headwater/blob/42`,
+        remote_url: null,
+        description: null,
+        file_name: 'train-window.png',
+        file_bytes: 1536,
+        download_state: 'Available',
       },
     ]);
   });

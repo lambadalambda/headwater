@@ -77,6 +77,7 @@ const makeFakeTransport = () => {
   const followerHandlers = new Set<(contactId: number) => void>();
   let lastBackupStamp: number | null = null;
   const removedFollowers: number[] = [];
+  const downloaded: number[] = [];
   // Petname fake: contact(11) reflects the local override like core does.
   const setNames: Array<{ contactId: number; name: string }> = [];
   let bobPetname = '';
@@ -155,6 +156,11 @@ const makeFakeTransport = () => {
     contactBadge: async (id) =>
       id === 1 ? { initial: 'A', color: '#ff0000' } : null,
     blobPath: async () => null,
+    downloadFullMessage: async (msgId) => {
+      downloaded.push(msgId);
+      const message = messages.find((candidate) => candidate.id === msgId);
+      if (message) message.downloadState = 'InProgress';
+    },
     stats: async () => ({ followers: 3, following: 2, statuses: 7 }),
     messageMid: async (msgId) => mids.get(msgId) ?? null,
     searchMessages: async (query) =>
@@ -243,7 +249,7 @@ const makeFakeTransport = () => {
   const emitFollower = (contactId: number) => {
     for (const handler of followerHandlers) handler(contactId);
   };
-  return { transport, messages, posts, dms, contentDms, deleted, unfollowed, following, mids, emitFollower, profileUpdates, createdContacts, broadcasts, chatPosts, leftChats, keyReachable, introductions, setNames, removedFollowers };
+  return { transport, messages, posts, dms, contentDms, deleted, unfollowed, following, mids, emitFollower, profileUpdates, createdContacts, broadcasts, chatPosts, leftChats, keyReachable, introductions, setNames, removedFollowers, downloaded };
 };
 
 /** A context that's already configured with a fixed fake transport. */
@@ -572,6 +578,84 @@ describe('deltanet: served-file content types', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/png');
     expect(await res.text()).toBe(bytes);
+  });
+
+  it('starts one core download and reports a pending blob without caching it', async () => {
+    const { transport, messages, downloaded } = makeFakeTransport();
+    messages.push(makeMessage({
+      id: 41,
+      file: null,
+      fileMime: 'image/png',
+      fileName: 'train-window.png',
+      fileBytes: 1536,
+      downloadState: 'Available',
+      viewType: 'Image',
+    }));
+    const app = createUnsafeTestApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const first = await app.request('/deltanet/blob/41');
+    expect(first.status).toBe(202);
+    expect(first.headers.get('cache-control')).toBe('private, no-store');
+    expect(first.headers.get('retry-after')).toBe('1');
+    expect(downloaded).toEqual([41]);
+
+    const second = await app.request('/deltanet/blob/41');
+    expect(second.status).toBe(202);
+    expect(downloaded).toEqual([41]);
+  });
+
+  it('single-flights concurrent blob download requests while core still reports available', async () => {
+    const { transport, messages } = makeFakeTransport();
+    messages.push(makeMessage({ id: 42, file: null, fileMime: 'image/png', downloadState: 'Available' }));
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const downloadFullMessage = vi.fn(async () => pending);
+    transport.downloadFullMessage = downloadFullMessage;
+    const app = createUnsafeTestApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const first = app.request('/deltanet/blob/42');
+    const second = app.request('/deltanet/blob/42');
+    await vi.waitFor(() => expect(downloadFullMessage).toHaveBeenCalledTimes(1));
+    release();
+
+    expect((await first).status).toBe(202);
+    expect((await second).status).toBe(202);
+    expect((await app.request('/deltanet/blob/42')).status).toBe(202);
+    expect(downloadFullMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a rejected core download after a cooldown', async () => {
+    const { transport, messages } = makeFakeTransport();
+    messages.push(makeMessage({ id: 43, file: null, fileMime: 'image/png', downloadState: 'Available' }));
+    const downloadFullMessage = vi.fn()
+      .mockRejectedValueOnce(new Error('temporary core failure'))
+      .mockResolvedValue(undefined);
+    transport.downloadFullMessage = downloadFullMessage;
+    const app = createUnsafeTestApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect((await app.request('/deltanet/blob/43')).status).toBe(202);
+    expect((await app.request('/deltanet/blob/43')).status).toBe(202);
+    expect(downloadFullMessage).toHaveBeenCalledTimes(1);
+    now.mockReturnValue(11_001);
+    expect((await app.request('/deltanet/blob/43')).status).toBe(202);
+    expect(downloadFullMessage).toHaveBeenCalledTimes(2);
+
+    log.mockRestore();
+    now.mockRestore();
+  });
+
+  it('reports an undecipherable blob as terminal without retry instructions', async () => {
+    const { transport, messages, downloaded } = makeFakeTransport();
+    messages.push(makeMessage({ id: 44, file: null, fileMime: null, downloadState: 'Undecipherable' }));
+    const app = createUnsafeTestApp(makeConfiguredCtx(transport), { baseUrl: BASE });
+
+    const response = await app.request('/deltanet/blob/44');
+    expect(response.status).toBe(409);
+    expect(response.headers.get('retry-after')).toBeNull();
+    expect(await response.json()).toEqual({ status: 'unavailable' });
+    expect(downloaded).toEqual([]);
   });
 });
 

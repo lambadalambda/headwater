@@ -1,3 +1,5 @@
+import type { AttachmentDownloadState } from '$lib/social/types';
+
 export type PleromaScope = 'read' | 'write' | 'follow' | 'push' | `read:${string}` | `write:${string}`;
 
 export type PleromaField = {
@@ -49,6 +51,9 @@ export type PleromaMediaAttachment = {
 	url?: string | null;
 	preview_url?: string | null;
 	description?: string | null;
+	file_name?: string | null;
+	file_bytes?: number | null;
+	download_state?: AttachmentDownloadState | null;
 	[key: string]: unknown;
 };
 
@@ -133,7 +138,7 @@ export type PleromaStatus = {
 	in_reply_to_account_id: string | null;
 	in_reply_to_id: string | null;
 	language: string | null;
-	media_attachments: unknown[];
+	media_attachments: PleromaMediaAttachment[];
 	mentions: unknown[];
 	muted: boolean;
 	pinned: boolean;

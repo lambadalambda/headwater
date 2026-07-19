@@ -1,4 +1,4 @@
-import type { CustomEmoji } from '$lib/social/types';
+import type { AttachmentDownloadState, CustomEmoji } from '$lib/social/types';
 
 export type BannerVariant = 'sunset' | 'pixel-window' | 'city' | 'space';
 
@@ -13,6 +13,8 @@ export type PhotoAttachment = {
 	alt?: string;
 	cw?: boolean;
 	filename?: string;
+	fileBytes?: number;
+	downloadState?: AttachmentDownloadState;
 };
 
 export type VideoAttachment = {
@@ -26,6 +28,8 @@ export type VideoAttachment = {
 	caption?: string;
 	start?: number;
 	filename?: string;
+	fileBytes?: number;
+	downloadState?: AttachmentDownloadState;
 };
 
 export type AudioAttachment = {
@@ -37,6 +41,8 @@ export type AudioAttachment = {
 	cover?: string;
 	start?: number;
 	filename?: string;
+	fileBytes?: number;
+	downloadState?: AttachmentDownloadState;
 };
 
 export type PollChoice = {

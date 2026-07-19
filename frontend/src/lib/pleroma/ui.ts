@@ -1,4 +1,4 @@
-import type { AvatarVariant, CustomEmoji, PostAttachment, QuotedPostView, SocialNotificationData, SocialNotificationKind, TimelinePost, TimelineView } from '$lib/social/types';
+import type { AttachmentDownloadState, AvatarVariant, CustomEmoji, PostAttachment, QuotedPostView, SocialNotificationData, SocialNotificationKind, TimelinePost, TimelineView } from '$lib/social/types';
 import { isPleromaClientError } from './http';
 import type { PleromaAccount, PleromaChat, PleromaChatMessage, PleromaCustomEmoji, PleromaField, PleromaInstance, PleromaNotification, PleromaStatus, ProfileUpdate } from './types';
 
@@ -65,6 +65,8 @@ export type PleromaMediaAttachmentView = {
 	previewUrl: string | null;
 	description: string | null;
 	filename: string | null;
+	fileBytes?: number;
+	downloadState?: AttachmentDownloadState;
 	duration: string | null;
 };
 
@@ -374,6 +376,12 @@ const numberValue = (value: unknown) => (typeof value === 'number' && Number.isF
 
 const booleanValue = (value: unknown) => (typeof value === 'boolean' ? value : null);
 
+const attachmentDownloadStates = new Set<AttachmentDownloadState>(['Done', 'Available', 'Failure', 'Undecipherable', 'InProgress']);
+const downloadStateValue = (value: unknown): AttachmentDownloadState | null =>
+	typeof value === 'string' && attachmentDownloadStates.has(value as AttachmentDownloadState)
+		? value as AttachmentDownloadState
+		: null;
+
 const compactExcerpt = (text: string) => text.length > 160 ? `${text.slice(0, 157).trimEnd()}...` : text;
 
 const notificationKind = (type: string): SocialNotificationKind => {
@@ -495,6 +503,8 @@ const adaptMediaAttachment = (attachment: unknown, index: number): PleromaMediaA
 
 	const url = stringValue(attachment.url) ?? stringValue(attachment.remote_url);
 	if (!url) return null;
+	const fileBytes = numberValue(attachment.file_bytes);
+	const downloadState = downloadStateValue(attachment.download_state);
 
 	return {
 		id: stringValue(attachment.id) ?? `media-${index + 1}`,
@@ -502,7 +512,9 @@ const adaptMediaAttachment = (attachment: unknown, index: number): PleromaMediaA
 		url,
 		previewUrl: stringValue(attachment.preview_url) ?? stringValue(attachment.previewUrl),
 		description: stringValue(attachment.description),
-		filename: filenameFromUrl(url),
+		filename: stringValue(attachment.file_name) ?? filenameFromUrl(url),
+		...(fileBytes !== null ? { fileBytes } : {}),
+		...(downloadState !== null ? { downloadState } : {}),
 		duration: mediaDuration(attachment)
 	};
 };
@@ -514,7 +526,9 @@ const adaptPostAttachment = (attachment: PleromaMediaAttachmentView): PostAttach
 			kind: 'photo',
 			src: attachment.url,
 			alt: attachment.description ?? undefined,
-			filename: attachment.filename ?? undefined
+			filename: attachment.filename ?? undefined,
+			fileBytes: attachment.fileBytes ?? undefined,
+			downloadState: attachment.downloadState ?? undefined
 		};
 	}
 
@@ -526,7 +540,9 @@ const adaptPostAttachment = (attachment: PleromaMediaAttachmentView): PostAttach
 			title: attachment.description ?? attachment.filename ?? 'video',
 			caption: attachment.description ?? undefined,
 			duration: attachment.duration ?? undefined,
-			filename: attachment.filename ?? undefined
+			filename: attachment.filename ?? undefined,
+			fileBytes: attachment.fileBytes ?? undefined,
+			downloadState: attachment.downloadState ?? undefined
 		};
 	}
 
@@ -537,7 +553,9 @@ const adaptPostAttachment = (attachment: PleromaMediaAttachmentView): PostAttach
 			title: attachment.description ?? attachment.filename ?? 'audio',
 			byline: 'audio',
 			duration: attachment.duration ?? undefined,
-			filename: attachment.filename ?? undefined
+			filename: attachment.filename ?? undefined,
+			fileBytes: attachment.fileBytes ?? undefined,
+			downloadState: attachment.downloadState ?? undefined
 		};
 	}
 

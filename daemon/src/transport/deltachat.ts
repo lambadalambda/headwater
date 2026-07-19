@@ -1113,6 +1113,10 @@ const buildTransport = (
       return msg?.file ?? null;
     },
 
+    downloadFullMessage: async (msgId) => {
+      await rpc.downloadFullMessage(accountId, msgId);
+    },
+
     stats: async () => {
       // Both owned channels count (visibility channels): follower sets are
       // UNIONED (a locked follower usually also follows public), post counts

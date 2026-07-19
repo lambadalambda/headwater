@@ -270,6 +270,13 @@ export const createApp = (
   const app = new Hono<AppEnv>();
   const limits = resolveResourceLimits(resourceLimits);
   const requestBudget = createResourceBudget(limits.maxInFlightRequestBytes);
+  type BlobDownloadRequest = {
+    state: T.DownloadState;
+    promise: Promise<void>;
+    succeeded: boolean | null;
+    retryAt: number;
+  };
+  const blobDownloadRequests = new Map<number, BlobDownloadRequest>();
   let readingRestoreBody = false;
   const mediaStore = createMediaStore({
     uploadDir: mediaUploadDir,
@@ -3146,7 +3153,45 @@ export const createApp = (
     if (!Number.isInteger(msgId) || msgId <= 0) return c.notFound();
     const msg = await transport.message(msgId);
     if (!msg) return c.notFound();
-    const response = await serveFile(await transport.blobPath(msgId), c);
+    const path = await transport.blobPath(msgId);
+    if (path) blobDownloadRequests.delete(msgId);
+    if (!path && (msg.downloadState === 'Available' || msg.downloadState === 'Failure')) {
+      let request = blobDownloadRequests.get(msgId);
+      if (request?.state === msg.downloadState) {
+        await request.promise;
+        request = blobDownloadRequests.get(msgId);
+      }
+      if (
+        !request ||
+        request.state !== msg.downloadState ||
+        (request.succeeded === false && Date.now() >= request.retryAt)
+      ) {
+        const nextRequest: BlobDownloadRequest = {
+          state: msg.downloadState,
+          promise: Promise.resolve(),
+          succeeded: null,
+          retryAt: Number.POSITIVE_INFINITY,
+        };
+        nextRequest.promise = transport.downloadFullMessage(msgId)
+          .then(() => { nextRequest.succeeded = true; })
+          .catch((error) => {
+            nextRequest.succeeded = false;
+            nextRequest.retryAt = Date.now() + 1_000;
+            console.error(`failed to download full message ${msgId} (non-fatal):`, error);
+          });
+        blobDownloadRequests.set(msgId, nextRequest);
+        request = nextRequest;
+      }
+      await request.promise;
+    }
+    if (!path && msg.downloadState === 'Undecipherable') {
+      return c.json({ status: 'unavailable' }, 409);
+    }
+    if (!path && msg.downloadState !== 'Done') {
+      c.header('Retry-After', '1');
+      return c.json({ status: 'downloading' }, 202);
+    }
+    const response = await serveFile(path, c);
     response.headers.set('Cache-Control', 'private, no-store');
     return response;
   });

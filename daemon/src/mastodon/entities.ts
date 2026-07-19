@@ -268,10 +268,16 @@ export const contactToMention = (contact: T.Contact, baseUrl: string): MastodonM
 };
 
 const mediaAttachments = (msg: T.Message, baseUrl: string, description: string | null) => {
-  if (!msg.file || !msg.fileMime) return [];
-  const kind = msg.fileMime.split('/')[0];
+  if (!msg.file && msg.downloadState === 'Done') return [];
+  const kind = msg.fileMime?.split('/')[0];
   const type =
-    kind === 'image' ? 'image' : kind === 'video' ? 'video' : kind === 'audio' ? 'audio' : 'unknown';
+    kind === 'image' || msg.viewType === 'Image' || msg.viewType === 'Gif' || msg.viewType === 'Sticker'
+      ? 'image'
+      : kind === 'video' || msg.viewType === 'Video'
+        ? 'video'
+        : kind === 'audio' || msg.viewType === 'Audio' || msg.viewType === 'Voice'
+          ? 'audio'
+          : 'unknown';
   return [
     {
       id: String(msg.id),
@@ -280,6 +286,9 @@ const mediaAttachments = (msg: T.Message, baseUrl: string, description: string |
       preview_url: `${baseUrl}/headwater/blob/${msg.id}`,
       remote_url: null,
       description,
+      file_name: msg.fileName,
+      file_bytes: msg.fileBytes,
+      download_state: msg.downloadState,
     },
   ];
 };

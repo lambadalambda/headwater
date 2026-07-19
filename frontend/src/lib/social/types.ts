@@ -3,6 +3,7 @@ export type PostAction = 'reply' | 'boost' | 'favorite';
 export type ReplySort = 'top' | 'newest';
 export type AvatarVariant = 'grad-1' | 'grad-2' | 'grad-3' | 'orb' | 'pc';
 export type MediaVariant = 'sunset' | 'city' | 'space';
+export type AttachmentDownloadState = 'Done' | 'Available' | 'Failure' | 'Undecipherable' | 'InProgress';
 export type ActionState = Record<PostAction, boolean>;
 
 export type SocialNotificationKind = 'fav' | 'boost' | 'reply' | 'mention' | 'follow' | 'follow_req' | 'poll' | 'reaction' | 'unknown';
@@ -53,6 +54,8 @@ export type PhotoAttachment = {
 	alt?: string;
 	cw?: boolean;
 	filename?: string;
+	fileBytes?: number;
+	downloadState?: AttachmentDownloadState;
 };
 
 export type VideoAttachment = {
@@ -66,6 +69,8 @@ export type VideoAttachment = {
 	caption?: string;
 	start?: number;
 	filename?: string;
+	fileBytes?: number;
+	downloadState?: AttachmentDownloadState;
 };
 
 export type AudioAttachment = {
@@ -77,6 +82,8 @@ export type AudioAttachment = {
 	cover?: string;
 	start?: number;
 	filename?: string;
+	fileBytes?: number;
+	downloadState?: AttachmentDownloadState;
 };
 
 export type PollChoice = {
