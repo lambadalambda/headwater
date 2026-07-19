@@ -98,6 +98,68 @@ body[data-theme='simoun'] {
 	--warn-ink: #ecd4a5;
 }
 
+/* ===== Lab Light theme — the inverted pair to `labdark`. */
+body[data-theme='lablight'] {
+	--bg: #ffffff;
+	--panel: #ffffff;
+	--panel-2: #eef6fb;
+	--border: #0071a9;
+	--border-strong: #0071a9;
+	--ink: #0071a9;
+	--ink-2: #0071a9;
+	--muted: #4a9bc4;
+	--muted-2: #4a9bc4;
+	--accent: #0071a9;
+	--accent-ink: #0071a9;
+	--accent-soft: #eef6fb;
+	--accent-soft-2: #f5fafc;
+	--pink: #4a9bc4;
+	--teal: #4a9bc4;
+	--good: #5b9a8e;
+	--good-ink: #3d6b62;
+	--warn: #b8945a;
+	--warn-ink: #7a6238;
+	--bad: #a85a5a;
+
+	--radius: 0px;
+	--radius-lg: 0px;
+
+	--serif: 'Courier Prime', 'Courier New', Courier, monospace;
+	--sans: 'Courier Prime', 'Courier New', Courier, monospace;
+	--mono: 'Courier Prime', 'Courier New', Courier, monospace;
+}
+
+/* ===== Lab Dark theme — the inverted pair to `lablight`. */
+body[data-theme='labdark'] {
+	--bg: #0a0e12;
+	--panel: #0a0e12;
+	--panel-2: #121a21;
+	--border: #4db8e8;
+	--border-strong: #4db8e8;
+	--ink: #4db8e8;
+	--ink-2: #4db8e8;
+	--muted: #6f93a6;
+	--muted-2: #6f93a6;
+	--accent: #4db8e8;
+	--accent-ink: #4db8e8;
+	--accent-soft: rgba(77, 184, 232, 0.22);
+	--accent-soft-2: rgba(77, 184, 232, 0.1);
+	--pink: #6f93a6;
+	--teal: #6f93a6;
+	--good: #6db8a8;
+	--good-ink: #9ed8cc;
+	--warn: #c9a96a;
+	--warn-ink: #e0c490;
+	--bad: #d68b8b;
+
+	--radius: 0px;
+	--radius-lg: 0px;
+
+	--serif: 'Courier Prime', 'Courier New', Courier, monospace;
+	--sans: 'Courier Prime', 'Courier New', Courier, monospace;
+	--mono: 'Courier Prime', 'Courier New', Courier, monospace;
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
@@ -6899,9 +6961,115 @@ body[data-theme='simoun'] .pm-v3c-stamp.you {
 body[data-theme='dusk']   { --photo-filter: url(#duotoneDusk); }
 body[data-theme='drive']  { --photo-filter: url(#duotoneDrive); }
 body[data-theme='simoun'] { --photo-filter: url(#duotoneSimoun); }
+body[data-theme='lablight']      { --photo-filter: url(#duotoneLabLight); }
+body[data-theme='labdark'] { --photo-filter: url(#duotoneLabDark); }
 
 /* ===== Theme class overrides ===== */
 body[data-theme='simoun'] .composer { background: linear-gradient(180deg, #1c2547 0%, #232d54 100%); }
+
+/* ===== Lab Light / Lab Dark structural overrides ===== */
+body:is([data-theme='lablight'], [data-theme='labdark']) {
+	--app-header-sticky-offset: 77px;
+}
+/* Dashed dividers on every structural edge that defaults to solid. */
+body:is([data-theme='lablight'], [data-theme='labdark']) .app-header,
+body:is([data-theme='lablight'], [data-theme='labdark']) .tabs,
+body:is([data-theme='lablight'], [data-theme='labdark']) .timeline-tabs,
+body:is([data-theme='lablight'], [data-theme='labdark']) .composer,
+body:is([data-theme='lablight'], [data-theme='labdark']) .notifications-head,
+body:is([data-theme='lablight'], [data-theme='labdark']) .settings-save-row,
+body:is([data-theme='lablight'], [data-theme='labdark']) .field,
+body:is([data-theme='lablight'], [data-theme='labdark']) .toggle-row,
+body:is([data-theme='lablight'], [data-theme='labdark']) .upload-row,
+body:is([data-theme='lablight'], [data-theme='labdark']) .page-sub,
+body:is([data-theme='lablight'], [data-theme='labdark']) .thread-head-title,
+body:is([data-theme='lablight'], [data-theme='labdark']) .thread-ancestor,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-bar,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-tabs,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-row,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-dd-section + .se-dd-section,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-dd-foot,
+body:is([data-theme='lablight'], [data-theme='labdark']) .me-pop-foot,
+body:is([data-theme='lablight'], [data-theme='labdark']) .ep-foot,
+body:is([data-theme='lablight'], [data-theme='labdark']) .ep-search,
+body:is([data-theme='lablight'], [data-theme='labdark']) .ep-pack-l,
+body:is([data-theme='lablight'], [data-theme='labdark']) .user-menu-head,
+body:is([data-theme='lablight'], [data-theme='labdark']) .user-menu-stats,
+body:is([data-theme='lablight'], [data-theme='labdark']) .user-menu-sec,
+body:is([data-theme='lablight'], [data-theme='labdark']) .user-menu-foot,
+body:is([data-theme='lablight'], [data-theme='labdark']) .crumbs .sep { border-style: dashed !important; }
+
+/* Dashed outlines on boxes, inputs, and controls. */
+body:is([data-theme='lablight'], [data-theme='labdark']) .user-menu,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-dropdown,
+body:is([data-theme='lablight'], [data-theme='labdark']) .me-pop,
+body:is([data-theme='lablight'], [data-theme='labdark']) .ep-picker,
+body:is([data-theme='lablight'], [data-theme='labdark']) .input,
+body:is([data-theme='lablight'], [data-theme='labdark']) .textarea,
+body:is([data-theme='lablight'], [data-theme='labdark']) .select,
+body:is([data-theme='lablight'], [data-theme='labdark']) .app-search,
+body:is([data-theme='lablight'], [data-theme='labdark']) .hero-search,
+body:is([data-theme='lablight'], [data-theme='labdark']) .user-chip,
+body:is([data-theme='lablight'], [data-theme='labdark']) .search-kbd,
+body:is([data-theme='lablight'], [data-theme='labdark']) .kbd,
+body:is([data-theme='lablight'], [data-theme='labdark']) .me-kbd,
+body:is([data-theme='lablight'], [data-theme='labdark']) .me-pill,
+body:is([data-theme='lablight'], [data-theme='labdark']) .tag,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-row-tag,
+body:is([data-theme='lablight'], [data-theme='labdark']) .me-row-pack,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-tab-tool,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-v2-side-close,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-v2-clear,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-v2-input,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-v2-note,
+body:is([data-theme='lablight'], [data-theme='labdark']) .ep-side,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-v2-cols,
+body:is([data-theme='lablight'], [data-theme='labdark']) .upload-preview,
+body:is([data-theme='lablight'], [data-theme='labdark']) .avatar-preview,
+body:is([data-theme='lablight'], [data-theme='labdark']) .banner-preview,
+body:is([data-theme='lablight'], [data-theme='labdark']) .btn-primary,
+body:is([data-theme='lablight'], [data-theme='labdark']) .btn-secondary,
+body:is([data-theme='lablight'], [data-theme='labdark']) .btn-follow,
+body:is([data-theme='lablight'], [data-theme='labdark']) .btn-upload,
+body:is([data-theme='lablight'], [data-theme='labdark']) .theme-toggle { border-style: dashed !important; }
+
+/* Flat surfaces: strip the default purple-tinted drop shadows. */
+body:is([data-theme='lablight'], [data-theme='labdark']) .user-menu,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-dropdown,
+body:is([data-theme='lablight'], [data-theme='labdark']) .me-pop,
+body:is([data-theme='lablight'], [data-theme='labdark']) .me-pop.static,
+body:is([data-theme='lablight'], [data-theme='labdark']) .ep-picker,
+body:is([data-theme='lablight'], [data-theme='labdark']) .ep-picker.static { box-shadow: none; }
+
+/* The brand mark is a hardcoded dark badge in the default; re-skin it as a
+   dashed blue outline with blue ink so it reads as part of the theme. */
+body:is([data-theme='lablight'], [data-theme='labdark']) .brand-mark {
+	background: var(--bg);
+	color: var(--ink);
+	border: 1px dashed var(--ink);
+}
+/* Skeleton shimmer used a panel-tinted gradient; keep it subtle on white. */
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-skel-av,
+body:is([data-theme='lablight'], [data-theme='labdark']) .se-skel-line {
+	background: linear-gradient(90deg, #eef6fb 0%, #f5fafc 50%, #eef6fb 100%);
+	background-size: 200% 100%;
+}
+/* Search dropdown count pill: keep accent readable on the pale-blue soft bg. */
+body:is([data-theme='lablight'], [data-theme='labdark']) .status-action-error,
+body:is([data-theme='lablight'], [data-theme='labdark']) .settings-save-error {
+	background: color-mix(in srgb, var(--bad) 10%, var(--bg));
+}
+/* Buttons: hover fills accent with white text (the source design's
+   toggle-hover pattern), rather than the default soft-accent tint. */
+body:is([data-theme='lablight'], [data-theme='labdark']) .btn-primary:hover {
+	background: var(--accent);
+	color: #fff;
+}
+body:is([data-theme='lablight'], [data-theme='labdark']) .btn-secondary:hover {
+	background: var(--accent-soft);
+	color: var(--ink);
+}
+
 
 /* ===== Responsive ===== */
 @media (max-width: 1280px) {
